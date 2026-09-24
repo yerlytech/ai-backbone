@@ -50,7 +50,13 @@ export BUILD_WAIT_MINUTES=0
 pass=0; fail=0
 ok()    { pass=$((pass+1)); printf "  ok    %s\n" "$1"; }
 bad()   { fail=$((fail+1)); printf "  FAIL  %s\n" "$1"; }
-check() { if eval "$2" >/dev/null 2>&1; then ok "$1"; else bad "$1"; fi; }
+# A FAIL shows the last lines the check and its `says` saw: a red read from a CI
+# log with nothing under it cost a guess on Windows (spec 020). Kept in files,
+# not captured, because a check runs in this shell and may change its state.
+check() {
+  : > "$tmp/check.out"; : > "$tmp/says.out"
+  if eval "$2" >"$tmp/check.out" 2>&1; then ok "$1"; else bad "$1"; cat "$tmp/check.out" "$tmp/says.out" | tail -12 | sed 's/^/        /'; fi
+}
 # What a command said — stdout and stderr together, matched as an extended
 # regular expression:  says 'No GitHub address yet' just ci
 #
@@ -63,7 +69,7 @@ check() { if eval "$2" >/dev/null 2>&1; then ok "$1"; else bad "$1"; fi; }
 # The recipes run under /bin/bash 3.2 on every Mac and bash 5 on CI; a line that
 # passes on one can fail on the other, so a check runs the line rather than
 # reading it.
-says() { local pat=$1; shift; local out; out=$( "$@" 2>&1 ); grep -qE -- "$pat" <<<"$out"; }
+says() { local pat=$1; shift; local out; out=$( "$@" 2>&1 ); printf '%s\n' "$out" > "$tmp/says.out"; grep -qE -- "$pat" <<<"$out"; }
 # `just doctor` reports the machine first and the repo second. A check about a
 # project reads the repo half only: a laptop without `gh` on it is not a project
 # with something missing, and failing the suite for it teaches nobody anything.

@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.27.6
+# .ai-backbone/core.just — the backbone's recipes, version 3.27.7
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -748,7 +748,11 @@ hooks-install:
         want=$(grep -oE '(Installing go version=|go\.dev/dl/go)[0-9]+(\.[0-9]+)+' "$log" 2>/dev/null | head -1 | grep -oE '[0-9]+(\.[0-9]+)+$' || true)
         built=""
         if [ -n "$want" ] && command -v go >/dev/null 2>&1 \
-           && goroot=$(GOTOOLCHAIN="go$want" go env GOROOT 2>/dev/null) && [ -x "$goroot/bin/go" ]; then
+           && goroot=$(GOTOOLCHAIN="go$want" go env GOROOT 2>/dev/null) \
+           && { ! command -v cygpath >/dev/null 2>&1 || goroot=$(cygpath -u "$goroot"); } \
+           && [ -x "$goroot/bin/go" ]; then
+          # Under Git Bash, Go answers C:\...: its colon split the PATH below in two,
+          # so it goes through cygpath first, which only Git Bash has (spec 020).
           # The second answer replaces the first: if this fails too, it is the one worth reading.
           if said=$(PATH="$goroot/bin:$PATH" prek prepare-hooks 2>&1); then built=yes; fi
         fi
