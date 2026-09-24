@@ -240,6 +240,13 @@ def from_flutter(channel):
     return list(rows.values())
 
 
+def shown(path):
+    """A path as the person's shell writes it: with / on Windows too, where Python
+    writes C:\\...\\x and Git Bash, the shell the recipes run in, reads C:/.../x
+    (spec 020)."""
+    return path.replace(os.sep, "/") if os.sep != "/" else path
+
+
 def shutil_which(name):
     from shutil import which
     return which(name)
@@ -555,7 +562,7 @@ def recent():
         return 0  # a list that cannot be read is `just upstream`'s to say
     if not pins:
         return 0
-    say("Built on: " + " · ".join(f"{name} {pin}" for name, pin in pins) + f" ({LIST})")
+    say("Built on: " + " · ".join(f"{name} {pin}" for name, pin in pins) + f" ({LIST.as_posix()})")
     # A date belongs to a pin, not to a name: after the pin moves in the list,
     # last week's date is of another version and is not shown for this one.
     dated, undated = [], []
@@ -670,7 +677,7 @@ def main():
         say(f"   where {entry.get('pin')} itself can be read on this machine:")
         places = where(entry)
         for what, path in places:
-            say(f"     {what:<10} {path}")
+            say(f"     {what:<10} {shown(path)}")
         if not places:
             say("     (not found on this machine)")
         held = found.get(only)

@@ -11,6 +11,20 @@ when the repository went public: a newcomer reads a repository, not a diary.
 The entries below are the record of every version; the tags before 3.27.2 are
 gone with the history.
 
+## 3.27.8 — 2026-09-24
+
+**Windows, the sixth step** (spec 020). Three things a person on Windows met.
+`just doctor` in a Rust project waited a whole minute every time: the watcher
+that limits how long the build folder is measured slept the full limit, and
+under Git Bash killing it did not end the sleep; it now looks five times a
+second and ends with the measuring. A `CARGO_TARGET_DIR` written as `C:\...`
+was taken as a folder inside the project, so a shared one was never named and
+`just clean-build` would have cleared it; it is read through `cygpath` first.
+`just upstream` and the session line write paths with `/` there too. In the
+suite: the SDK stand-ins get a `.cmd`, which is how Windows finds a command, a
+PATH with spaces in it is quoted, and the tag check prints what it read when it
+fails.
+
 ## 3.27.7 — 2026-09-24
 
 **Windows, the fifth step** (spec 020). When prek cannot download the Go it

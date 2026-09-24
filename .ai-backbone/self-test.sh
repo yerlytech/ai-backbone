@@ -700,7 +700,9 @@ check "a note with a newline in it writes one line"    "[ \$(grep -c '^- \[' '$h
 check "a note never publishes the saved work that sits under it" "says 'not sent: the backbone has saved work of its own' online just backbone-note 'over unpublished work' && ! says 'half done' git -C '$hub/remote.git' log --format=%s main"
 rewind
 printf '# core.just, version 1.0.1\n' > "$hub/bb/.ai-backbone/core.just"
-check "a version bumped in unsaved work is not tagged on the commit before it" "online just _backbone-refresh '$hub/bb' && ! says 'v1.0.1' git -C '$hub/remote.git' tag && says 'v1.0.0' git -C '$hub/remote.git' tag"
+# What the tag is read from, printed only when this fails: on Windows no tag
+# reached the hub and nothing said why (spec 020).
+check "a version bumped in unsaved work is not tagged on the commit before it" "{ git -C '$hub/bb' show origin/main:.ai-backbone/core.just; git -C '$hub/bb' remote -v; git -C '$hub/bb' ls-remote --tags origin; git -C '$hub/bb' tag; } 2>&1 | sed 's/^/diag: /'; online just _backbone-refresh '$hub/bb' && ! says 'v1.0.1' git -C '$hub/remote.git' tag && says 'v1.0.0' git -C '$hub/remote.git' tag"
 git -C "$hub/bb" checkout -q -- .ai-backbone/core.just
 # One at a time in that clone: a second session leaves quietly while the first
 # works, and a lock left by a run that died is cleared after ten minutes.
@@ -1123,7 +1125,7 @@ check "upstream-init a second time changes nothing"   "says Exists just upstream
 # recipe asks uv for the Python it already keeps for prek and graphify (3.20.0).
 # Asked once there is a list: without one the script answers before it needs tomllib,
 # on any Python, and this check could not fail.
-check "upstream runs where python3 has no tomllib"    "says '^  watched' env PATH=/usr/bin:/bin:\$PATH just upstream"
+check "upstream runs where python3 has no tomllib"    "says '^  watched' env PATH=\"/usr/bin:/bin:\$PATH\" just upstream"
 # The suite is offline, and upstream.py honours AI_BACKBONE_OFFLINE: every source
 # counts as unreachable before anything is asked. Until 3.20.0 it asked GitHub from
 # inside the suite; the example row was MOVED on day one, pinned to a file that
@@ -1216,6 +1218,9 @@ printf '[[watch]]\nname = "sdk"\nsource = "github:a/b"\npin = "3.44.0"\n\n[[watc
 # is Homebrew's own repository.
 for r in sdk brew; do mkdir -p "$tmp/$r/bin" && printf '#!/bin/sh\necho 9.9.9\n' > "$tmp/$r/bin/tool" && chmod +x "$tmp/$r/bin/tool" && echo notes > "$tmp/$r/CHANGELOG.md"; done
 mv "$tmp/brew/bin/tool" "$tmp/brew/bin/sdk"
+# Python on Windows finds a command by its extension, as a person's shell there
+# does not: the SDK a Windows machine has is sdk.cmd or sdk.exe (spec 020).
+if command -v cygpath >/dev/null 2>&1; then printf '@echo 9.9.9\r\n' > "$tmp/sdk/bin/tool.cmd"; printf '@echo 9.9.9\r\n' > "$tmp/brew/bin/sdk.cmd"; fi
 ( cd "$tmp/sdk" && git init -q && git remote add origin https://github.com/a/b.git && git add -A && git commit -q -m seed && git tag v1.2.0 \
   && cd "$tmp/brew" && git init -q && git remote add origin https://github.com/Homebrew/brew && git add -A && git commit -q -m seed && git tag 4.0.0 ) >/dev/null 2>&1
 ask() { ( cd "$tmp/hostile" && env -u AI_BACKBONE_OFFLINE https_proxy=http://127.0.0.1:9 http_proxy=http://127.0.0.1:9 no_proxy= PATH="$tmp/sdk/bin:$tmp/brew/bin:$gitbin:/usr/bin:/bin" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.$(fileurl "$tmp/tags")/.insteadOf" GIT_CONFIG_VALUE_0="https://github.com/" "$py" "$root/.ai-backbone/upstream.py" "$@" ); }
@@ -1249,7 +1254,7 @@ check "the template says where a pub pin lives"            "grep -q 'pubspec.loc
 # and its documentation are in the where-list.
 printf '\n[[watch]]\nname = "flame"\nsource = "pub:flame"\npin = "1.38.2"\n' >> docs/upstream.toml
 mkdir -p "$tmp/pub-cache/hosted/pub.dev/flame-1.38.2" && echo x > "$tmp/pub-cache/hosted/pub.dev/flame-1.38.2/CHANGELOG.md"
-check "a pub.dev package is watched like the rest"      "says '^  flame: offline' just upstream && ! says 'unknown source' just upstream && says 'docs +https://pub.dev/documentation/flame/1.38.2/\$' just upstream flame && says 'notes +$tmp/pub-cache/hosted/pub.dev/flame-1.38.2/CHANGELOG.md' env PUB_CACHE='$tmp/pub-cache' just upstream flame"
+check "a pub.dev package is watched like the rest"      "says '^  flame: offline' just upstream && ! says 'unknown source' just upstream && says 'docs +https://pub.dev/documentation/flame/1.38.2/\$' just upstream flame && says 'notes +$(winpath "$tmp")/pub-cache/hosted/pub.dev/flame-1.38.2/CHANGELOG.md' env PUB_CACHE='$tmp/pub-cache' just upstream flame"
 # session-start's two weekly blocks ask GitHub and the registries. Offline they
 # are skipped, and an offline session does not use up the week either.
 rm -f .git/ai-backbone.last-check .git/ai-backbone.last-upstream

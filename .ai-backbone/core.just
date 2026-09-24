@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.27.7
+# .ai-backbone/core.just — the backbone's recipes, version 3.27.8
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -2843,10 +2843,14 @@ _build-size dir secs="60":
     # where it points. Without it both BSD and GNU du measure the link, 0 KB.
     du -H -s -k "$1" > "$out" 2>/dev/null &
     du_pid=$!
-    ( trap 'kill "$s" 2>/dev/null; exit 0' TERM; sleep "$secs" & s=$!; wait "$s"; kill "$du_pid" 2>/dev/null ) >/dev/null 2>&1 &
+    # The watcher looks five times a second rather than sleeping the whole limit
+    # and being killed when du is done: under Git Bash that kill did not end its
+    # sleep, and every doctor in a Rust project waited the full minute (spec 020).
+    ( n=$((secs * 5)); while [ "$n" -gt 0 ]; do sleep 0.2; kill -0 "$du_pid" 2>/dev/null || exit 0; n=$((n - 1)); done
+      kill "$du_pid" 2>/dev/null ) >/dev/null 2>&1 &
     watch=$!
     wait "$du_pid" 2>/dev/null; rc=$?
-    kill "$watch" 2>/dev/null; wait "$watch" 2>/dev/null
+    wait "$watch" 2>/dev/null
     # Stopped by the watcher: not "cannot be measured" but "too big to measure
     # in the time given", which is exactly the folder a person needs to hear
     # about. The caller says it in words.
@@ -2867,7 +2871,11 @@ _build-size dir secs="60":
 [positional-arguments]
 _build-shared dir:
     #!/usr/bin/env bash
-    d="$1"; case "$d" in /*) ;; *) d="$PWD/$d" ;; esac
+    d="$1"
+    # A Windows path (C:\x or C:/x, what CARGO_TARGET_DIR holds there) is read as
+    # Git Bash writes it first: taken as relative, it was always "inside" (spec 020).
+    if command -v cygpath >/dev/null 2>&1; then d=$(cygpath -u "$d"); fi
+    case "$d" in /*) ;; *) d="$PWD/$d" ;; esac
     rest=""
     while [ ! -d "$d" ] && [ "$d" != / ]; do rest="/$(basename "$d")$rest"; d=$(dirname "$d"); done
     d="$(cd "$d" 2>/dev/null && pwd -P)$rest"
