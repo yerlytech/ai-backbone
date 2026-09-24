@@ -1293,7 +1293,8 @@ mkdir -p "$lock"
 check "a lock from before 3.13.1, with no process in it, does not stop it" "says 'finished, exit 0' env AI_AGENT_CMD='true {prompt}' sh .ai-backbone/routine.sh"
 printf 'sleep 3\n' > "$tmp/slow-agent.sh"
 AI_AGENT_CMD="sh $tmp/slow-agent.sh {prompt}" sh .ai-backbone/routine.sh >/dev/null 2>&1 &
-sleep 1
+# Until the first run holds the lock: a second on Windows was not always enough.
+i=0; until [ -s "$lock/pid" ] || [ $i -ge 50 ]; do sleep 0.2; i=$((i+1)); done
 check "a second run while one is going does nothing"  "says 'already going' env AI_AGENT_CMD='true {prompt}' sh .ai-backbone/routine.sh"
 wait
 check "the lock is gone once the first run ends"      "[ ! -e '$lock' ]"

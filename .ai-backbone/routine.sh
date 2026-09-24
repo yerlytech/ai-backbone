@@ -103,8 +103,11 @@ lock="$root/.git/ai-routine.lock"
 holder_alive() {
   pid=$(cat "$lock/pid" 2>/dev/null) || return 1
   [ -n "$pid" ] || return 1
-  if command -v ps >/dev/null 2>&1; then
-    ps -p "$pid" -o command= 2>/dev/null | grep -q routine
+  # Git Bash has a ps that knows no -o: there it fails for a run that is alive,
+  # and the lock was cleared under it (spec 020). A ps that cannot answer is
+  # asked no further, and kill -0 decides, as on a machine with no ps.
+  if out=$(ps -p "$pid" -o command= 2>/dev/null); then
+    printf '%s\n' "$out" | grep -q routine
   else
     kill -0 "$pid" 2>/dev/null
   fi

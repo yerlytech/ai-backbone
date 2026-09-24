@@ -11,6 +11,15 @@ when the repository went public: a newcomer reads a repository, not a diary.
 The entries below are the record of every version; the tags before 3.27.2 are
 gone with the history.
 
+## 3.27.6 — 2026-09-24
+
+**Windows, the fourth step** (spec 020). The routine's lock asks `ps` whether
+the run that holds it is alive, and Git Bash's `ps` knows no `-o`: there it
+failed for a run that was alive, and a second run cleared the lock under the
+first. A `ps` that cannot answer now leaves it to `kill -0`, as on a machine
+with no `ps`. On the gate, Windows has 3 red checks where its suite is cut by
+the time limit, from 220 before 3.27.3; the README says so.
+
 ## 3.27.5 — 2026-09-24
 
 **Windows, the third step** (spec 020). A new project gets a `.gitattributes`

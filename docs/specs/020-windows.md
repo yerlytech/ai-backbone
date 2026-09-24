@@ -49,17 +49,18 @@ says nothing about it.
 
 ## Acceptance
 
-- [ ] The repository checks out with LF on Windows (`.gitattributes`).
-- [ ] Every Python the recipes run writes UTF-8 whatever the console's code page.
-- [ ] A failing `new-project` in the suite shows why, so the next run is read, not guessed.
-- [ ] Claude Code on Windows sees the project's skills without developer mode.
+- [x] The repository checks out with LF on Windows (`.gitattributes`), and so does every new project.
+- [x] Every Python the recipes run writes UTF-8 and LF whatever the console's code page.
+- [x] A failing `new-project` in the suite shows why, so the next run is read, not guessed.
+- [x] Claude Code on Windows sees the project's skills without developer mode (copies, not links; measured on the gate, not yet in Claude Code itself).
 - [ ] The suite ends inside its cap on `windows-latest`, and green.
 - [ ] `checks.yml` makes Windows a deciding machine; `promote.yml` and `gate.sh` judge it.
 - [ ] A session on a real Windows machine with Claude Code, attended, shows the session line and the skills.
 
 ## Tasks
 
-- [ ] Step 1: `* text=auto eol=lf` in `.gitattributes`, `PYTHONUTF8=1` for the recipes, the suite shows why `new-project` failed. Measure on the gate.
-- [ ] Step 2: what stays red, section by section, from the next log.
-- [ ] Step 3: the skills without symlinks on Windows.
-- [ ] Step 4: Windows decides.
+- [x] Step 1: `* text=auto eol=lf` in `.gitattributes`, `PYTHONUTF8=1` for the recipes, the suite shows why `new-project` failed. Measured: 220 red to 205 (3.27.3).
+- [x] Step 2: what stays red, section by section, from the next log. Measured: 205 to 30 (3.27.4), 30 to 3 before the cap (3.27.5).
+- [x] Step 3: the skills without symlinks on Windows (3.27.4).
+- [ ] Step 4: the last three red checks, and the upstream section inside the cap (each refused request costs about two seconds on Windows).
+- [ ] Step 5: Windows decides.

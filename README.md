@@ -108,10 +108,10 @@ Code's for now.
    (`just stack rust`), and for any other language the agent writes the
    layer (`stack.just`) by hand.
 
-macOS and Linux today. On Windows the tools install under Git Bash and the
-backbone's own test suite runs, but about half of its checks are still red
-(196 green, 223 red on 2026-09-24): Windows is being brought green, not
-supported yet.
+macOS and Linux today. On Windows the tools install under Git Bash, the
+shell Claude Code uses there, and nearly all of the backbone's own checks
+pass (3 red where the suite is cut by its time limit, on 2026-09-24):
+Windows is being brought green, not supported yet.
 
 ## What you see in a project
 
