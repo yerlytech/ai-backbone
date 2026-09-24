@@ -38,6 +38,10 @@ rootw=$(winpath "$root")
 fileurl() { local p; p=$(winpath "$1"); case "$p" in /*) printf 'file://%s' "$p" ;; *) printf 'file:///%s' "$p" ;; esac; }
 # A PATH cut to the system's own folders keeps git: under Git Bash it is not in /usr/bin.
 gitbin=$(dirname "$(command -v git)")
+# Where a request goes that must leave nothing: a port nobody listens on. Windows
+# answers a refused port on 127.0.0.1 after about two seconds and 0.0.0.0 at once,
+# which kept the upstream checks there over a minute each (spec 020).
+dead=http://127.0.0.1:9; if command -v cygpath >/dev/null 2>&1; then dead=http://0.0.0.0:9; fi
 printf '[include]\n\tpath = %s\n\tpath = %s\n' "$(winpath "$HOME/.gitconfig")" "$(winpath "${XDG_CONFIG_HOME:-$HOME/.config}/git/config")" > "$GIT_CONFIG_GLOBAL"
 # Nor this machine's builds (spec 015). A doctor run in a throwaway project with
 # the Rust layer measures the build folder, and on a machine whose shell sets
@@ -55,7 +59,10 @@ bad()   { fail=$((fail+1)); printf "  FAIL  %s\n" "$1"; }
 # not captured, because a check runs in this shell and may change its state.
 check() {
   : > "$tmp/check.out"; : > "$tmp/says.out"
-  if eval "$2" >"$tmp/check.out" 2>&1; then ok "$1"; else bad "$1"; cat "$tmp/check.out" "$tmp/says.out" | tail -12 | sed 's/^/        /'; fi
+  if eval "$2" >"$tmp/check.out" 2>&1; then ok "$1"; else bad "$1"
+    # A check that reads what an earlier command left in $out shows that instead.
+    if [ -s "$tmp/check.out" ] || [ -s "$tmp/says.out" ]; then cat "$tmp/check.out" "$tmp/says.out"; else printf '%s\n' "${out:-}"; fi | tail -12 | sed 's/^/        /'
+  fi
 }
 # What a command said — stdout and stderr together, matched as an extended
 # regular expression:  says 'No GitHub address yet' just ci
@@ -856,7 +863,7 @@ git remote remove origin
 # a proxy nothing listens on stands behind it all, and the only source is a kind
 # upstream.py refuses before it asks anybody. The real upstream.py says the
 # sentence session-start listens for; a stand-in plays the week that went well.
-weekly() { env -u AI_BACKBONE_OFFLINE AI_BACKBONE="$tmp/none" https_proxy=http://127.0.0.1:9 http_proxy=http://127.0.0.1:9 no_proxy= just session-start; }
+weekly() { env -u AI_BACKBONE_OFFLINE AI_BACKBONE="$tmp/none" https_proxy=$dead http_proxy=$dead no_proxy= just session-start; }
 printf '[[watch]]\nname = "nowhere"\nsource = "nosuchkind:nothing"\npin = "1.0.0"\n' > docs/upstream.toml
 touch .git/ai-backbone.last-check; rm -f .git/ai-backbone.last-upstream
 check "a weekly check that read nothing does not use up the week" "says '^No source gave an answer' weekly && [ ! -e .git/ai-backbone.last-upstream ]"
@@ -1166,7 +1173,7 @@ check "a long version keeps its own column"             "says '16\\.4\\.0-canary
 printf '[watch]\nname = "x"\n' > "$tmp/hostile/docs/upstream.toml"
 check "one bracket instead of two is said in words"     "says 'two brackets' hostile env && ! says Traceback hostile env"
 { for n in a b c d e; do printf '[[watch]]\nname = "%s"\nsource = "crates:serde"\npin = "1.0.0"\n\n' "$n"; done; } > "$tmp/hostile/docs/upstream.toml"
-check "three sources in a row that do not answer, and the rest are not asked" "says '^  d: not asked' hostile env -u AI_BACKBONE_OFFLINE https_proxy=http://127.0.0.1:9 http_proxy=http://127.0.0.1:9 no_proxy= PATH=/usr/bin:/bin"
+check "three sources in a row that do not answer, and the rest are not asked" "says '^  d: not asked' hostile env -u AI_BACKBONE_OFFLINE https_proxy=$dead http_proxy=$dead no_proxy= PATH=/usr/bin:/bin"
 # A cloud sandbox's GitHub proxy answers the API only for the repository attached
 # to the session: every other one gets a 403, by design, and a scheduled run read
 # none of the four tools this backbone stands on. git can still list a public
@@ -1175,7 +1182,7 @@ check "three sources in a row that do not answer, and the rest are not asked" "s
 # github.com: v1.10.0 is newer than 1.2.0, and a release candidate is not a release.
 mkdir -p "$tmp/tags/a" && ( cd "$tmp/tags/a" && git init -q b.git && cd b.git && git commit -q --allow-empty -m seed && for t in v1.0.0 v1.2.0 v1.10.0 v2.0.0-rc.1; do git tag "$t"; done ) >/dev/null 2>&1
 printf '[[watch]]\nname = "tool"\nsource = "github:a/b"\npin = "1.2.0"\n' > "$tmp/hostile/docs/upstream.toml"
-sandbox() { hostile env -u AI_BACKBONE_OFFLINE https_proxy=http://127.0.0.1:9 http_proxy=http://127.0.0.1:9 no_proxy= PATH="$gitbin:/usr/bin:/bin" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.$(fileurl "$1")/.insteadOf" GIT_CONFIG_VALUE_0="https://github.com/"; }
+sandbox() { hostile env -u AI_BACKBONE_OFFLINE https_proxy=$dead http_proxy=$dead no_proxy= PATH="$gitbin:/usr/bin:/bin" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.$(fileurl "$1")/.insteadOf" GIT_CONFIG_VALUE_0="https://github.com/"; }
 check "when the GitHub API refuses, the tags are asked of git" "says '^  tool +1\\.2\\.0 .* v1\\.10\\.0 +1 newer' sandbox '$tmp/tags'"
 # The FAIL names what was seen: on a runner nobody can run the line by hand.
 saw_full=$(sandbox "$tmp/no-such-folder" 2>&1)
@@ -1223,7 +1230,7 @@ mv "$tmp/brew/bin/tool" "$tmp/brew/bin/sdk"
 if command -v cygpath >/dev/null 2>&1; then printf '@echo 9.9.9\r\n' > "$tmp/sdk/bin/tool.cmd"; printf '@echo 9.9.9\r\n' > "$tmp/brew/bin/sdk.cmd"; fi
 ( cd "$tmp/sdk" && git init -q && git remote add origin https://github.com/a/b.git && git add -A && git commit -q -m seed && git tag v1.2.0 \
   && cd "$tmp/brew" && git init -q && git remote add origin https://github.com/Homebrew/brew && git add -A && git commit -q -m seed && git tag 4.0.0 ) >/dev/null 2>&1
-ask() { ( cd "$tmp/hostile" && env -u AI_BACKBONE_OFFLINE https_proxy=http://127.0.0.1:9 http_proxy=http://127.0.0.1:9 no_proxy= PATH="$tmp/sdk/bin:$tmp/brew/bin:$gitbin:/usr/bin:/bin" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.$(fileurl "$tmp/tags")/.insteadOf" GIT_CONFIG_VALUE_0="https://github.com/" "$py" "$root/.ai-backbone/upstream.py" "$@" ); }
+ask() { ( cd "$tmp/hostile" && env -u AI_BACKBONE_OFFLINE https_proxy=$dead http_proxy=$dead no_proxy= PATH="$tmp/sdk/bin:$tmp/brew/bin:$gitbin:/usr/bin:/bin" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.$(fileurl "$tmp/tags")/.insteadOf" GIT_CONFIG_VALUE_0="https://github.com/" "$py" "$root/.ai-backbone/upstream.py" "$@" ); }
 check "a list that holds neither the pin nor anything newer is unknown, never current" "says '^  sdk +3\\.44\\.0 .* unknown' ask && says '^  sdk: lists neither 3\\.44\\.0 nor a release newer than it; the newest it lists is v2\\.0\\.0-rc\\.1\$' ask && says '^  tool +1\\.10\\.0 .* current' ask"
 check "a pin written another way than the source writes is told how" "says '^  label: lists nothing written like tool-1\\.2\\.0; its versions look like v1\\.10\\.0: if that is what is pinned, write the pin that way\$' ask && says '^Everything readable is current. No answer for: sdk, label\\.\$' ask"
 check "upstream <name> says the source was read and did not answer" "says 'the source was read, and it lists neither 3\\.44\\.0' ask sdk && ! says 'could not be read' ask sdk"

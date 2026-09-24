@@ -11,6 +11,20 @@ when the repository went public: a newcomer reads a repository, not a diary.
 The entries below are the record of every version; the tags before 3.27.2 are
 gone with the history.
 
+## 3.27.9 — 2026-09-24
+
+**Windows, the seventh step** (spec 020). Git Bash reads an argument like
+`origin/main:.ai-backbone/core.just` as a list of paths and hands git
+`origin\main;.ai-backbone\core.just`, so the backbone's version was never
+tagged from a Windows machine; that one call runs with the conversion off. The
+Rust layer reads its build folder the way Git Bash writes paths: cargo's JSON
+answers `C:\\x` and `CARGO_TARGET_DIR` holds `C:\x` there, and both were
+taken as folders inside the project (`just stack rust` again to take it). A
+git folder named `C:/...` is whole, not relative. The build folder's measuring
+limit ends on a file du's end leaves, not on `kill -0`. In the suite, a request
+that must leave nothing goes to 0.0.0.0 on Windows, which refuses at once where
+127.0.0.1 took two seconds, and a FAIL shows the output its check read.
+
 ## 3.27.8 — 2026-09-24
 
 **Windows, the sixth step** (spec 020). Three things a person on Windows met.

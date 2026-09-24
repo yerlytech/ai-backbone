@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.27.8
+# .ai-backbone/core.just — the backbone's recipes, version 3.27.9
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -2551,7 +2551,7 @@ backbone-note text:
     # and rides the run's push to cloud (spec 017). 3.21.0 refused it too, so
     # the agent that works here every day could leave no note at all.
     if [ -d "$src/.git" ]; then
-      gd=$(git -C "$src" rev-parse --git-dir 2>/dev/null); case "$gd" in /*) ;; *) gd="$src/$gd" ;; esac
+      gd=$(git -C "$src" rev-parse --git-dir 2>/dev/null); case "$gd" in /*|[A-Za-z]:*) ;; *) gd="$src/$gd" ;; esac   # C:/x is whole too, under Git Bash
       lock="$gd/backbone-level.lock"; n=0
       until mkdir "$lock" 2>/dev/null; do
         find "$lock" -maxdepth 0 -mmin +10 -exec rmdir {} \; 2>/dev/null || true
@@ -2846,11 +2846,12 @@ _build-size dir secs="60":
     # The watcher looks five times a second rather than sleeping the whole limit
     # and being killed when du is done: under Git Bash that kill did not end its
     # sleep, and every doctor in a Rust project waited the full minute (spec 020).
-    ( n=$((secs * 5)); while [ "$n" -gt 0 ]; do sleep 0.2; kill -0 "$du_pid" 2>/dev/null || exit 0; n=$((n - 1)); done
+    # du's end is a file, not kill -0, which is one more signal to trust there.
+    ( n=$((secs * 5)); while [ "$n" -gt 0 ]; do sleep 0.2; [ -e "$out.done" ] && exit 0; n=$((n - 1)); done
       kill "$du_pid" 2>/dev/null ) >/dev/null 2>&1 &
     watch=$!
     wait "$du_pid" 2>/dev/null; rc=$?
-    wait "$watch" 2>/dev/null
+    : > "$out.done"; wait "$watch" 2>/dev/null; rm -f "$out.done"
     # Stopped by the watcher: not "cannot be measured" but "too big to measure
     # in the time given", which is exactly the folder a person needs to hear
     # about. The caller says it in words.
@@ -3111,7 +3112,7 @@ _backbone-level src who="Backbone":
     g remote get-url origin >/dev/null 2>&1 || exit 0
     if [ "$who" = GitHub ]; then loud=1; place="here"; stale=""
     else loud=""; place="in $src"; stale=" Until an agent clears it, what this project is compared with may be old, and notes may not reach GitHub."; fi
-    gd=$(g rev-parse --git-dir 2>/dev/null); case "$gd" in /*) ;; *) gd="$src/$gd" ;; esac
+    gd=$(g rev-parse --git-dir 2>/dev/null); case "$gd" in /*|[A-Za-z]:*) ;; *) gd="$src/$gd" ;; esac   # C:/x is whole too, under Git Bash
     # One at a time. Two sessions starting together (several agents of one
     # workflow each run session-start) rebased the same clone at once: measured,
     # that leaves a staged deletion of the newest note, or a note committed on a
@@ -3250,7 +3251,10 @@ _backbone-tag src:
     # Since spec 017 the gate on GitHub tags at the carry, from the same line of
     # the same commit; this is the backstop for the days it is off, and whichever
     # of the two is first wins, the other finds the tag and leaves it.
-    v=$(git -C "$src" show origin/main:.ai-backbone/core.just 2>/dev/null | grep -m1 -oE 'version [0-9]+\.[0-9]+\.[0-9]+' | awk '{print $2}')
+    # Git Bash reads origin/main:x/y as a list of paths and hands git
+    # origin\main;x\y, so no tag was ever made from Windows (spec 020); the two
+    # switches turn that off there and mean nothing anywhere else.
+    v=$(MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' git -C "$src" show origin/main:.ai-backbone/core.just 2>/dev/null | grep -m1 -oE 'version [0-9]+\.[0-9]+\.[0-9]+' | awk '{print $2}')
     [ -n "$v" ] || exit 0
     # GitHub is what counts, not this machine. A tag that exists only here means
     # an earlier push was refused, so try it again instead of giving up for good.

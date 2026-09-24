@@ -102,13 +102,17 @@ _build-info:
       meta=$(cd {{server_dir}} 2>/dev/null && cargo metadata --no-deps --format-version 1 2>/dev/null)
       d=$(printf '%s' "$meta" | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p' | head -n 1)
     fi
+    # On Windows cargo answers C:\\x in its JSON and the variables hold C:\x or
+    # C:/x; the checks below read paths the way Git Bash writes them (spec 020).
+    posix() { if command -v cygpath >/dev/null 2>&1; then cygpath -u "$(printf '%s' "$1" | sed 's/\\\\/\\/g')"; else printf '%s' "$1"; fi; }
+    [ -z "$d" ] || d=$(posix "$d")
     by=""
     if [ -n "${CARGO_TARGET_DIR:-}" ]; then by=CARGO_TARGET_DIR
     elif [ -n "${CARGO_BUILD_TARGET_DIR:-}" ]; then by=CARGO_BUILD_TARGET_DIR; fi
     if [ -z "$d" ]; then
       # No cargo, or a manifest it cannot read: the variables, as cargo reads them.
       d="${CARGO_TARGET_DIR:-${CARGO_BUILD_TARGET_DIR:-}}"
-      if [ -z "$d" ]; then d="{{server_dir}}/target"; else case "$d" in /*) ;; *) d="{{server_dir}}/$d" ;; esac; fi
+      if [ -z "$d" ]; then d="{{server_dir}}/target"; else d=$(posix "$d"); case "$d" in /*) ;; *) d="{{server_dir}}/$d" ;; esac; fi
     fi
     echo "dir   $d"
     [ -z "$by" ] || echo "set   $by"
