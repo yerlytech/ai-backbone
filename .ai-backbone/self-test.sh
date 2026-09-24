@@ -1486,8 +1486,10 @@ if [ "$1" = metadata ]; then
 fi
 echo "fake cargo $* jobs=${CARGO_BUILD_JOBS:-none}"
 EOF
-# A du that takes longer than any limit a test gives it.
-mkdir -p "$bo/slowdu"; printf '#!/bin/sh\nsleep 6\nexec "%s" "$@"\n' "$(command -v du)" > "$bo/slowdu/du"; chmod +x "$bo/slowdu/du"
+# A du that takes longer than any limit a test gives it, and is one program: a
+# script that ran sleep and then du left the sleep alive when it was stopped,
+# and on Windows that sleep held the output open for its six seconds (spec 020).
+mkdir -p "$bo/slowdu"; printf '#!/bin/sh\nexec sleep 6\n' > "$bo/slowdu/du"; chmod +x "$bo/slowdu/du"
 printf '#!/bin/sh\ntouch "%s/du-ran"\nexec "%s" "$@"\n' "$bo" "$(command -v du)" > "$bo/du/du"
 chmod +x "$bo/bin/ps" "$bo/bin/cargo" "$bo/du/du"
 if ( cd "$root" && just new-project "$bo/proj" ) >/dev/null 2>&1; then ok "a project on the Rust layer"; else bad "a project on the Rust layer"; fi
