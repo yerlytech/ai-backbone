@@ -11,6 +11,14 @@ when the repository went public: a newcomer reads a repository, not a diary.
 The entries below are the record of every version; the tags before 3.27.2 are
 gone with the history.
 
+## 3.27.12 — 2026-09-24
+
+**`just snapshot` on Windows** (spec 020). Git Bash has no `zip`, so the
+recipe stopped there. The tar every Windows has is bsdtar, which writes zip
+archives, and the recipe uses it when `zip` is not there; the suite checks the
+archive on Windows too, listing it with the same tar. With neither program
+the recipe says so instead of failing on a missing command.
+
 ## 3.27.11 — 2026-09-24
 
 **Windows decides** (spec 020, step 5). The gate carries a push to `main` only

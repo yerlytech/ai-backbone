@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.27.11
+# .ai-backbone/core.just — the backbone's recipes, version 3.27.12
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -1616,10 +1616,21 @@ snapshot:
     # never sees a target/ at the root — which is where a Rust project's always
     # is, and a Node project's node_modules/. Each heavy folder is named twice:
     # once at the root, once below it.
-    zip -rq "$out" . \
-      -x '.snapshots/*' '.git/*' '.references/*' 'graphify-out/*' \
-         'node_modules/*' '*/node_modules/*' 'target/*' '*/target/*' \
-         'build/*' '*/build/*' 'dist/*' '*/dist/*' '.venv/*' '*/.venv/*'
+    if command -v zip >/dev/null 2>&1; then
+      zip -rq "$out" . \
+        -x '.snapshots/*' '.git/*' '.references/*' 'graphify-out/*' \
+           'node_modules/*' '*/node_modules/*' 'target/*' '*/target/*' \
+           'build/*' '*/build/*' 'dist/*' '*/dist/*' '.venv/*' '*/.venv/*'
+    elif tar --version 2>/dev/null | grep -q bsdtar; then
+      # Git Bash on Windows has no zip, and the tar every Windows has is
+      # bsdtar, which writes zip archives (spec 020). Its --exclude matches
+      # a name at any depth, so each heavy folder is named once.
+      tar --format zip -cf "$out" \
+        --exclude .snapshots --exclude .git --exclude .references --exclude graphify-out \
+        --exclude node_modules --exclude target --exclude build --exclude dist --exclude .venv .
+    else
+      echo "No zip and no bsdtar on this machine, so nothing to make the archive with."; exit 1
+    fi
     echo "$out"
 
 # Retire a file or folder into .archive/ (kept, committed, not read unless asked)
