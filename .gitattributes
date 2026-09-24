@@ -1,3 +1,7 @@
+# Text is checked out with LF on every machine. Git for Windows' default
+# (core.autocrlf) writes CRLF, and the recipes, the checks and bash read a \r
+# as part of the line: AGENTS.md grew by one byte a line on the gate (spec 020).
+* text=auto eol=lf
 # Notes from the projects and ticks from the scheduled agent meet in this file.
 # Both add lines, so both are kept. Here only: a file whose lines are edited or
 # removed in place, or whose entries run over several lines, loses text this way

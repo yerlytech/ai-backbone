@@ -11,6 +11,16 @@ when the repository went public: a newcomer reads a repository, not a diary.
 The entries below are the record of every version; the tags before 3.27.2 are
 gone with the history.
 
+## 3.27.3 — 2026-09-24
+
+**Windows, the first step** (spec 020). Text checks out with LF on every
+machine (`* text=auto eol=lf` in `.gitattributes`): Git for Windows wrote CRLF,
+and a size check on the gate failed by exactly one byte a line. Every Python a
+recipe runs is in UTF-8 mode (`PYTHONUTF8=1`): on Windows it wrote in cp1252 and
+stopped at the first Turkish letter, so the session line said python3 was
+missing. When `new-project` fails in the suite, its output is shown, since
+everything after it builds on that project.
+
 ## 3.27.2 — 2026-09-24
 
 **A clean start for the public repository** (spec 018). The README is written

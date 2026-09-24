@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.27.2
+# .ai-backbone/core.just — the backbone's recipes, version 3.27.3
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -15,6 +15,11 @@
 # rule needs a manual step; the CHANGELOG entry says which.
 #
 # .ai-backbone/manifest.txt lists every file the backbone owns.
+
+# Python on Windows writes to a pipe in the console's code page (cp1252) and
+# stops at the first letter outside it, a Turkish ı among them (spec 020). UTF-8
+# mode makes every Python a recipe runs read and write UTF-8, on any machine.
+export PYTHONUTF8 := "1"
 
 # ──────────────────────────── you ────────────────────────────
 

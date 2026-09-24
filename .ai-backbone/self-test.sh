@@ -170,7 +170,9 @@ check "tools-update moves a just that uv installed"   "says 'Upgraded rust-just'
 check "and leaves a brew just alone"                  "! says 'rust-just' env UV_FAKE_LIST='$tmp/list-mac' PATH='$tmp/shim:/usr/bin:/bin' just -f '$root/Justfile' -d '$tmp/home' tools-update"
 
 echo "== a new project =="
-if ( cd "$root" && just new-project "$tmp/Deneme Projesi" tr ) >/dev/null 2>&1; then ok "new-project runs"; else bad "new-project runs"; fi
+# On a failure the output is shown: everything below builds on this project, and
+# a red here read from a CI log with nothing under it cost a guess (spec 020).
+if np_out=$( cd "$root" && just new-project "$tmp/Deneme Projesi" tr 2>&1 ); then ok "new-project runs"; else bad "new-project runs"; printf '%s\n' "$np_out" | tail -20 | sed 's/^/        /'; fi
 p="$tmp/deneme-projesi"
 check "folder name is a slug"                         "[ -d '$p' ]"
 cd "$p" || exit 1
