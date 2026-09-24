@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.27.12
+# .ai-backbone/core.just — the backbone's recipes, version 3.27.13
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -1605,6 +1605,19 @@ undo:
       *)       just _msg undo-kept ;;
     esac
 
+# The tar that reads and writes zip archives, when there is one: bsdtar. A
+# Mac's tar is one; Git Bash's is GNU tar, and Windows' own bsdtar sits in
+# System32, behind it on the PATH (measured on the gate, spec 020). Prints the
+# command, or nothing and exit 1.
+_bsdtar:
+    #!/usr/bin/env bash
+    for t in bsdtar tar "${SYSTEMROOT:+$(cygpath -u "$SYSTEMROOT" 2>/dev/null)/System32/tar}"; do
+      [ -n "$t" ] || continue
+      v=$("$t" --version 2>/dev/null || true)
+      case "$v" in *bsdtar*) echo "$t"; exit 0 ;; esac
+    done
+    exit 1
+
 # Zip the whole project into .snapshots/
 [group('safety')]
 snapshot:
@@ -1621,11 +1634,11 @@ snapshot:
         -x '.snapshots/*' '.git/*' '.references/*' 'graphify-out/*' \
            'node_modules/*' '*/node_modules/*' 'target/*' '*/target/*' \
            'build/*' '*/build/*' 'dist/*' '*/dist/*' '.venv/*' '*/.venv/*'
-    elif tar --version 2>/dev/null | grep -q bsdtar; then
+    elif bt=$(just _bsdtar 2>/dev/null); then
       # Git Bash on Windows has no zip, and the tar every Windows has is
       # bsdtar, which writes zip archives (spec 020). Its --exclude matches
       # a name at any depth, so each heavy folder is named once.
-      tar --format zip -cf "$out" \
+      "$bt" --format zip -cf "$out" \
         --exclude .snapshots --exclude .git --exclude .references --exclude graphify-out \
         --exclude node_modules --exclude target --exclude build --exclude dist --exclude .venv .
     else

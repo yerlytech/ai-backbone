@@ -11,6 +11,14 @@ when the repository went public: a newcomer reads a repository, not a diary.
 The entries below are the record of every version; the tags before 3.27.2 are
 gone with the history.
 
+## 3.27.13 — 2026-09-24
+
+**`just snapshot` on Windows, measured** (spec 020). 3.27.12 looked for
+bsdtar as `tar`, and on Windows that is Git Bash's GNU tar; Windows' own
+bsdtar sits in System32, behind it on the PATH. `_bsdtar` finds it there, and
+the suite's snapshot check runs on the gate's Windows machine instead of
+being skipped.
+
 ## 3.27.12 — 2026-09-24
 
 **`just snapshot` on Windows** (spec 020). Git Bash has no `zip`, so the

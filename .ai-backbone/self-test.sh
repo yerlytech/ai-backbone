@@ -530,11 +530,11 @@ check "archive moves the file and adds the guide"     "just archive src/eski.txt
 # planted here; the old patterns saw only the lower one.
 # On Windows there is no zip and no unzip under Git Bash; its tar is bsdtar,
 # which writes and lists zip archives, and the recipe uses it there (spec 020).
-tarv=$(tar --version 2>/dev/null || true)
-if command -v zip >/dev/null 2>&1 || [[ "$tarv" == *bsdtar* ]]; then
+bt=$(just _bsdtar 2>/dev/null || true)
+if command -v zip >/dev/null 2>&1 || [ -n "$bt" ]; then
   mkdir -p node_modules sub/node_modules target .venv
   for d in node_modules sub/node_modules target .venv; do echo heavy > "$d/f.txt"; done
-  snap_list() { local z; z=$(just snapshot) || return 1; if command -v unzip >/dev/null 2>&1; then unzip -l "$z"; else tar -tf "$z"; fi; }
+  snap_list() { local z; z=$(just snapshot) || return 1; if command -v unzip >/dev/null 2>&1; then unzip -l "$z"; else "$bt" -tf "$z"; fi; }
   check "snapshot leaves out the heavy folders, at the root as well as below it" \
         "! says '(node_modules|target|build|dist|\.venv)/' snap_list && says 'src/README.md' snap_list"
   rm -rf node_modules sub target .venv .snapshots
