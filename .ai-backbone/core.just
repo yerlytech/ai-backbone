@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.27.9
+# .ai-backbone/core.just — the backbone's recipes, version 3.27.10
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -2843,15 +2843,17 @@ _build-size dir secs="60":
     # where it points. Without it both BSD and GNU du measure the link, 0 KB.
     du -H -s -k "$1" > "$out" 2>/dev/null &
     du_pid=$!
-    # The watcher looks five times a second rather than sleeping the whole limit
-    # and being killed when du is done: under Git Bash that kill did not end its
-    # sleep, and every doctor in a Rust project waited the full minute (spec 020).
-    # du's end is a file, not kill -0, which is one more signal to trust there.
-    ( n=$((secs * 5)); while [ "$n" -gt 0 ]; do sleep 0.2; [ -e "$out.done" ] && exit 0; n=$((n - 1)); done
-      kill "$du_pid" 2>/dev/null ) >/dev/null 2>&1 &
+    # The watcher sleeps the limit, then stops du. When du ends first, the sleep
+    # is stopped by its own number, kept in a file: killing the watcher did not
+    # end its sleep under Git Bash, and every doctor in a Rust project waited the
+    # full minute (spec 020). The .done file keeps a finished du's number, which
+    # may be somebody else's by then, from being killed.
+    ( sleep "$secs" & echo "$!" > "$out.sleep"; wait "$!"; [ -e "$out.done" ] || kill "$du_pid" 2>/dev/null ) >/dev/null 2>&1 &
     watch=$!
     wait "$du_pid" 2>/dev/null; rc=$?
-    : > "$out.done"; wait "$watch" 2>/dev/null; rm -f "$out.done"
+    : > "$out.done"
+    i=0; until [ -s "$out.sleep" ] || [ "$i" -ge 100 ]; do sleep 0.02; i=$((i + 1)); done
+    kill "$(cat "$out.sleep" 2>/dev/null)" 2>/dev/null; wait "$watch" 2>/dev/null; rm -f "$out.sleep" "$out.done"
     # Stopped by the watcher: not "cannot be measured" but "too big to measure
     # in the time given", which is exactly the folder a person needs to hear
     # about. The caller says it in words.

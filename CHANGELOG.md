@@ -11,6 +11,15 @@ when the repository went public: a newcomer reads a repository, not a diary.
 The entries below are the record of every version; the tags before 3.27.2 are
 gone with the history.
 
+## 3.27.10 — 2026-09-24
+
+**Windows, the eighth step** (spec 020). The build folder's measuring limit
+sleeps once again, as before 3.27.8, and when du ends first its sleep is
+stopped by the number the watcher keeps in a file. Looking five times a second
+started a program each time, which on Windows made a one-second limit take
+more than five. On the gate, the whole suite ran on Windows for the first time
+with 3.27.9: 521 checks green and this one red, in about sixteen minutes.
+
 ## 3.27.9 — 2026-09-24
 
 **Windows, the seventh step** (spec 020). Git Bash reads an argument like
