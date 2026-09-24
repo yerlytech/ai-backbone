@@ -55,8 +55,8 @@ update replaces only the files the backbone owns and never yours.
   once a week that finishes one task of an approved spec
   (`just routine-install`, on a Mac today). The backbone itself is developed
   that way: a daily cloud routine works on a branch, and a gate on GitHub
-  runs the backbone's own test suite on a clean Linux and a clean Mac before
-  a change reaches `main`, and on Windows as a report.
+  runs the backbone's own test suite on a clean Linux, a clean Mac and a
+  clean Windows machine before a change reaches `main`.
 
 ## What it is built on, and why
 

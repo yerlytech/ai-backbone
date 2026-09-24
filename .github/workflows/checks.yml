@@ -1,6 +1,6 @@
 # Every push to cloud: the same checks a person runs before saving work, on the
-# three kinds of machine a project can live on (spec 017). Linux and macOS
-# decide; Windows only reports until a spec of its own makes it green. What
+# three kinds of machine a project can live on (spec 017). All three decide
+# (Windows since spec 020; before it, report-only). What
 # passes is carried to main by promote.yml, which runs from main's own copy of
 # itself and of .ai-backbone/gate.sh, so nothing pushed here can change how it
 # is judged, only what is tested.
@@ -70,17 +70,12 @@ jobs:
         include:
           - { os: ubuntu-latest,  cap: 7,  suite_cap: 5, report_only: false }
           - { os: macos-latest,   cap: 10, suite_cap: 8, report_only: false }
-          # Report-only until a spec makes it green: setup.sh and the tools
-          # work under Git Bash and the suite runs, but at ten minutes it is a
-          # fifth short with about 220 checks red, and ten more minutes bought
-          # six checks (measured 2026-09-24). The suite step is cut at its own
-          # cap so the job ends as a failure the run tolerates, never as a
-          # cancellation the gate cannot judge. Green since 829f3a6 (spec 020,
-          # run 36010227211): 522 checks, the suite 15 minutes and the job 17;
-          # the caps are twice that. A carry waits for the whole run, so for
-          # this job too. It still only reports, until the gate is told to read
-          # it (spec 020, step 5).
-          - { os: windows-latest, cap: 34, suite_cap: 30, report_only: true }
+          # Deciding since spec 020 (the maintainer's word, 2026-09-24): green
+          # at 829f3a6 (run 36010227211, 522 checks, the suite 15 minutes and
+          # the job 17); the caps are twice that. Report-only before it: at ten
+          # minutes about 220 checks were red, and gate.sh read only the other
+          # two. A carry waits for the whole run, so about seventeen minutes.
+          - { os: windows-latest, cap: 34, suite_cap: 30, report_only: false }
     # The name gate.sh reads the verdict by: without it the matrix's other
     # values are appended ("suite (ubuntu-latest, 30, false)"; measured).
     name: suite (${{ matrix.os }})

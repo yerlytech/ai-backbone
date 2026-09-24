@@ -54,7 +54,7 @@ says nothing about it.
 - [x] A failing `new-project` in the suite shows why, so the next run is read, not guessed.
 - [x] Claude Code on Windows sees the project's skills without developer mode (copies, not links; measured on the gate, not yet in Claude Code itself).
 - [x] The suite ends inside its cap on `windows-latest`, and green (run 36010227211: 522 ok, 0 failed, 15 minutes).
-- [ ] `checks.yml` makes Windows a deciding machine; `promote.yml` and `gate.sh` judge it.
+- [x] `checks.yml` makes Windows a deciding machine; `gate.sh` judges it (the maintainer's word, 2026-09-24).
 - [ ] A session on a real Windows machine with Claude Code, attended, shows the session line and the skills.
 
 ## Tasks
@@ -63,4 +63,4 @@ says nothing about it.
 - [x] Step 2: what stays red, section by section, from the next log. Measured: 205 to 30 (3.27.4), 30 to 3 before the cap (3.27.5).
 - [x] Step 3: the skills without symlinks on Windows (3.27.4).
 - [x] Step 4: the last red checks, and the suite inside its cap (3.27.7 to 3.27.10, then 829f3a6).
-- [ ] Step 5: Windows decides.
+- [x] Step 5: Windows decides (3.27.11).

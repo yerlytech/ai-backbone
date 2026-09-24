@@ -11,6 +11,16 @@ when the repository went public: a newcomer reads a repository, not a diary.
 The entries below are the record of every version; the tags before 3.27.2 are
 gone with the history.
 
+## 3.27.11 — 2026-09-24
+
+**Windows decides** (spec 020, step 5). The gate carries a push to `main` only
+when the suite is green on Linux, macOS and Windows; before this, Windows only
+reported. A red Windows job is named in the gate's line on `cloud` like the
+other two. The maintainer chose it on 2026-09-24, knowing a carry now waits
+the Windows job's seventeen minutes instead of the Mac's five. `checks.yml`
+no longer tolerates the Windows job's failure. The docs and the routine's
+brief say all three decide.
+
 ## 3.27.10 — 2026-09-24
 
 **Windows, the eighth step** (spec 020). The build folder's measuring limit

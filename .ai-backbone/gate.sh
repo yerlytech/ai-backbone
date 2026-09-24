@@ -57,30 +57,30 @@ jobs_of() {
   gh run view "$1" --json jobs --jq '.jobs[] | "\(.databaseId)\t\(.name)\t\(.conclusion)"' 2>/dev/null
 }
 
-# Green on the machines that decide. The Windows job reports only.
+# Green on the machines that decide: Linux, macOS and, since spec 020 made it
+# green, Windows. The maintainer chose it on 2026-09-24, knowing a carry now
+# waits the Windows job's seventeen minutes instead of the Mac's five.
 suite_green() {
-  local id name concl linux="" mac=""
+  local id name concl linux="" mac="" win=""
   # By prefix: a matrix job's name carries the other matrix values as well
   # when the workflow gives it no name of its own (measured 2026-09-24).
   while IFS=$'\t' read -r id name concl; do
     case "$name" in
-      "suite (ubuntu-latest"*) [ "$concl" = success ] && linux=1 ;;
-      "suite (macos-latest"*)  [ "$concl" = success ] && mac=1 ;;
+      "suite (ubuntu-latest"*)  [ "$concl" = success ] && linux=1 ;;
+      "suite (macos-latest"*)   [ "$concl" = success ] && mac=1 ;;
+      "suite (windows-latest"*) [ "$concl" = success ] && win=1 ;;
     esac
   done < <(jobs_of "$1")
-  [ -n "$linux" ] && [ -n "$mac" ]
+  [ -n "$linux" ] && [ -n "$mac" ] && [ -n "$win" ]
 }
 
-# What went red, by machine, with up to five FAIL names from its log. The
-# Windows job is left out: report-only, and its dozens of lines would hide the
-# one that matters.
+# What went red, by machine, with up to five FAIL names from its log.
 red() {
   local run="$1" id name concl log mine names out=""
   [ -n "$run" ] || { echo "no run to read"; return 0; }
   while IFS=$'\t' read -r id name concl; do
     [ -n "$id" ] || continue
     case "$concl" in success|skipped|"") continue ;; esac
-    case "$name" in *windows*) continue ;; esac
     # gh prefixes every log line with the job and the step, tab-separated
     # (fixtures/gh-log-failed.txt): only this job's lines are read, and all of
     # them when the prefix is not there.
@@ -105,12 +105,13 @@ carry() {
   # By name: cloud may have moved past it, and a commit cloud no longer reaches
   # (it is never rewritten, but a fetch is cheap) is judged as gone.
   git fetch -q origin "$sha" 2>/dev/null || true
-  # The machines that decide decide. A report-only job cut by its cap ends
-  # the whole run as "cancelled" whatever continue-on-error says (measured
-  # 2026-09-24: Linux and macOS green, Windows cancelled, run cancelled), and
-  # a run nobody judges is a push that never reaches main.
+  # The machines that decide decide. A job cut by its cap ends the whole run
+  # as "cancelled" whatever continue-on-error says (measured 2026-09-24:
+  # Linux and macOS green, Windows cancelled, run cancelled), and a run nobody
+  # judges is a push that never reaches main. Kept for a job that is not a
+  # suite job, or a fourth machine added report-only one day.
   if [ "$GATE_ENDED" != success ] && suite_green "$run"; then
-    echo "gate: the run ended $GATE_ENDED, and Linux and macOS were green: they decide"
+    echo "gate: the run ended $GATE_ENDED, and every suite job was green: they decide"
     GATE_ENDED=success
   fi
   case "$GATE_ENDED" in
@@ -128,7 +129,7 @@ carry() {
   elif ! git diff --quiet origin/main "$sha" -- .github/workflows .ai-backbone/gate.sh 2>/dev/null; then
     why="the push changes .github/workflows or gate.sh, which only an attended session carries to main (git push origin <commit>:main after green checks); an unattended run puts main's copy back"
   elif [ "$(look "$sha" 2>/dev/null)" = suite ] && ! suite_green "$run"; then
-    why="the suite was due for this push and the run has no green suite job for Linux and macOS"
+    why="the suite was due for this push and the run has no green suite job for Linux, macOS and Windows"
   else
     git checkout -q -B main origin/main 2>/dev/null
     if git merge -q --ff-only "$sha" >/dev/null 2>&1; then

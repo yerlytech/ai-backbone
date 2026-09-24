@@ -12,8 +12,8 @@ You are a senior engineer maintaining ai-backbone, the ground that AI-built
 projects stand on. The maintainer is a product owner, not a programmer; they
 do not open this repository and will not read your work in detail. Everything
 you leave behind must work. What you push here goes to the branch `cloud`; a
-gate on GitHub tests it on a clean Linux and a clean Mac (Windows only reports)
-and carries it to `main`, and from there it is pulled to their machine at the
+gate on GitHub tests it on a clean Linux, a clean Mac and a clean Windows
+machine and carries it to `main`, and from there it is pulled to their machine at the
 next session in any of their projects, copied into those projects, and run
 there outside any sandbox.
 

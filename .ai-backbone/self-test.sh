@@ -798,7 +798,7 @@ cloudlog() { git -C "$gt/hub.git" show cloud:docs/routine-log.md; }
 loglines() { awk 'END { print NR }' <<<"$(cloudlog)"; }
 synced()   { git -C "$gt/work" pull -q --no-rebase origin cloud >/dev/null 2>&1; }
 TAB=$'\t'
-GREEN="1${TAB}look${TAB}success|2${TAB}suite (ubuntu-latest)${TAB}success|3${TAB}suite (macos-latest)${TAB}success|4${TAB}suite (windows-latest)${TAB}failure"
+GREEN="1${TAB}look${TAB}success|2${TAB}suite (ubuntu-latest)${TAB}success|3${TAB}suite (macos-latest)${TAB}success|4${TAB}suite (windows-latest)${TAB}success"
 s=$(pushed "echo '- a log line' >> docs/routine-log.md && echo '- [ ] a note' >> docs/backlog.md && echo z > docs/radar.toml && mkdir -p docs/specs && echo s > docs/specs/099-x.md" "docs: the routine's own files")
 check "look: a push that changes only the routine's own files is docs-only" "[ \"\$(gate)\" = docs-only ]"
 git clone -q --depth 1 -b cloud "$gt/hub.git" "$gt/shallow" >/dev/null 2>&1
@@ -814,13 +814,20 @@ lines=$(loglines)
 check "carried again, it says so and writes nothing"    "says 'on main already' judge $s success '$GREEN' && [ \$(loglines) -eq $lines ]"
 s=$(pushed "echo y >> README.md" "feat: red")
 check "a cancelled run is not judged"                   "says 'was cancelled' judge $s cancelled && [ \$(hubmain) != $s ] && [ \$(loglines) -eq $lines ]"
+# Windows decides too (spec 020, the maintainer's word of 2026-09-24): a Windows
+# job cut by its cap, or red, is not carried, however green the other two are.
 CUT="1${TAB}look${TAB}success|2${TAB}suite (ubuntu-latest)${TAB}success|3${TAB}suite (macos-latest)${TAB}success|4${TAB}suite (windows-latest)${TAB}cancelled"
 s=$(pushed "echo cut >> README.md" "feat: windows cut by its cap")
-check "but one cancelled by the Windows cap with Linux and macOS green is carried" "o=\$(judge $s cancelled '$CUT' 2>&1); grep -q 'Linux and macOS were green: they decide' <<<\"\$o\" && grep -qE 'carried .* to main' <<<\"\$o\" && [ \$(hubmain) = $s ]"
-s=$(pushed "echo y2 >> README.md" "feat: red again")
+check "one cancelled by the Windows cap is not carried: Windows decides too" "says 'was cancelled' judge $s cancelled '$CUT' && [ \$(hubmain) != $s ]"
+WINRED="1${TAB}look${TAB}success|2${TAB}suite (ubuntu-latest)${TAB}success|3${TAB}suite (macos-latest)${TAB}success|4${TAB}suite (windows-latest)${TAB}failure"
+WINLOG="suite (windows-latest)${TAB}the suite${TAB}2026-01-02T03:00:02Z   FAIL  a windows check"
+check "and a red Windows job with the other two green is not carried, and is named" "says 'not promoted' judge $s failure '$WINRED' '$WINLOG' && [ \$(hubmain) != $s ] && says 'suite \(windows-latest\) failure FAIL: a windows check' cloudlog"
+GHOST="1${TAB}look${TAB}success|2${TAB}suite (ubuntu-latest)${TAB}success|3${TAB}suite (macos-latest)${TAB}success|4${TAB}suite (windows-latest)${TAB}success|5${TAB}something else${TAB}cancelled"
+check "a run cancelled by a job that is not a suite job, all three suites green, is carried" "o=\$(judge $s cancelled '$GHOST' 2>&1); grep -q 'every suite job was green: they decide' <<<\"\$o\" && grep -qE 'carried .* to main' <<<\"\$o\" && [ \$(hubmain) = $s ]"
+synced; lines=$(loglines); s=$(pushed "echo y2 >> README.md" "feat: red again")   # synced and counted again: the red Windows line above moved cloud
 RED="1${TAB}look${TAB}success|2${TAB}suite (ubuntu-latest)${TAB}success|9${TAB}suite (macos-latest)${TAB}failure|10${TAB}suite (windows-latest)${TAB}failure"
 LOG="suite (macos-latest)${TAB}the suite${TAB}2026-01-02T03:00:00Z   FAIL  a mac check|suite (macos-latest)${TAB}the suite${TAB}2026-01-02T03:00:01Z   FAIL  another one|suite (windows-latest)${TAB}the suite${TAB}2026-01-02T03:00:02Z   FAIL  windows noise"
-check "a red run writes one line on cloud naming the machine and its FAIL names, never the Windows job's" "says 'not promoted' judge $s failure '$RED' '$LOG' && [ \$(loglines) -eq $((lines+1)) ] && says '^- [0-9-]+ gate: cloud not promoted — the checks ended failure: suite \(macos-latest\) failure FAIL: a mac check;another one;\$' cloudlog && ! says 'windows noise' cloudlog && [ \$(hubmain) != $s ]"
+check "a red run writes one line on cloud naming each red machine and its FAIL names" "says 'not promoted' judge $s failure '$RED' '$LOG' && [ \$(loglines) -eq $((lines+1)) ] && says '^- [0-9-]+ gate: cloud not promoted — the checks ended failure: suite \(macos-latest\) failure FAIL: a mac check;another one; suite \(windows-latest\) failure FAIL: windows noise;\$' cloudlog && [ \$(hubmain) != $s ]"
 synced; s=$(pushed "echo 'on: pull_request' > .github/workflows/checks.yml" "ci: weaken")
 check "a push that changes the workflows is refused, green or not" "says 'changes .github/workflows' judge $s success '$GREEN' && [ \$(hubmain) != $s ]"
 synced; s=$(pushed "git checkout origin/main -- .github/workflows && echo '# x' >> .ai-backbone/gate.sh" "ci: weaken the judge")

@@ -52,7 +52,7 @@ your projects, and that folder sends it to GitHub, where it joins the to-do
 list (`docs/backlog.md`). A scheduled agent takes one item from that list every
 day, builds it, tests it and pushes it to the branch `cloud`. A gate on GitHub
 tests that push again on a clean Linux, a clean Mac and a clean Windows
-machine; Linux and macOS decide, Windows only reports for now. Green is
+machine, and all three decide (Windows since spec 020). Green is
 carried to `main` and becomes a new version, tagged; red leaves one line that
 the next day's run reads first and fixes. On Sunday the agent looks outward
 instead: the radar reads what the tools around the backbone have released and

@@ -266,8 +266,8 @@ when an agent working in them sees "behind".
 The backbone's own scheduled agent is a Claude Code routine, once a day. It
 pushes to the branch `cloud`, never to `main`. Every push there is tested by
 GitHub on a clean Linux, a clean Mac and a clean Windows machine
-(`checks.yml`); Linux and macOS decide, Windows only reports until a spec
-makes it green; a push that changes only the agent's own files (its log, the
+(`checks.yml`); all three decide (Windows since spec 020); a push that
+changes only the agent's own files (its log, the
 backlog, the radar's markers, a spec) is carried without the suite. What
 passes is carried to `main` and tagged by `promote.yml`, which runs from
 `main`'s own copy of itself and of `.ai-backbone/gate.sh`, so a run can change
