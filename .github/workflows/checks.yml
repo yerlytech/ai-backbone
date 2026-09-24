@@ -75,11 +75,12 @@ jobs:
           # fifth short with about 220 checks red, and ten more minutes bought
           # six checks (measured 2026-09-24). The suite step is cut at its own
           # cap so the job ends as a failure the run tolerates, never as a
-          # cancellation the gate cannot judge. Since 3.27.6 (spec 020) three
-          # checks are red where eight minutes cut it, in the upstream section:
-          # twenty until the whole suite is measured there, then twice that.
-          # A carry waits for the whole run, so for this job too, up to its cap.
-          - { os: windows-latest, cap: 25, suite_cap: 20, report_only: true }
+          # cancellation the gate cannot judge. Green since 829f3a6 (spec 020,
+          # run 36010227211): 522 checks, the suite 15 minutes and the job 17;
+          # the caps are twice that. A carry waits for the whole run, so for
+          # this job too. It still only reports, until the gate is told to read
+          # it (spec 020, step 5).
+          - { os: windows-latest, cap: 34, suite_cap: 30, report_only: true }
     # The name gate.sh reads the verdict by: without it the matrix's other
     # values are appended ("suite (ubuntu-latest, 30, false)"; measured).
     name: suite (${{ matrix.os }})

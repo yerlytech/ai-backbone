@@ -109,9 +109,9 @@ Code's for now.
    layer (`stack.just`) by hand.
 
 macOS and Linux today. On Windows the tools install under Git Bash, the
-shell Claude Code uses there, and nearly all of the backbone's own checks
-pass (3 red where the suite is cut by its time limit, on 2026-09-24):
-Windows is being brought green, not supported yet.
+shell Claude Code uses there, and all of the backbone's own checks pass on
+GitHub's Windows machine (522 green on 2026-09-24). It is not called
+supported until it has been tried on a real Windows machine with Claude Code.
 
 ## What you see in a project
 
