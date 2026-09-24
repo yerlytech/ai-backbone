@@ -1,0 +1,20 @@
+{
+  "files.exclude": {
+    ".agents": true,
+    ".ai-backbone": true,
+    ".archive": true,
+    ".claude": true,
+    ".editorconfig": true,
+    ".github": true,
+    ".gitignore": true,
+    ".graphifyignore": true,
+    ".junie": true,
+    ".pre-commit-config.yaml": true,
+    ".references": true,
+    ".snapshots": true,
+    ".vscode": true,
+    "CLAUDE.md": true,
+    "GEMINI.md": true,
+    "graphify-out": true
+  }
+}

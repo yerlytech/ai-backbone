@@ -1,0 +1,20 @@
+# This project's commands.
+#
+# The backbone's recipes live in `.ai-backbone/core.just`. Never edit that file;
+# `just template-update` overwrites it. Language recipes live in `stack.just`
+# (`just stack rust`). Anything you add below is yours and is never touched.
+
+import? '.ai-backbone/core.just'   # optional, so a missing core gives a message, not a crash
+import? 'stack.just'
+
+# Plain `just` shows the four commands a person types. `just --list` shows all.
+default:
+    @just help
+
+# Rename these to whatever you say in your own language.
+alias yedekle := save
+alias yayinla := publish
+alias geri-al := undo
+
+# ─────────────────────── this project ────────────────────────
+# Add your recipes here.

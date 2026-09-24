@@ -1,0 +1,53 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(just:*)",
+      "Bash(graphify:*)",
+      "Bash(prek:*)",
+      "Bash(sh .ai-backbone/setup.sh:*)",
+      "Bash(brew update)",
+      "Bash(brew outdated:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git config:*)",
+      "Bash(git tag:*)",
+      "Bash(git push origin HEAD)",
+      "Bash(git push origin v:*)",
+      "Bash(git checkout -- .)"
+    ],
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(rm -rf:*)",
+      "Bash(brew upgrade:*)",
+      "Bash(sudo:*)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "just session-start 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Agent|Workflow",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.ai-backbone/agent-cap.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

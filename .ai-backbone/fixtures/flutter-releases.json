@@ -1,0 +1,22 @@
+{
+  "base_url": "https://storage.googleapis.com/flutter_infra_release/releases",
+  "current_release": {"beta": "c9306d5b2efe749ffd9450e838ba3399785a35e6", "dev": "13a2fb10b838971ce211230f8ffdd094c14af02c", "stable": "6a19cca56475dbfba1478ee68d7bd0c2ef891da1"},
+  "releases": [
+    {"hash": "6a19cca56475dbfba1478ee68d7bd0c2ef891da1", "channel": "stable", "version": "3.47.5", "dart_sdk_version": "3.13.4", "dart_sdk_arch": "x64", "release_date": "2026-09-18T20:20:24.224309Z"},
+    {"hash": "6a19cca56475dbfba1478ee68d7bd0c2ef891da1", "channel": "stable", "version": "3.47.5", "dart_sdk_version": "3.13.4", "dart_sdk_arch": "arm64", "release_date": "2026-09-18T20:13:48.967809Z"},
+    {"hash": "9584c6713b324636289d067944a46fd6b49df14b", "channel": "stable", "version": "3.47.4", "dart_sdk_version": "3.13.3", "dart_sdk_arch": "x64", "release_date": "2026-09-11T20:47:02.314827Z"},
+    {"hash": "9584c6713b324636289d067944a46fd6b49df14b", "channel": "stable", "version": "3.47.4", "dart_sdk_version": "3.13.3", "dart_sdk_arch": "arm64", "release_date": "2026-09-11T20:40:05.753879Z"},
+    {"hash": "c9306d5b2efe749ffd9450e838ba3399785a35e6", "channel": "beta", "version": "3.48.0-0.5.pre", "dart_sdk_version": "3.14.0 (build 3.14.0-95.2.beta)", "dart_sdk_arch": "x64", "release_date": "2026-09-11T19:02:44.153363Z"},
+    {"hash": "c9306d5b2efe749ffd9450e838ba3399785a35e6", "channel": "beta", "version": "3.48.0-0.5.pre", "dart_sdk_version": "3.14.0 (build 3.14.0-95.2.beta)", "dart_sdk_arch": "arm64", "release_date": "2026-09-11T18:53:10.148905Z"},
+    {"hash": "e3005e3402d9cfa2043114c8bc53c59d12e9b98e", "channel": "beta", "version": "3.48.0-0.4.pre", "dart_sdk_version": "3.14.0 (build 3.14.0-95.2.beta)", "dart_sdk_arch": "x64", "release_date": "2026-09-03T17:31:54.383456Z"},
+    {"hash": "e3005e3402d9cfa2043114c8bc53c59d12e9b98e", "channel": "beta", "version": "3.48.0-0.4.pre", "dart_sdk_version": "3.14.0 (build 3.14.0-95.2.beta)", "dart_sdk_arch": "arm64", "release_date": "2026-09-03T17:24:10.613419Z"},
+    {"hash": "559ffa3f75e7402d65a8def9c28389a9b2e6fe42", "channel": "stable", "version": "3.44.0", "dart_sdk_version": "3.12.0", "dart_sdk_arch": "x64", "release_date": "2026-05-18T16:50:24.365289Z"},
+    {"hash": "559ffa3f75e7402d65a8def9c28389a9b2e6fe42", "channel": "stable", "version": "3.44.0", "dart_sdk_version": "3.12.0", "dart_sdk_arch": "arm64", "release_date": "2026-05-18T16:42:55.992345Z"},
+    {"hash": "b0daa737b75b007b4777e5cc2bd42b1b18a6fd4f", "channel": "stable", "version": "3.13.3", "dart_sdk_version": "3.1.1", "dart_sdk_arch": "arm64", "release_date": "2023-09-13T19:49:30.693279Z"},
+    {"hash": "b0daa737b75b007b4777e5cc2bd42b1b18a6fd4f", "channel": "stable", "version": "3.13.3", "dart_sdk_version": "3.1.1", "dart_sdk_arch": "x64", "release_date": "2023-09-13T19:44:53.301064Z"},
+    {"hash": "a625ad4ea94925edbe83820fa9f0ddf677a1f3e2", "channel": "stable", "version": "3.13.3", "dart_sdk_version": "3.1.1", "dart_sdk_arch": "x64", "release_date": "2023-09-13T19:44:26.735329Z"},
+    {"hash": "a625ad4ea94925edbe83820fa9f0ddf677a1f3e2", "channel": "stable", "version": "3.13.3", "dart_sdk_version": "3.1.1", "dart_sdk_arch": "arm64", "release_date": "2023-09-13T19:41:26.142727Z"},
+    {"hash": "2524052335ec76bb03e04ede244b071f1b86d190", "channel": "stable", "version": "3.13.3", "dart_sdk_version": "3.1.1", "dart_sdk_arch": "x64", "release_date": "2023-09-08T01:38:45.941714Z"},
+    {"hash": "2524052335ec76bb03e04ede244b071f1b86d190", "channel": "stable", "version": "3.13.3", "dart_sdk_version": "3.1.1", "dart_sdk_arch": "arm64", "release_date": "2023-09-08T01:36:05.809400Z"}
+  ]
+}

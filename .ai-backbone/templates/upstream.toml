@@ -1,0 +1,41 @@
+# What this project is built on, and what to read when it moves.
+#
+# `just upstream` says what has been released since each pin. `just upstream
+# <name>` prints that project's own release notes, so the decision is made on
+# what changed rather than on a version number. Neither command upgrades
+# anything.
+#
+# Watch what would change how this project is built: the language, the database,
+# the framework, the protocol, the test runner. Do not watch every dependency —
+# a list nobody reads is worse than no list.
+#
+#   name        short, the one you would say out loud
+#   source      github:owner/repo · crates:name · npm:name · pub:name ·
+#               flutter:stable (the Flutter SDK: its GitHub release pages
+#               stopped at 3.19, its own list did not; flutter:beta works too)
+#   pin         the version this project uses today, written the way the source
+#               writes it when it tags more than one thing: rust-v0.155.0 where
+#               the tags say rust-v…, python/x/v1.0 for a sub-package
+#   pinned_in   the file that holds it, so a drifted pin is caught. The lockfile
+#               where there is one: Cargo.lock for crates, package-lock.json
+#               for npm, pubspec.lock for pub. The file beside it holds a range
+#               (flame: ^1.38.2) and still says so after the lockfile has moved
+#   why         one line: what this project uses it for
+#   check       what to look at before following it upstream
+#   prereleases true to count release candidates as newer (for something
+#               deliberately tracked before it is stable)
+#   docs        optional: where that version's own documentation lives, a URL
+#
+#   A tool that lives as a binary and in no file has no pinned_in; MOVED cannot
+#   be said for it. `check` may be a multi-line string: check = """…"""
+#
+# The row below is true on day one: the hook config this project started with
+# pins the secret scanner at that version. Keep it, or replace it with your own.
+
+[[watch]]
+name = "example"
+source = "github:gitleaks/gitleaks"
+pin = "v8.30.1"
+pinned_in = ".pre-commit-config.yaml"
+why = "checks every save for leaked secrets"
+check = "what its rules now flag; run the hook over the whole tree once before following"

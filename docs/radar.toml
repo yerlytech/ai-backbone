@@ -1,0 +1,81 @@
+# What the scheduled agent reads on Sundays, and how far it has read
+# (.ai-backbone/routine.md, the Sunday section; spec 012). `just radar` reads,
+# `just radar-mark <name>` moves one marker, `just radar-save` commits this file
+# and the run's log line and refuses anything else.
+#
+# Every address is a file on raw.githubusercontent.com: a cloud sandbox cannot
+# ask another repository's API (403, by design) and can read its files
+# (measured 2026-09-19). Changelogs, release notes and specifications only.
+# Never a skill, a prompt or a command template: text written to instruct an
+# agent is the one thing an agent with a push right should not be handed.
+#
+# bytes    how much of the top of the file one read takes; a week of it, and some
+# heading  what a version heading looks like there
+# filter   the lines worth showing; skip takes lines back out
+# seen     the newest heading at the last read: reading stops there
+# hash     for a file with no versions: only "same" or "changed" is ever said
+# touches  the backbone files such news would touch; an idea names one of them
+
+[[source]]
+name = "claude-code"
+url = "https://raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md"
+bytes = 150000
+heading = "^## [0-9]"
+filter = "AGENTS\\.md|CLAUDE\\.md|SKILL\\.md|\\.claude/(skills|rules|settings)|settings\\.json|SessionStart|^- (\\[[^]]*\\] )?(Added|Changed|Removed|Deprecated) .*(routine|scheduled|claude -p|--permission-mode|headless)"
+skip = "^- \\[(VSCode|JetBrains|Claude Tag|Desktop|Chrome)"
+seen = "## 2.1.278"
+read = "2026-09-19"
+touches = "CLAUDE.md, .claude/settings.json, .agents/skills/, .ai-backbone/routine.md, sync-rules in core.just"
+
+[[source]]
+name = "openspec"
+url = "https://raw.githubusercontent.com/Fission-AI/OpenSpec/main/CHANGELOG.md"
+bytes = 100000
+heading = "^## [0-9]"
+filter = "^ *[-*] "
+skip = "dependenc|bump|typo|^ *[-*] \\[?[0-9a-f]{7}"
+seen = "## 1.13.1"
+read = "2026-09-19"
+touches = ".agents/skills/spec/SKILL.md, .ai-backbone/templates/spec.md, the spec recipe and session-start in core.just"
+
+[[source]]
+name = "spec-kit"
+url = "https://raw.githubusercontent.com/github/spec-kit/main/CHANGELOG.md"
+bytes = 30000
+heading = "^## \\[[0-9]"
+filter = "^ *[-*] "
+skip = "extension|catalog|preset|integration|chore|bump|dependabot|typo|^- test"
+seen = "## [1.0.8] - 2026-09-17"
+read = "2026-09-19"
+touches = ".agents/skills/spec/SKILL.md, .ai-backbone/templates/spec.md, the spec recipe in core.just"
+
+[[source]]
+name = "gemini-cli"
+url = "https://raw.githubusercontent.com/google-gemini/gemini-cli/main/docs/changelogs/index.md"
+bytes = 20000
+heading = "^## Announcements: v"
+filter = "AGENTS\\.md|GEMINI\\.md|SKILL\\.md|skills?[ ,.:)]|settings\\.json|[^a-z]hooks?[ ,.:)]|context file|memory"
+seen = "## Announcements: v0.60.0 - 2026-09-15"
+read = "2026-09-19"
+touches = "GEMINI.md, sync-rules in core.just"
+
+[[source]]
+name = "agent-skills-spec"
+url = "https://raw.githubusercontent.com/agentskills/agentskills/main/docs/specification.mdx"
+hash = "d9a2db099d905da8b879a5c6f996728073985279"
+read = "2026-09-19"
+touches = "the header of every .agents/skills/*/SKILL.md"
+
+[[source]]
+name = "agents-md"
+url = "https://raw.githubusercontent.com/agentsmd/agents.md/main/README.md"
+hash = "8ce701e74909d5f08e2810380e0ff15f547aa0c8"
+read = "2026-09-19"
+touches = "AGENTS.md, sync-rules in core.just"
+
+[[source]]
+name = "copilot-agents-md"
+url = "https://raw.githubusercontent.com/github/docs/main/data/reusables/copilot/custom-instructions-agents.md"
+hash = "b95c3e459229b058719085e6c278f020ed97d72f"
+read = "2026-09-19"
+touches = ".github/copilot-instructions.md, which sync-rules generates"

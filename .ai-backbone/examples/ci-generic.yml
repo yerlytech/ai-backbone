@@ -1,0 +1,57 @@
+# Every push, the same checks a person runs before saving work.
+#
+# This is the part that is true in any language: when to run, what the job may
+# touch, and which runs supersede which. The build and the tests are yours, and
+# the one step below fails on purpose until you write them. A starter that
+# passed while checking nothing would be worse than none: green would mean
+# "nobody has filled this in yet", and you would find that out in a month.
+#
+#   just ci          how the last push went, without opening a browser
+#   just ci-check    whether the lessons in here are still in force
+#
+# There is a ready Rust one (`just ci-init rust`) that carries four more lessons
+# a real project paid for. There is no ready Swift one: those lessons are about
+# a Linux runner, a Mac runner is a different machine, and nobody here has
+# measured one yet. Writing guesses down as a starter is how a guess becomes a
+# fact nobody rechecks.
+
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# The job needs to read this repository and nothing else. Without this block it
+# gets whatever the repository's default is, which on an older repository is
+# write access to everything. Add only what a step of yours actually needs.
+permissions:
+  contents: read
+
+# A branch under review can be pushed to three times in a minute, and there is
+# nothing to learn from the checks on the commit before last: for a pull request
+# the key is the branch, so the older run is cancelled. On the default branch the
+# key is the commit, which is unique, so every push gets a group of one — nothing
+# cancels it and nothing queues behind it, and the history somebody reads later
+# to find where something broke is complete. `cancel-in-progress` is a question,
+# not a plain `true`; writing `true` there is the usual mistake and it throws
+# exactly that history away. These three lines contain no language and no
+# project. Copy them unchanged.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # Replace this step with this project's build and tests, then delete it.
+      # Whatever `just lint` and `just test` do on your machine is the list;
+      # write the underlying commands, because a runner has no `just`.
+      - name: nothing is checked yet
+        run: |
+          echo "This project's checks have not been written yet."
+          echo "Open .github/workflows/checks.yml and replace this step."
+          exit 1

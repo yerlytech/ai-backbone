@@ -1,0 +1,87 @@
+# Files the backbone owns, in three sections.
+#
+#   [project]   copied into every project and kept current by `just template-update`.
+#               Never edit these in a project; the next update overwrites them.
+#   [seed]      copied once by `just new-project`, then the project's own. Never updated.
+#   [backbone]  live only in the backbone. `just stack <lang>` and `just ci-init`
+#               fetch from here.
+#
+# A line reads `path` or `path -> path-in-the-project`.
+# Everything not listed here belongs to the project and is never touched.
+#
+# Generated, never copied: .github/copilot-instructions.md, .junie/guidelines.md
+# and the links in .claude/skills/ (for the tools named in AGENTS.md section 0).
+# Created when first needed, never copied: .env.example, .archive/ (just archive),
+# .references/ (just ref-add), docs/adr/ (just adr), docs/audit-lenses.md
+# (just audit-lenses), docs/upstream.toml (just upstream-init), graphify-out/,
+# .graphifyignore.
+
+[project]
+.ai-backbone/core.just
+.ai-backbone/manifest.txt
+.ai-backbone/setup.sh
+.ai-backbone/brain-template/README.md
+.ai-backbone/brain-template/_templates/journal.md
+.ai-backbone/templates/spec.md
+.ai-backbone/templates/adr.md
+.ai-backbone/templates/audit-lenses.md
+.ai-backbone/templates/upstream.toml
+.ai-backbone/upstream.py
+.ai-backbone/budget.py
+.ai-backbone/agent-cap.sh
+.ai-backbone/routine.sh
+.ai-backbone/templates/routine.plist
+.ai-backbone/templates/graphifyignore
+.ai-backbone/templates/references-README.md
+.ai-backbone/templates/archive-README.md
+.ai-backbone/templates/routine-project.md
+CHANGELOG.md -> .ai-backbone/CHANGELOG.md
+.editorconfig
+.agents/skills/session/SKILL.md
+.agents/skills/spec/SKILL.md
+.agents/skills/backbone-update/SKILL.md
+.agents/skills/backbone-dev/SKILL.md
+.agents/skills/audit/SKILL.md
+
+[seed]
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+LICENSE
+.gitignore
+.claude/settings.json
+.vscode/settings.json
+src/README.md
+.ai-backbone/seed/Justfile -> Justfile
+.ai-backbone/seed/pre-commit-config.yaml -> .pre-commit-config.yaml
+.ai-backbone/seed/docs-README.md -> docs/README.md
+
+[backbone]
+.ai-backbone/self-test.sh
+.ai-backbone/projects.sh
+.ai-backbone/routine.md
+.ai-backbone/gate.sh
+.ai-backbone/radar.py
+docs/radar.toml
+.ai-backbone/fixtures/radar-changelog.md
+.ai-backbone/fixtures/radar-spec.txt
+.ai-backbone/fixtures/radar-rehearsal.toml
+docs/routine-log.md
+.gitattributes
+.ai-backbone/examples/README.md
+.ai-backbone/examples/stack-rust.just
+.ai-backbone/examples/stack-swift.just
+.ai-backbone/examples/stack-flutter.just
+.ai-backbone/examples/dependabot-rust.yml
+.ai-backbone/examples/dependabot-swift.yml
+.ai-backbone/examples/dependabot-flutter.yml
+.ai-backbone/examples/ci-rust.yml
+.ai-backbone/examples/ci-flutter.yml
+.ai-backbone/examples/ci-generic.yml
+.ai-backbone/fixtures/gh-log-failed.txt
+.ai-backbone/fixtures/gh-annotations-not-started.json
+.ai-backbone/fixtures/flutter-releases.json
+docs/01-getting-started.md
+docs/how-it-works.md
+docs/adr/0001-why-this-shape.md
+docs/adr/0002-rule-file-strategy.md

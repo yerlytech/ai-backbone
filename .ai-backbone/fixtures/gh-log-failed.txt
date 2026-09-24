@@ -1,0 +1,40 @@
+rust	UNKNOWN STEP	﻿2026-09-16T11:59:20.4333420Z Current runner version: '2.337.0'
+rust	UNKNOWN STEP	2026-09-16T11:59:20.4370219Z ##[group]Runner Image Provisioner
+rust	UNKNOWN STEP	2026-09-16T11:59:22.7029014Z ^[[36;1mif [[ -z $toolchain ]]; then^[[0m
+rust	UNKNOWN STEP	2026-09-16T12:15:15.9225679Z test the_image_builds_with_a_rust_new_enough_for_every_dependency ... FAILED
+rust	UNKNOWN STEP	2026-09-16T12:15:15.9226598Z
+rust	UNKNOWN STEP	2026-09-16T12:15:15.9231936Z failures:
+rust	UNKNOWN STEP	2026-09-16T12:15:15.9233637Z
+rust	UNKNOWN STEP	2026-09-16T12:15:15.9234257Z ---- the_image_builds_with_a_rust_new_enough_for_every_dependency stdout ----
+rust	UNKNOWN STEP	2026-09-16T12:15:15.9234968Z
+rust	UNKNOWN STEP	2026-09-16T12:15:15.9238441Z thread 'the_image_builds_with_a_rust_new_enough_for_every_dependency' (22539) panicked at src/platform/tests/source.rs:166:5:
+rust	UNKNOWN STEP	2026-09-16T12:15:15.9242275Z ^[[1m^[[91merror^[[0m: failed to download `android_system_properties v0.1.6`
+rust	UNKNOWN STEP	2026-09-16T12:15:15.9242819Z
+rust	UNKNOWN STEP	2026-09-16T12:15:15.9243075Z Caused by:
+rust	UNKNOWN STEP	2026-09-16T12:15:15.9245135Z   attempting to make an HTTP request, but --offline was specified
+rust	UNKNOWN STEP	2026-09-16T12:15:15.9245662Z
+rust	UNKNOWN STEP	2026-09-16T12:15:15.9248118Z note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+rust	UNKNOWN STEP	2026-09-16T12:15:15.9248781Z
+rust	UNKNOWN STEP	2026-09-16T12:15:15.9248787Z
+rust	UNKNOWN STEP	2026-09-16T12:15:15.9252097Z failures:
+rust	UNKNOWN STEP	2026-09-16T12:15:15.9252758Z     the_image_builds_with_a_rust_new_enough_for_every_dependency
+rust	UNKNOWN STEP	2026-09-16T12:15:15.9254823Z
+rust	UNKNOWN STEP	2026-09-16T12:15:15.9255409Z test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+rust	UNKNOWN STEP	2026-09-16T12:15:15.9257369Z
+rust	UNKNOWN STEP	2026-09-16T12:15:15.9258160Z ^[[1m^[[91merror^[[0m: test failed, to rerun pass `-p xlarge-platform --test source`
+rust	UNKNOWN STEP	2026-09-16T12:15:15.9809449Z ##[error]Process completed with exit code 101.
+rust	UNKNOWN STEP	2026-09-16T12:15:16.1031247Z Post job cleanup.
+rust	UNKNOWN STEP	2026-09-16T12:15:16.3948850Z [command]/usr/bin/git version
+rust	UNKNOWN STEP	2026-09-16T12:15:16.4148453Z git version 2.55.0
+rust	UNKNOWN STEP	2026-09-16T12:15:16.4314804Z Temporarily overriding HOME='/home/runner/work/_temp/7027ecc6-20e9-4773-aad4-7d3ca55d9673' before making global git config changes
+rust	UNKNOWN STEP	2026-09-16T12:15:16.4325437Z Adding repository directory to the temporary git global config as a safe directory
+rust	UNKNOWN STEP	2026-09-16T12:15:16.4355766Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/xlarge/xlarge
+rust	UNKNOWN STEP	2026-09-16T12:15:16.4510203Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+rust	UNKNOWN STEP	2026-09-16T12:15:16.4635456Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+rust	UNKNOWN STEP	2026-09-16T12:15:16.8056050Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+rust	UNKNOWN STEP	2026-09-16T12:15:16.8075099Z http.https://github.com/.extraheader
+rust	UNKNOWN STEP	2026-09-16T12:15:16.8127104Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+rust	UNKNOWN STEP	2026-09-16T12:15:16.8132839Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+rust	UNKNOWN STEP	2026-09-16T12:15:16.8145229Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+rust	UNKNOWN STEP	2026-09-16T12:15:16.8150247Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+rust	UNKNOWN STEP	2026-09-16T12:15:16.8320709Z Cleaning up orphan processes

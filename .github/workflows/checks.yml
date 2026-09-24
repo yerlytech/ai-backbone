@@ -1,0 +1,134 @@
+# Every push to cloud: the same checks a person runs before saving work, on the
+# three kinds of machine a project can live on (spec 017). Linux and macOS
+# decide; Windows only reports until a spec of its own makes it green. What
+# passes is carried to main by promote.yml, which runs from main's own copy of
+# itself and of .ai-backbone/gate.sh, so nothing pushed here can change how it
+# is judged, only what is tested.
+#
+# This file is the backbone's own gate; a project's starter is in
+# .ai-backbone/examples/ (just ci-init). Two of its lessons hold here too:
+#
+#   just ci          how the last push went, without opening a browser
+#   just ci-check    whether the lessons in here are still in force
+
+name: checks
+
+on:
+  push:
+    branches: [cloud]
+
+# The jobs read this repository and nothing else. Writing to main is
+# promote.yml's, from main's copy of itself.
+permissions:
+  contents: read
+
+# Each push is a group of its own, keyed on the commit: a second push while one
+# runs neither cancels it nor queues behind it, and the history somebody reads
+# later to find where something broke is complete. Copy unchanged (just ci-check).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# On Windows the default shell is PowerShell, and every step below is sh.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # What cloud has that main does not. A push that changes only the routine's
+  # own files — a log line, a tick, a note, a Sunday's markers, a spec — is
+  # carried without the suite: a macOS minute counts ten, and nothing under
+  # those files is copied to a project or run by a recipe. Judged by gate.sh
+  # against main's tip, never against the push before, so a commit whose run
+  # was cancelled cannot slip under a docs-only push. The whole history is
+  # fetched: with the default depth of one, git has no main to diff against.
+  look:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      what: ${{ steps.look.outputs.what }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: look
+        run: |
+          what=$(bash .ai-backbone/gate.sh look | tail -1)
+          echo "what=$what"
+          echo "what=$what" >> "$GITHUB_OUTPUT"
+
+  suite:
+    needs: look
+    if: needs.look.outputs.what == 'suite'
+    strategy:
+      # A red Mac must not cancel the Linux answer, or the other way round.
+      fail-fast: false
+      matrix:
+        # Twice the measured time (2026-09-24: Linux 2 min 20 s, macOS 3 min
+        # 14 s for setup and suite together); the job's cap is the backstop
+        # behind the suite step's own.
+        include:
+          - { os: ubuntu-latest,  cap: 7,  suite_cap: 5, report_only: false }
+          - { os: macos-latest,   cap: 10, suite_cap: 8, report_only: false }
+          # Report-only until a spec makes it green: setup.sh and the tools
+          # work under Git Bash and the suite runs, but at ten minutes it is a
+          # fifth short with about 220 checks red, and ten more minutes bought
+          # six checks (measured 2026-09-24). The suite step is cut at eight so
+          # the job ends as a failure the run tolerates, never as a cancellation
+          # the gate cannot judge, and a carry waits ten minutes at most.
+          - { os: windows-latest, cap: 10, suite_cap: 8, report_only: true }
+    # The name gate.sh reads the verdict by: without it the matrix's other
+    # values are appended ("suite (ubuntu-latest, 30, false)"; measured).
+    name: suite (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.report_only }}
+    # A job with no cap runs for six hours when something hangs.
+    timeout-minutes: ${{ matrix.cap }}
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: 1
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: which machine this is
+        # Named first, so a red that follows an image move reads as one.
+        run: echo "image ${ImageOS:-?} ${ImageVersion:-?} on $(uname -sm)"
+
+      - name: install what this repo says it needs
+        # The backbone's own installer, the way the guide tells a person to run
+        # it, on a machine that has never seen it. That is half of what this job
+        # proves: a setup script nobody runs on a clean machine is a hope.
+        run: |
+          # setup.sh's exit code answers exactly this job's question since
+          # 3.21.1 — 0 when the tools it installs are all on the PATH — and its
+          # header says so. It is still read here through the loop below rather
+          # than through `set -e`, because the loop names the tool that is
+          # missing, and because gh, which only `just publish` needs, is checked
+          # here and deliberately not by the script.
+          sh .ai-backbone/setup.sh -y || true
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.local/bin:$PATH"
+          for t in just uv prek graphify gh; do
+            command -v "$t" >/dev/null || { echo "setup.sh did not leave $t on the PATH"; exit 1; }
+          done
+
+      - name: the private vault a fresh clone has no copy of
+        run: just brain-init
+
+      - name: somebody to commit as
+        # The self-test builds throwaway projects and saves in them, and a
+        # runner has no name or address of its own. Nothing here is pushed.
+        run: |
+          git config --global user.name  "backbone self-test"
+          git config --global user.email "self-test@example.invalid"
+          git config --global init.defaultBranch main
+
+      - name: the tools are all there
+        run: just doctor
+
+      # The suite: a new project, a language layer, the lint hook, the
+      # weekly routine's locks, the checks recipes, the gate, and adopting an
+      # existing repo. It makes its own temporary folders and never reaches
+      # GitHub. Cut at its own cap, so that a suite that hangs ends the step
+      # as a failure and not the job as a cancellation.
+      - run: just self-test
+        timeout-minutes: ${{ matrix.suite_cap }}

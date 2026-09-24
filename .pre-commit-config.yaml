@@ -1,0 +1,111 @@
+# Git hooks, managed by prek (a single-binary, Rust rewrite of pre-commit).
+#   install:  just hooks-install
+#   run now:  prek run --all-files
+#   update:   just tools-update
+#
+# The backbone copies this file once (just new-project, just adopt); after
+# that it is yours. Add your linter and formatter below. `just tools-update`
+# bumps the gitleaks version.
+
+# .archive/ holds retired work on purpose: git bundles, tarballs, old documents.
+# It is binary, it is large, and it is written exactly once. No hook may read or
+# rewrite it. A whitespace fixer appending a newline to a git bundle is how an
+# archive quietly rots.
+#
+# Third-party material and anything private does NOT go here. It goes to brain/,
+# which is never committed at all.
+exclude: '^\.archive/'
+
+repos:
+  # Secret scanning. The one hook that is worth a download.
+  #
+  # A limit accepted on purpose, so that a close reading does not report it as a
+  # bug: the key Amazon prints in its own documentation (AKIA...EXAMPLE) passes.
+  # The scanner's rule for AWS keys allows whatever ends in EXAMPLE (the
+  # allowlist in its own config file, read on 2026-09-19 in the version pinned
+  # below), so that a README quoting the docs does not stop a save. A key of the
+  # real shape is stopped: a random AKIA key was refused on the same day, and
+  # realistic AWS, GitHub and Stripe keys on 2026-09-13. Whoever tests the
+  # scanner uses a key of the real shape: the EXAMPLE one is let through whether
+  # the hook works or not. (No version number in this comment: the watch list
+  # looks for its pin anywhere in this file, and a number left here would hide
+  # a pin that has moved.)
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  # Built into prek: no clone, no network, no version to fall behind.
+  - repo: builtin
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: check-added-large-files
+        args: ['--maxkb=5000']
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+        exclude: '(^|/)(tsconfig[^/]*\.json|\.vscode/[^/]+\.json)$'
+
+  # The logic of the two checks below lives in .ai-backbone/core.just, one place.
+  - repo: local
+    hooks:
+      - id: no-brain
+        name: brain/ must never be committed
+        entry: bash -c 'if git diff --cached --name-only | grep -q "^brain/"; then echo "brain/ files are staged. Unstage them before committing."; exit 1; fi'
+        language: system
+        pass_filenames: false
+
+      - id: rules-in-sync
+        name: rule copies and skill links match AGENTS.md
+        entry: just _rules-check
+        language: system
+        pass_filenames: false
+        files: '^(AGENTS\.md|\.github/copilot-instructions\.md|\.junie/guidelines\.md|\.agents/skills/.*|\.claude/skills/.*|\.ai-backbone/core\.just)$'
+
+      - id: commit-message
+        name: commit message is English and starts with its kind (feat, fix, docs, chore...)
+        entry: just _commit-msg-check
+        language: system
+        stages: [commit-msg]
+
+  # Only in the backbone itself (this file is a seed; projects get the copy in
+  # .ai-backbone/seed/ without this block). A change to the core that reaches
+  # every project is tested before it is saved.
+  - repo: local
+    hooks:
+      - id: self-test
+        name: just self-test (the core, the brief or a guard rail changed)
+        entry: just self-test
+        language: system
+        pass_filenames: false
+        files: '^(\.ai-backbone/(core\.just|manifest\.txt|self-test\.sh|routine\.sh|routine\.md|radar\.py|upstream\.py|budget\.py|agent-cap\.sh|seed/.*|templates/.*|examples/.*|fixtures/.*)|\.gitignore|\.gitattributes|\.pre-commit-config\.yaml)$'
+
+  # The lessons in .github/workflows/ cost a day of red builds once. A
+  # file that has dropped one says so here, on the commit, instead of on
+  # a runner next month. Waive one in the workflow itself; just ci-check
+  # prints the line to write.
+  - repo: local
+    hooks:
+      - id: ci-check
+        name: the checks still carry their lessons
+        entry: just ci-check
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+        files: '^\.github/workflows/.*\.(yml|yaml)$'
+
+  # Whatever `just lint` runs in this project, before the commit. Without
+  # it a save can leave behind code the language layer rejects, and CI or
+  # the next agent finds it instead. Quiet until stack.just has a lint.
+  - repo: local
+    hooks:
+      - id: lint
+        name: just lint
+        entry: just _lint-if-any
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+        exclude: '(\.md$|^docs/)'

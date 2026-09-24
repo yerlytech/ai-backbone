@@ -1,0 +1,19 @@
+# What the code map leaves out. `just update-map` copies this once; after that
+# the file is yours: add lines freely. A line this list gains later is added at
+# the end of yours. To say no to one, comment it out instead of deleting it.
+brain/
+.references/
+.archive/
+.snapshots/
+graphify-out/
+**/.obsidian/
+**/node_modules/
+**/dist/
+**/build/
+**/.venv/
+# The backbone's own plumbing, the same in every project: 52 of a new Flutter
+# game's first 76 nodes came from here and 6 from the game (graphify 0.9.64).
+.ai-backbone/
+# The map is of code. A run that read documents too made the changelog the most
+# connected node of that game: 141 of 217 nodes were .md files.
+*.md

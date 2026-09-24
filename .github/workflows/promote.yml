@@ -1,0 +1,46 @@
+# What passed on cloud goes to main, and nothing else does (spec 017). A
+# workflow_run workflow runs from main's own copy of this file, so a commit on
+# cloud cannot change how it is judged; it can only change what is tested. The
+# judging is .ai-backbone/gate.sh, read from main too, and tried by
+# just self-test against a bare repository before any run exists.
+#
+# gate.sh moves main forward to the tested commit (never a merge on a runner),
+# tags the version on line 1 of core.just in the same atomic step, and when it
+# cannot carry, appends one `gate:` line to docs/routine-log.md on cloud, which
+# the next scheduled run reads first. The word that starts every git upload is
+# not written in this file outside comments: just ci-check keys any workflow
+# that says it on the commit, and a carry must be one queue of one.
+
+name: promote
+
+on:
+  workflow_run:
+    workflows: [checks]
+    types: [completed]
+    branches: [cloud]
+
+permissions:
+  contents: write   # main and its tag
+  actions: read     # the failed lines of the run it judges
+
+# One carry at a time, in the order the runs ended, never cancelled: a
+# cancelled carry is a run whose verdict nobody wrote down.
+concurrency:
+  group: promote
+  cancel-in-progress: false
+
+jobs:
+  carry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GATE_RUN: ${{ github.event.workflow_run.id }}
+      GATE_SHA: ${{ github.event.workflow_run.head_sha }}
+      GATE_ENDED: ${{ github.event.workflow_run.conclusion }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+      - run: bash .ai-backbone/gate.sh carry

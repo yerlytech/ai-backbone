@@ -1,0 +1,2 @@
+A specification with no versions in it.
+Only whether it changed is ever said.

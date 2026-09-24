@@ -1,0 +1,25 @@
+# Dependabot: GitHub's built-in dependency bot. Zero setup, free.
+# `just ci-init` writes this to .github/dependabot.yml when it sees a
+# pubspec.yaml. It opens a pull request when a pub.dev package is behind; your
+# agent reviews and merges it.
+#
+#     just ci-init flutter      writes this, and the workflow from ci-flutter.yml
+#
+# `pub` is the name GitHub gives Dart's and Flutter's package manager. It needs
+# no beta switch: GitHub's options reference says of `enable-beta-ecosystems`
+# "Not currently in use" (read 2026-09-19).
+# `directory` is where pubspec.yaml lives. Add one entry per package.
+version: 2
+updates:
+  - package-ecosystem: "pub"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+  # The workflow's own steps are other people's repositories too, and they go
+  # out of date the same way. Without this block nobody finds out until an
+  # action is retired and every push starts failing at once.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

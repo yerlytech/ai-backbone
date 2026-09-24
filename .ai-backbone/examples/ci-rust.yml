@@ -1,0 +1,184 @@
+# Every push, the same checks a person runs before saving work.
+#
+# The point is not that a machine repeats what `just lint && just test` does.
+# It is that nobody can push something that fails them, including you, in a
+# hurry.
+#
+# `just ci-init rust` copied this here. It is a starting point, not a standard:
+# change the job name, the commands and the paths until they are this project's.
+# The commands are cargo's rather than your layer's, because a runner has no
+# `just`. When you change one, change the other.
+#
+#   just ci          how the last push went, without opening a browser
+#   just ci-check    whether the lessons below are still in force. It runs
+#                    before every commit that touches .github/workflows/, and
+#                    a lesson you mean to drop is waived in the file itself.
+#                    `just ci-check` prints the exact line to write.
+#
+# Three of the steps below are other people's repositories, running in your
+# repository with your token: actions/checkout, dtolnay/rust-toolchain and
+# Swatinem/rust-cache. They are here because writing them yourself is a week and
+# keeping them right is forever. `permissions:` below gives them the least the
+# job can work with. `.github/dependabot.yml` came with this file and watches
+# them as well as your crates, which is how they stay current without anybody
+# remembering.
+
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# The job needs to read this repository and nothing else. Without this block it
+# gets whatever the repository's default is, which on an older repository is
+# write access to everything.
+permissions:
+  contents: read
+
+# A branch under review can be pushed to three times in a minute, and there is
+# nothing to learn from the checks on the commit before last: for a pull request
+# the key is the branch, so the older run is cancelled. On the default branch the
+# key is the commit, which is unique, so every push gets a group of one — nothing
+# cancels it and nothing queues behind it, and the history somebody reads later
+# to find where something broke is complete. `cancel-in-progress` is a question,
+# not a plain `true`; writing `true` there is the usual mistake and it throws
+# exactly that history away. These three lines contain no language and no
+# project. Copy them unchanged.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Colour for the browser. `just ci` strips it in the terminal, where it
+  # arrives as the two literal characters ^ and [ and reads as damage.
+  CARGO_TERM_COLOR: always
+  # A build that fails on a warning is a build that stays clean.
+  RUSTFLAGS: -D warnings
+  # Debug info is a map of the build for a debugger to read, and nobody debugs
+  # on a machine they cannot log into. It is most of what a test build weighs,
+  # and it is how the disk below fills. `line-tables-only` keeps the file and
+  # the line a panic names — the only part anyone reads out of a CI log — and
+  # drops the rest. Both profiles: `test` inherits `dev` only while this
+  # workspace has no `[profile.test]` of its own.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  CARGO_PROFILE_TEST_DEBUG: line-tables-only
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: room to build in
+        run: |
+          # Measured on the project this file comes from: the runner arrived
+          # with 14 GB free on a 72 GB disk, and with a .NET SDK, an Android
+          # SDK, a Haskell toolchain and a copy of Boost it will never use.
+          # Deleting them left 30 GB and cost about a minute. A linker that runs
+          # out of disk does not say so — it dies of a bus error, which reads
+          # like a compiler bug and sends you looking in the wrong place for a
+          # day.
+          #
+          # Read the two numbers in your own log before you decide you need
+          # this: a small workspace never gets close, and a project that uses
+          # .NET or Android must not delete its own tools.
+          before=$(df -k --output=avail / | tail -1)
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost
+          after=$(df -k --output=avail / | tail -1)
+          df -h /
+          # `rm -rf` on a path that is not there succeeds without a word, so the
+          # day GitHub changes the runner image this step becomes a minute of
+          # nothing and no other line in this file would notice.
+          freed=$(( (after - before) / 1024 / 1024 ))
+          echo "freed ${freed} GB"
+          if [ "$freed" -lt 5 ]; then
+            echo "::warning::this step freed ${freed} GB, not the ~16 it was written for."
+            echo "::warning::the runner image has probably moved. What is big now:"
+            echo "::warning::  sudo du -xh -d1 / 2>/dev/null | sort -h | tail -20"
+          fi
+
+      # `@stable` is a branch and not a tag: nothing pins what runs here and
+      # Dependabot cannot bump it. That is the trade for always having the
+      # current compiler.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo fmt --check
+      # --all-targets is the load-bearing flag: without it the tests, the
+      # benches and the examples are never linted.
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # --no-fail-fast, because cargo otherwise stops at the first test BINARY
+      # that fails and never runs the rest: one red push tells you about one
+      # defect and you find the next one tomorrow. Six went unrun the first time
+      # a project here got this far. A workspace has a test binary per
+      # integration-test file, so there are more of them than you think —
+      # `cargo test --workspace -- --list` counts yours.
+      - run: cargo test --workspace --no-fail-fast
+
+      - name: how much room was left
+        if: always()
+        run: |
+          # A step that died with no message — a bus error, a killed process —
+          # is almost always this. It also catches a CARGO_PROFILE line deleted
+          # in a hurry, which shows up here before it shows up as a failure.
+          df -h /
+          avail=$(df -k --output=avail / | tail -1)
+          if [ "${avail:-0}" -lt 2097152 ]; then
+            echo "::warning::under 2 GB left. Either the list in the room step is no"
+            echo "::warning::longer what the image ships, or the CARGO_PROFILE_*_DEBUG"
+            echo "::warning::lines are gone from env:."
+          fi
+
+# If this project ships a build that must NOT contain something — an edition
+# without the paid folder, a binary without a vendor's SDK — add the job below
+# and name what must not be there. It ships commented out on purpose: a
+# forbidden-crate list that matches nothing is precisely the check that passes
+# forever, which is the mistake this job exists to teach.
+#
+#  shipped:
+#    runs-on: ubuntu-latest
+#    steps:
+#      - uses: actions/checkout@v5
+#      - uses: dtolnay/rust-toolchain@stable
+#      - uses: Swatinem/rust-cache@v2
+#      - name: build it, and keep cargo's record of what went into it
+#        run: |
+#          # json-render-diagnostics, not plain json: errors still print for a
+#          # person on stderr while the machine record goes to the file.
+#          cargo build --release --bin YOUR-BIN \
+#            --message-format=json-render-diagnostics > built.json
+#      - name: what is in it, from the build's own record
+#        run: |
+#          # Do not prove which CRATES are inside a binary with `strings`. The
+#          # release profile strips it, and a stripped Rust binary carries no
+#          # crate names at all — an experiment on this machine found the crate
+#          # name zero times and the panic source path once. A check that looks
+#          # for the name reports every crate as absent and passes whatever is
+#          # in there, which is worse than no check.
+#          #
+#          # Ask the build system instead — and guard the guard. A check that
+#          # reads a file must prove the file is not empty first, or the day
+#          # cargo changes what it reports, everything below passes without
+#          # looking at anything. jq is on every ubuntu runner.
+#          if ! jq -r 'select(.reason == "compiler-artifact") | .package_id' built.json \
+#            | grep -q 'YOUR-CRATE'; then
+#            echo "the build record does not name the binary's own crate;"
+#            echo "either nothing was built or cargo changed what it reports"
+#            exit 1
+#          fi
+#          if jq -r 'select(.reason == "compiler-artifact") | .package_id' built.json \
+#            | grep -q 'WHAT-MUST-NOT-BE-THERE'; then
+#            echo "WHAT-MUST-NOT-BE-THERE was compiled into the shipped build"
+#            exit 1
+#          fi
+#
+# And if browser tests start the server themselves, build it in its own step
+# first. Playwright gives it four minutes to answer, and on a machine that has
+# never built this project `cargo run` spends longer than that compiling; the
+# tests then time out having tested nothing and report it as a test failure.
+#      - run: cargo build --bin YOUR-BIN

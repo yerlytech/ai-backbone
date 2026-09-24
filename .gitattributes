@@ -1,0 +1,8 @@
+# Notes from the projects and ticks from the scheduled agent meet in this file.
+# Both add lines, so both are kept. Here only: a file whose lines are edited or
+# removed in place, or whose entries run over several lines, loses text this way
+# (measured, spec 011).
+docs/backlog.md merge=union
+# The gate appends its verdict here on cloud while a run may append its own
+# line in a checkout of cloud (spec 017). Lines only, added at the end.
+docs/routine-log.md merge=union

@@ -1,0 +1,38 @@
+# What this backbone is built on, and what to read when it moves.
+#
+# `just upstream` says what has been released since each pin. `just upstream
+# <name>` prints that project's own release notes, so the decision is made on
+# what changed rather than on a version number. Neither upgrades anything.
+#
+# The backbone watches its own four tools. A project built on it watches its
+# language, its database, its framework and its protocol — see the template at
+# `.ai-backbone/templates/upstream.toml`.
+
+[[watch]]
+name = "just"
+source = "github:casey/just"
+pin = "1.58.0"
+why = "every repeatable command in every project built on this is a recipe"
+check = "recipe syntax, [group] attributes, whether --list output changed, and whether the floor setup.sh names (1.29.0) is still the oldest just that reads core.just"
+
+[[watch]]
+name = "prek"
+source = "github:j178/prek"
+pin = "0.5.3"
+why = "runs the git hooks: lint before a commit, and the secret scanner"
+check = "whether .pre-commit-config.yaml is still read the same way"
+
+[[watch]]
+name = "gitleaks"
+source = "github:gitleaks/gitleaks"
+pin = "v8.30.1"
+pinned_in = ".pre-commit-config.yaml"
+why = "the one hook worth a download: no secret reaches a commit"
+check = "new rules that would make an existing project's commit fail"
+
+[[watch]]
+name = "graphify"
+source = "github:Graphify-Labs/graphify"
+pin = "0.9.64"
+why = "the code map an agent reads instead of the whole codebase"
+check = "whether the query commands or the output folder changed"

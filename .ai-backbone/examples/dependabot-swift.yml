@@ -1,0 +1,21 @@
+# Dependabot: GitHub's built-in dependency bot. Zero setup, free.
+# Copy to .github/dependabot.yml. It opens a pull request when a Swift package
+# is behind; your agent reviews and merges it.
+#
+#     just ci-init swift      writes this; there is no ready workflow for Swift yet
+#
+# `directory` is where Package.swift or Package.resolved lives. One entry per app.
+version: 2
+updates:
+  - package-ecosystem: "swift"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+  # The workflow's own steps are other people's repositories too, and they go
+  # out of date the same way. Without this block nobody finds out until an
+  # action is retired and every push starts failing at once.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
