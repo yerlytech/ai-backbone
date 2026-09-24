@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.27.3
+# .ai-backbone/core.just — the backbone's recipes, version 3.27.4
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -605,7 +605,7 @@ stack lang="":
       echo "GitHub can open a pull request when a package is behind: just ci-init $lang"
     fi
 
-# Regenerate the rule copies and skill links from AGENTS.md (tools row of section 0)
+# Regenerate the rule copies and skill copies from AGENTS.md (tools row of section 0)
 [group('setup')]
 sync-rules:
     #!/usr/bin/env bash
@@ -630,14 +630,18 @@ sync-rules:
     gen copilot .github/copilot-instructions.md
     gen junie   .junie/guidelines.md
     # Skills live in .agents/skills/ (Codex and Gemini CLI read that folder).
-    # Claude Code reads .claude/skills/ and follows symlinks, so each skill gets a link.
+    # Claude Code reads .claude/skills/, so each skill gets a copy there. A copy,
+    # not a link: Git for Windows checks a link out as a small text file naming
+    # its target, and Claude Code saw no skills at all there (spec 020). The rm
+    # comes first, so an older link is replaced and never copied through.
     if has claude && [ -d .agents/skills ]; then
       mkdir -p .claude/skills
       for d in .agents/skills/*/; do
         [ -d "$d" ] || continue
         n=$(basename "$d")
-        ln -sfn "../../.agents/skills/$n" ".claude/skills/$n"
-        echo "  linked .claude/skills/$n"
+        rm -rf ".claude/skills/$n"
+        cp -R ".agents/skills/$n" ".claude/skills/$n"
+        echo "  copied .claude/skills/$n"
       done
     fi
     echo "Rule copies regenerated from AGENTS.md (tools: $tools)."
@@ -3265,7 +3269,7 @@ _py:
 _tools:
     @{ grep -E '^\| *tools *\|' AGENTS.md 2>/dev/null | awk -F'|' '{print $3}' | tr -d ' `'; } | grep . || echo all
 
-# Exit 1 with a message when a rule copy or skill link is out of date (used by the pre-commit hook)
+# Exit 1 with a message when a rule copy or skill copy is out of date (used by the pre-commit hook)
 _rules-check:
     #!/usr/bin/env bash
     tools=$(just _tools)
@@ -3282,7 +3286,8 @@ _rules-check:
     if has claude; then
       for d in .agents/skills/*/; do
         [ -d "$d" ] || continue; n=$(basename "$d")
-        [ -L ".claude/skills/$n" ] || { echo ".claude/skills/$n link is missing. Run just sync-rules, then stage the result."; bad=1; }
+        { [ -d ".claude/skills/$n" ] && [ ! -L ".claude/skills/$n" ] && diff -r "$d" ".claude/skills/$n" >/dev/null 2>&1; } \
+          || { echo ".claude/skills/$n is out of date. Run just sync-rules, then stage the result."; bad=1; }
       done
     fi
     exit $bad

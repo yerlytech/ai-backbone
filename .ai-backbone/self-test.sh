@@ -28,7 +28,11 @@ mkdir -p "$tmp/T"; export TMPDIR="$tmp/T"
 # found, while `git config --global` reads and writes the temp file only
 # (includes are not followed when one file is asked for; measured on git 2.55).
 export GIT_CONFIG_GLOBAL="$tmp/gitconfig"
-printf '[include]\n\tpath = %s\n\tpath = %s\n' "$HOME/.gitconfig" "${XDG_CONFIG_HOME:-$HOME/.config}/git/config" > "$GIT_CONFIG_GLOBAL"
+# Under Git Bash, git is a Windows program: it reads C:/Users/..., and an include
+# written as /c/Users/... is a file that does not exist. So the name and e-mail
+# were lost and every commit in the suite failed (spec 020). cygpath exists only there.
+winpath() { if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
+printf '[include]\n\tpath = %s\n\tpath = %s\n' "$(winpath "$HOME/.gitconfig")" "$(winpath "${XDG_CONFIG_HOME:-$HOME/.config}/git/config")" > "$GIT_CONFIG_GLOBAL"
 # Nor this machine's builds (spec 015). A doctor run in a throwaway project with
 # the Rust layer measures the build folder, and on a machine whose shell sets
 # CARGO_TARGET_DIR that is every project's real one, hundreds of gigabytes. And
@@ -127,7 +131,9 @@ chmod +x "$f"/*
 # bash-only line in setup.sh stayed green here and went red on CI. And with a system
 # folder of its own instead of /usr/bin: a machine with a packaged just there (Ubuntu
 # 24.04, the case the floor was written for) found it when the check meant "no just".
-mkdir -p "$tmp/sys"; for t in git awk sort head cat mkdir chmod rm sed grep tr; do ln -sf "$(command -v $t)" "$tmp/sys/$t"; done
+# Each tool is a two-line script that runs the real one, not a link: under Git Bash
+# `ln -s` copies, and a copied awk.exe cannot find the DLL beside the original (spec 020).
+mkdir -p "$tmp/sys"; for t in git awk sort head cat mkdir chmod rm sed grep tr; do printf '#!/bin/sh\nexec "%s" "$@"\n' "$(command -v $t)" > "$tmp/sys/$t"; chmod +x "$tmp/sys/$t"; done
 posix_sh=$(command -v dash || command -v sh)
 setup() { rm -rf "$tmp/home" "$tmp/uv-count"; mkdir -p "$tmp/home"; HOME="$tmp/home" PATH="$f:$tmp/sys" UV_COUNT="$tmp/uv-count" UV_FAILS="$1" "$posix_sh" "$root/.ai-backbone/setup.sh" -y; }
 calls() { cat "$tmp/uv-count" 2>/dev/null || echo 0; }
@@ -356,7 +362,7 @@ check "the hook is removed and added back without touching the rest" "[ \"\$('$p
 "$py" - "$tmp/hook/two.json" <<'PYEOF'
 import json,sys; g=lambda m:{"matcher":m,"hooks":[{"type":"command","command":'bash "$CLAUDE_PROJECT_DIR"/.ai-backbone/agent-cap.sh'}]}; json.dump({"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"true"}]},g("Agent"),g("Agent|Workflow")]}},open(sys.argv[1],"w"))
 PYEOF
-check "two copies of the hook become one, beside a stranger's group" "[ \"\$('$py' '$root/.ai-backbone/budget.py' hook add '$tmp/hook/two.json')\" = updated ] && '$py' -c \"import json;g=json.load(open('$tmp/hook/two.json'))['hooks']['PreToolUse'];assert [x['matcher'] for x in g]==['Bash','Agent|Workflow'],g\""
+check "two copies of the hook become one, beside a stranger's group" "[ \"\$('$py' '$root/.ai-backbone/budget.py' hook add '$tmp/hook/two.json')\" = updated ] && '$py' -c \"import json,sys;g=json.load(open(sys.argv[1]))['hooks']['PreToolUse'];assert [x['matcher'] for x in g]==['Bash','Agent|Workflow'],g\" '$tmp/hook/two.json'"
 printf '{ // a comment\n  "hooks": {} }\n' > "$tmp/hook/jsonc.json"
 check "a settings file that is not plain JSON is left alone and said" "! '$py' '$root/.ai-backbone/budget.py' hook add '$tmp/hook/jsonc.json' 2>/dev/null && grep -q '// a comment' '$tmp/hook/jsonc.json'"
 check "the same call counted once, however many times the hook sees it" "hcall s9 Agent t10 >/dev/null; hcall s9 Agent t10 >/dev/null; [ \$(grep -c '^t10\$' '$hk/ai-backbone-agents/s9/started') -eq 1 ]"
@@ -367,11 +373,19 @@ echo 4 > "$hk/ai-backbone-agents/today-cap"
 for i in 1 2 3 4; do hcall s13 Agent q$i >/dev/null; done
 check "the day's number holds in the hook, under the machine's setting" "says 'the cap is 4' hcall s13 Agent q5"
 rm -f "$hk/ai-backbone-agents/today-cap"
-check "a project with no settings file gets one with only the hook" "[ \"\$('$py' '$root/.ai-backbone/budget.py' hook add '$tmp/hook/none/.claude/settings.json')\" = added ] && '$py' -c \"import json;d=json.load(open('$tmp/hook/none/.claude/settings.json'));assert list(d)==['hooks']\""
+check "a project with no settings file gets one with only the hook" "[ \"\$('$py' '$root/.ai-backbone/budget.py' hook add '$tmp/hook/none/.claude/settings.json')\" = added ] && '$py' -c \"import json,sys;d=json.load(open(sys.argv[1]));assert list(d)==['hooks']\" '$tmp/hook/none/.claude/settings.json'"
 check "hooks-install says when it put the hook in"      "'$py' '$root/.ai-backbone/budget.py' hook remove .claude/settings.json >/dev/null && says 'Subagent cap: in .claude/settings.json, added' just hooks-install"
 check "and so does template-update, for a project made before the hook existed" "'$py' '$root/.ai-backbone/budget.py' hook remove .claude/settings.json >/dev/null && says 'Subagent cap: in .claude/settings.json, added' just template-update && '$py' '$root/.ai-backbone/budget.py' hook check .claude/settings.json"
 "$py" "$root/.ai-backbone/budget.py" hook add .claude/settings.json >/dev/null 2>&1 || true   # whatever the check found, the project keeps its hook
 check "the seed gives a new project the hook"           "grep -q 'agent-cap.sh' '$root/.claude/settings.json'"
+# Claude Code's skills are copies, never links: Git for Windows checks a link out
+# as a text file naming its target, and Claude Code found no skills (spec 020).
+check "a new project's skills are copies Claude Code reads on any machine" "[ -f .claude/skills/session/SKILL.md ] && [ ! -L .claude/skills/session ] && just _rules-check"
+echo 'an edit' >> .claude/skills/spec/SKILL.md
+check "a skill copy that differs from its source is named"  "says 'claude/skills/spec is out of date' just _rules-check"
+rm -rf .claude/skills/spec; ln -s ../../.agents/skills/spec .claude/skills/spec
+cp .agents/skills/spec/SKILL.md "$tmp/spec-skill-before"
+check "sync-rules turns an older project's link into a copy, and writes nothing through it" "just sync-rules >/dev/null && [ ! -L .claude/skills/spec ] && diff -r .agents/skills/spec .claude/skills/spec && cmp -s .agents/skills/spec/SKILL.md '$tmp/spec-skill-before' && just _rules-check"
 
 check "what python leaves behind is never saved"      "[ -z \"\$(git status --porcelain --untracked-files=all -- .ai-backbone/__pycache__)\" ] && git check-ignore -q .ai-backbone/__pycache__/upstream.cpython-311.pyc"
 check "LICENSE names the maker, not the backbone"     "! grep -q 'yerly.tech' LICENSE"
@@ -1399,10 +1413,10 @@ echo "== adopting an existing repo =="
 a="$tmp/old-repo"; mkdir -p "$a/src"
 ( cd "$a" && echo "# My old repo" > README.md && echo "node_modules/" > .gitignore && echo "x" > src/app.js \
   && git init -qb main && git add -A && git commit -qm "chore: init" ) >/dev/null 2>&1
-before=$(shasum "$a/README.md" | cut -c1-12)
+cp "$a/README.md" "$tmp/adopt-readme-before"   # cmp, not shasum: Git Bash has no shasum (spec 020)
 if ( cd "$root" && just adopt "$a" ) >/dev/null 2>&1; then ok "adopt runs"; else bad "adopt runs"; fi
 cd "$a" || exit 1
-check "adopted: own README byte-identical"            "[ '$before' = '$(shasum README.md | cut -c1-12)' ]"
+check "adopted: own README byte-identical"            "cmp -s README.md '$tmp/adopt-readme-before'"
 check "adopted: own .gitignore kept and ignores brain/" "grep -q '^node_modules/' .gitignore && grep -q '^brain/' .gitignore"
 check "adopted: core, AGENTS.md and hooks in place"   "[ -f .ai-backbone/core.just ] && [ -f AGENTS.md ] && [ -f .git/hooks/pre-commit ]"
 check "adopted: no placeholder README in a src/ with code" "[ ! -f src/README.md ]"

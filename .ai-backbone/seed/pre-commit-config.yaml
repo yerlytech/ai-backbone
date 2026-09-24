@@ -56,7 +56,7 @@ repos:
         pass_filenames: false
 
       - id: rules-in-sync
-        name: rule copies and skill links match AGENTS.md
+        name: rule copies and skill copies match AGENTS.md
         entry: just _rules-check
         language: system
         pass_filenames: false

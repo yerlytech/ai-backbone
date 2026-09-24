@@ -10,7 +10,7 @@
 # Everything not listed here belongs to the project and is never touched.
 #
 # Generated, never copied: .github/copilot-instructions.md, .junie/guidelines.md
-# and the links in .claude/skills/ (for the tools named in AGENTS.md section 0).
+# and the copies in .claude/skills/ (for the tools named in AGENTS.md section 0).
 # Created when first needed, never copied: .env.example, .archive/ (just archive),
 # .references/ (just ref-add), docs/adr/ (just adr), docs/audit-lenses.md
 # (just audit-lenses), docs/upstream.toml (just upstream-init), graphify-out/,

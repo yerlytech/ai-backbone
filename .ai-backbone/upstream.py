@@ -27,6 +27,13 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+# Python on Windows writes "\r\n" for every "\n", and the recipes compare what
+# it says as text: "removed\r" is not "removed" (spec 020). LF on every machine;
+# the encoding is PYTHONUTF8's, which core.just sets.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(newline="\n")
+
 LIST = Path("docs/upstream.toml")
 CACHE = Path(".git/upstream-cache.json")
 # The self-test sets this, and so does anybody who must not reach the network.

@@ -11,6 +11,20 @@ when the repository went public: a newcomer reads a repository, not a diary.
 The entries below are the record of every version; the tags before 3.27.2 are
 gone with the history.
 
+## 3.27.4 — 2026-09-24
+
+**Windows, the second step** (spec 020). Claude Code's skills in
+`.claude/skills/` are copies of `.agents/skills/` now, not links: Git for
+Windows checks a link out as a small text file naming its target, and Claude
+Code found no project skills there. `just sync-rules` replaces an older link
+with a copy and never writes through it; the rule check names a copy that
+differs from its source. Run `just sync-rules` once after the update and save
+what it changed. The Python scripts write LF on every machine: on Windows they
+wrote `\r\n`, and a recipe comparing `removed\r` with `removed` read it as a
+failure. The suite gives git its identity as a path git on Windows reads
+(`cygpath -m`), which alone had turned every save in it red there, and uses no
+`shasum` and no copied program that cannot find its DLL.
+
 ## 3.27.3 — 2026-09-24
 
 **Windows, the first step** (spec 020). Text checks out with LF on every

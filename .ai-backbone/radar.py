@@ -30,6 +30,13 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+# Python on Windows writes "\r\n" for every "\n", and the recipes compare what
+# it says as text: "removed\r" is not "removed" (spec 020). LF on every machine;
+# the encoding is PYTHONUTF8's, which core.just sets.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(newline="\n")
+
 LIST = Path("docs/radar.toml")
 LINE = 200      # characters of one line that are shown
 LINES = 40      # lines of one source that are shown

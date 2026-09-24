@@ -83,7 +83,7 @@ Do not read the whole codebase. Use the map.
 | `src/` | product code. Rename or restructure it to fit the project, then update §0. |
 | `docs/` | public documentation, in `code_lang`. Agents keep it current. |
 | `docs/specs/` | one page per idea, written before the code. `just spec <name>`. |
-| `.agents/skills/` | reusable agent skills (SKILL.md standard). `.claude/skills/` holds generated links to them. |
+| `.agents/skills/` | reusable agent skills (SKILL.md standard). `.claude/skills/` holds generated copies of them. |
 | `brain/` | private vault, in `brain_lang`, never committed |
 | `.ai-backbone/` | **owned by the backbone.** Its recipes, manifest, templates and setup script. `just template-update` writes here and to nothing of yours. Never edit. |
 | `.references/` | **READ ONLY.** Other people's repos and old versions of yours. Never write there. Created when first needed. `just ref-add <url> "why"` adds one. |
