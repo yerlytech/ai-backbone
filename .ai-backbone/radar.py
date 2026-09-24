@@ -184,7 +184,7 @@ def mark(name):
                 sys.exit(1)
             blocks[i] = block
             break
-    LIST.write_text("".join(blocks))
+    LIST.write_bytes("".join(blocks).encode("utf-8"))  # bytes: LF on Windows too (spec 020)
     say(f"{name}: {key} = {value[:60]}")
 
 

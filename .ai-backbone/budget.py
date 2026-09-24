@@ -164,7 +164,7 @@ def save_cache(where, data):
     try:
         where.parent.mkdir(parents=True, exist_ok=True)
         tmp = where.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, separators=(",", ":")))
+        tmp.write_bytes(json.dumps(data, separators=(",", ":")).encode("utf-8"))
         os.replace(tmp, where)
     except OSError as err:
         print(f"(could not keep the cache at {where}: {err})", file=sys.stderr)
@@ -331,7 +331,7 @@ def today_cap(n):
         folder = Path(os.environ.get("TMPDIR") or "/tmp") / "ai-backbone-agents"
         folder.mkdir(parents=True, exist_ok=True)
         tmp = folder / "today-cap.tmp"
-        tmp.write_text(f"{int(n)}\n")
+        tmp.write_bytes(f"{int(n)}\n".encode("utf-8"))
         os.replace(tmp, folder / "today-cap")
     except OSError:
         pass
@@ -419,7 +419,7 @@ def _load_settings(path):
 def _save_settings(path, data):
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
+    with open(tmp, "w", encoding="utf-8", newline="\n") as fh:  # LF on Windows too (spec 020)
         json.dump(data, fh, indent=2, ensure_ascii=False)
         fh.write("\n")
     os.replace(tmp, path)

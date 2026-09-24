@@ -32,6 +32,12 @@ export GIT_CONFIG_GLOBAL="$tmp/gitconfig"
 # written as /c/Users/... is a file that does not exist. So the name and e-mail
 # were lost and every commit in the suite failed (spec 020). cygpath exists only there.
 winpath() { if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
+# The same for what reads a path inside a text rather than as an argument, which
+# Git Bash converts on its own: Python source, a URL, a git config value.
+rootw=$(winpath "$root")
+fileurl() { local p; p=$(winpath "$1"); case "$p" in /*) printf 'file://%s' "$p" ;; *) printf 'file:///%s' "$p" ;; esac; }
+# A PATH cut to the system's own folders keeps git: under Git Bash it is not in /usr/bin.
+gitbin=$(dirname "$(command -v git)")
 printf '[include]\n\tpath = %s\n\tpath = %s\n' "$(winpath "$HOME/.gitconfig")" "$(winpath "${XDG_CONFIG_HOME:-$HOME/.config}/git/config")" > "$GIT_CONFIG_GLOBAL"
 # Nor this machine's builds (spec 015). A doctor run in a throwaway project with
 # the Rust layer measures the build folder, and on a machine whose shell sets
@@ -194,7 +200,9 @@ n=$(git ls-files | wc -l | tr -d ' ')
 # 42 since 3.24.0: budget.py and agent-cap.sh reach every project (spec 014), the
 # maintainer's decision of 2026-09-22 in an attended session. Still a ceiling
 # somebody has to decide to raise, never a scheduled run.
-check "tracked files at most 42 (got $n)"             "[ $n -le 42 ]"
+# 43 since 3.27.5: .gitattributes, so a project checks out with LF on Windows
+# (spec 020, which the maintainer approved on 2026-09-24 in an attended session).
+check "tracked files at most 43 (got $n)"             "[ $n -le 43 ]"
 # Two more ceilings, set at what a new project measured on 2026-09-19 (spec 012).
 # An agent nobody watches works on this backbone every day and builds ideas it
 # read about; every one of them is small and sensible, and a hundred of them are
@@ -933,7 +941,7 @@ cd "$p" || exit 1
 # older than the marker, nothing long and nothing but ASCII gets through.
 echo "== the radar =="
 rd="$tmp/radar"; mkdir -p "$rd/docs"; py=$(just _py)
-printf '[[source]]\nname = "log"\nurl = "file://%s/.ai-backbone/fixtures/radar-changelog.md"\nbytes = 4000\nheading = "^## [0-9]"\nfilter = "AGENTS\\\\.md|SKILL\\\\.md"\nseen = "## 9.9.0"\nread = "2026-01-01"\ntouches = "AGENTS.md"\n\n[[source]]\nname = "spec"\nurl = "file://%s/.ai-backbone/fixtures/radar-spec.txt"\nhash = "0000"\nread = "2026-01-01"\ntouches = "SKILL.md"\n\n[[source]]\nname = "gone"\nurl = "file://%s/no-such-file"\nhash = "0000"\nread = "2026-01-01"\ntouches = "x"\n' "$root" "$root" "$root" > "$rd/docs/radar.toml"
+printf '[[source]]\nname = "log"\nurl = "%s/.ai-backbone/fixtures/radar-changelog.md"\nbytes = 4000\nheading = "^## [0-9]"\nfilter = "AGENTS\\\\.md|SKILL\\\\.md"\nseen = "## 9.9.0"\nread = "2026-01-01"\ntouches = "AGENTS.md"\n\n[[source]]\nname = "spec"\nurl = "%s/.ai-backbone/fixtures/radar-spec.txt"\nhash = "0000"\nread = "2026-01-01"\ntouches = "SKILL.md"\n\n[[source]]\nname = "gone"\nurl = "%s/no-such-file"\nhash = "0000"\nread = "2026-01-01"\ntouches = "x"\n' "$(fileurl "$root")" "$(fileurl "$root")" "$(fileurl "$root")" > "$rd/docs/radar.toml"
 radar() { ( cd "$rd" && "$py" "$root/.ai-backbone/radar.py" "$@" ); }
 check "the radar shows what is newer than its marker, and nothing at or below it" "says 'nearest one wins' radar log && ! says 'must not be shown again' radar log && ! says 'Older still' radar log"
 check "a line that does not pass the filter is not shown" "! says 'terminal is resized' radar log && ! says 'status line' radar log"
@@ -942,7 +950,7 @@ check "what is shown is marked as a stranger's words"   "says 'Written by strang
 check "a file with no versions is never shown, only that it changed" "says 'CHANGED since 2026-01-01' radar spec && ! says 'specification with no versions' radar spec"
 check "a source that does not answer is not read, never unchanged" "says 'not read' radar gone && ! says 'same as last time' radar gone"
 check "marking moves one source's marker and no other line" "radar --mark log && grep -q '^seen = \"## 9.9.2\"' '$rd/docs/radar.toml' && grep -q '^hash = \"0000\"' '$rd/docs/radar.toml' && says 'nothing the filter lets through' radar log"
-printf '\n[[source]]\nname = "badre"\nurl = "file://%s/.ai-backbone/fixtures/radar-changelog.md"\nfilter = "feat("\nseen = ""\nread = ""\ntouches = "x"\n\n[[source]]\nname = "fresh"\nurl = "file://%s/.ai-backbone/fixtures/radar-changelog.md"\nheading = "^## [0-9]"\ntouches = "x"\n' "$root" "$root" >> "$rd/docs/radar.toml"
+printf '\n[[source]]\nname = "badre"\nurl = "%s/.ai-backbone/fixtures/radar-changelog.md"\nfilter = "feat("\nseen = ""\nread = ""\ntouches = "x"\n\n[[source]]\nname = "fresh"\nurl = "%s/.ai-backbone/fixtures/radar-changelog.md"\nheading = "^## [0-9]"\ntouches = "x"\n' "$(fileurl "$root")" "$(fileurl "$root")" >> "$rd/docs/radar.toml"
 check "a filter that is not a pattern costs one source, not the run" "says 'not read: heading, filter or skip' radar && says 'CHANGED since' radar && ! says Traceback radar"
 check "marking a row that has no marker line says so, and does not claim it" "! radar --mark fresh && says 'has no line that begins' radar --mark fresh"
 check "a source that did not answer keeps its marker"   "! radar --mark gone && [ \$(grep -c '^hash = \"0000\"' '$rd/docs/radar.toml') -eq 2 ]"
@@ -1159,7 +1167,7 @@ check "three sources in a row that do not answer, and the rest are not asked" "s
 # github.com: v1.10.0 is newer than 1.2.0, and a release candidate is not a release.
 mkdir -p "$tmp/tags/a" && ( cd "$tmp/tags/a" && git init -q b.git && cd b.git && git commit -q --allow-empty -m seed && for t in v1.0.0 v1.2.0 v1.10.0 v2.0.0-rc.1; do git tag "$t"; done ) >/dev/null 2>&1
 printf '[[watch]]\nname = "tool"\nsource = "github:a/b"\npin = "1.2.0"\n' > "$tmp/hostile/docs/upstream.toml"
-sandbox() { hostile env -u AI_BACKBONE_OFFLINE https_proxy=http://127.0.0.1:9 http_proxy=http://127.0.0.1:9 no_proxy= PATH=/usr/bin:/bin GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.file://$1/.insteadOf" GIT_CONFIG_VALUE_0="https://github.com/"; }
+sandbox() { hostile env -u AI_BACKBONE_OFFLINE https_proxy=http://127.0.0.1:9 http_proxy=http://127.0.0.1:9 no_proxy= PATH="$gitbin:/usr/bin:/bin" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.$(fileurl "$1")/.insteadOf" GIT_CONFIG_VALUE_0="https://github.com/"; }
 check "when the GitHub API refuses, the tags are asked of git" "says '^  tool +1\\.2\\.0 .* v1\\.10\\.0 +1 newer' sandbox '$tmp/tags'"
 # The FAIL names what was seen: on a runner nobody can run the line by hand.
 saw_full=$(sandbox "$tmp/no-such-folder" 2>&1)
@@ -1176,7 +1184,7 @@ check "and when git cannot list them either, that is unreachable, never current 
 # row compared words. A tag is now a label, numbers and a suffix, and only a tag
 # that carries the pin's label is the pin's next version.
 # `newer <pin> <stable|pre> <tag>…` prints what newer_than keeps, or "none".
-newer() { "$py" -c "import importlib.util as i, sys; s=i.spec_from_file_location('u', '$root/.ai-backbone/upstream.py'); u=i.module_from_spec(s); s.loader.exec_module(u); pin, pre, *tags = sys.argv[1:]; print(' '.join(r['version'] for r in u.newer_than(pin, [{'version': t, 'prerelease': bool(u.re.search('rc|pre', t, u.re.I))} for t in tags], pre == 'pre')) or 'none')" "$@"; }
+newer() { "$py" -c "import importlib.util as i, sys; s=i.spec_from_file_location('u', '$rootw/.ai-backbone/upstream.py'); u=i.module_from_spec(s); s.loader.exec_module(u); pin, pre, *tags = sys.argv[1:]; print(' '.join(r['version'] for r in u.newer_than(pin, [{'version': t, 'prerelease': bool(u.re.search('rc|pre', t, u.re.I))} for t in tags], pre == 'pre')) or 'none')" "$@"; }
 check "a sub-package's tag is another package's version"   "[ \"\$(newer v0.9 stable python/x/v1.0 v0.10)\" = v0.10 ] && [ \"\$(newer python/x/v0.9 stable python/x/v1.0 v0.10)\" = python/x/v1.0 ]"
 check "a date is a version, and its RC comes before it"    "[ \"\$(newer 2026-07-28 pre 2026-07-28-RC 2026-07-28)\" = none ] && [ \"\$(newer 2026-07-28 pre 2026-11-05-RC)\" = 2026-11-05-RC ]"
 check "a labelled tag has numbers, and another label is another thing" "upy 'p(\"rust-v0.155.1\")[0] == [0, 155, 1]' && [ \"\$(newer rust-v0.155.0 stable rust-v0.155.1 python-v9.0.0 rusty-v8-v152.2.0)\" = rust-v0.155.1 ]"
@@ -1204,7 +1212,7 @@ for r in sdk brew; do mkdir -p "$tmp/$r/bin" && printf '#!/bin/sh\necho 9.9.9\n'
 mv "$tmp/brew/bin/tool" "$tmp/brew/bin/sdk"
 ( cd "$tmp/sdk" && git init -q && git remote add origin https://github.com/a/b.git && git add -A && git commit -q -m seed && git tag v1.2.0 \
   && cd "$tmp/brew" && git init -q && git remote add origin https://github.com/Homebrew/brew && git add -A && git commit -q -m seed && git tag 4.0.0 ) >/dev/null 2>&1
-ask() { ( cd "$tmp/hostile" && env -u AI_BACKBONE_OFFLINE https_proxy=http://127.0.0.1:9 http_proxy=http://127.0.0.1:9 no_proxy= PATH="$tmp/sdk/bin:$tmp/brew/bin:/usr/bin:/bin" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.file://$tmp/tags/.insteadOf" GIT_CONFIG_VALUE_0="https://github.com/" "$py" "$root/.ai-backbone/upstream.py" "$@" ); }
+ask() { ( cd "$tmp/hostile" && env -u AI_BACKBONE_OFFLINE https_proxy=http://127.0.0.1:9 http_proxy=http://127.0.0.1:9 no_proxy= PATH="$tmp/sdk/bin:$tmp/brew/bin:$gitbin:/usr/bin:/bin" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.$(fileurl "$tmp/tags")/.insteadOf" GIT_CONFIG_VALUE_0="https://github.com/" "$py" "$root/.ai-backbone/upstream.py" "$@" ); }
 check "a list that holds neither the pin nor anything newer is unknown, never current" "says '^  sdk +3\\.44\\.0 .* unknown' ask && says '^  sdk: lists neither 3\\.44\\.0 nor a release newer than it; the newest it lists is v2\\.0\\.0-rc\\.1\$' ask && says '^  tool +1\\.10\\.0 .* current' ask"
 check "a pin written another way than the source writes is told how" "says '^  label: lists nothing written like tool-1\\.2\\.0; its versions look like v1\\.10\\.0: if that is what is pinned, write the pin that way\$' ask && says '^Everything readable is current. No answer for: sdk, label\\.\$' ask"
 check "upstream <name> says the source was read and did not answer" "says 'the source was read, and it lists neither 3\\.44\\.0' ask sdk && ! says 'could not be read' ask sdk"
@@ -1217,7 +1225,7 @@ check "and never somebody else's repository the command happens to sit in" "says
 # first, and on the beta channel a beta is the release. Only the network is
 # replaced: the whole script runs, and any other address asked for ends the run.
 printf '[[watch]]\nname = "flutter"\nsource = "flutter:stable"\npin = "3.44.0"\n\n[[watch]]\nname = "rebuilt"\nsource = "flutter:stable"\npin = "3.13.3"\n\n[[watch]]\nname = "beta"\nsource = "flutter:beta"\npin = "3.48.0-0.4.pre"\n\n[[watch]]\nname = "typo"\nsource = "flutter:stabel"\npin = "3.44.0"\n\n[[watch]]\nname = "kind"\nsource = "fluter:stable"\npin = "3.44.0"\n' > "$tmp/flutter.toml"
-fl() { ( cd "$tmp/hostile" && cp "$tmp/flutter.toml" docs/upstream.toml && "$py" -c "import importlib.util as i, json, sys; s=i.spec_from_file_location('u', '$root/.ai-backbone/upstream.py'); u=i.module_from_spec(s); s.loader.exec_module(u); u.OFFLINE=False; u.fetch_json=lambda url, headers=None: json.load(open('$root/.ai-backbone/fixtures/flutter-releases.json')) if u.re.search(r'/flutter_infra_release/releases/releases_(macos|linux|windows)\.json\$', url) else sys.exit('asked ' + url); sys.exit(u.main())" "$@" ); }
+fl() { ( cd "$tmp/hostile" && cp "$tmp/flutter.toml" docs/upstream.toml && "$py" -c "import importlib.util as i, json, sys; s=i.spec_from_file_location('u', '$rootw/.ai-backbone/upstream.py'); u=i.module_from_spec(s); s.loader.exec_module(u); u.OFFLINE=False; u.fetch_json=lambda url, headers=None: json.load(open('$rootw/.ai-backbone/fixtures/flutter-releases.json')) if u.re.search(r'/flutter_infra_release/releases/releases_(macos|linux|windows)\.json\$', url) else sys.exit('asked ' + url); sys.exit(u.main())" "$@" ); }
 check "flutter:stable reads Flutter's own list, one row per version" "says '^  flutter +3\\.44\\.0 +2026-05-18 +3\\.47\\.5 +2 newer' fl"
 check "a version built more than once is dated by its first day" "says '^  rebuilt +3\\.13\\.3 +2023-09-08 +3\\.47\\.5 +3 newer' fl"
 check "on the beta channel a beta is the release"          "says '^  beta +3\\.48\\.0-0\\.4\\.pre +2026-09-03 +3\\.48\\.0-0\\.5\\.pre +1 newer' fl"

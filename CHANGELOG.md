@@ -11,6 +11,19 @@ when the repository went public: a newcomer reads a repository, not a diary.
 The entries below are the record of every version; the tags before 3.27.2 are
 gone with the history.
 
+## 3.27.5 — 2026-09-24
+
+**Windows, the third step** (spec 020). A new project gets a `.gitattributes`
+that checks its text out with LF on every machine, as the backbone's own does
+since 3.27.3: a project made or cloned on Windows had CRLF in every file git
+wrote. A project made before this has none; add the same line when it lives on
+Windows (`* text=auto eol=lf`). The ceiling on a new project's tracked files is
+43 for it. The Python scripts write their files with LF too: on Windows
+`budget.py` rewrote `.claude/settings.json` with CRLF, and the radar and the
+upstream cache did the same. The suite hands Python and git paths they read on
+Windows (`C:/...`, `file:///C:/...`), and keeps git on a PATH cut to the
+system's folders, where Git Bash has none.
+
 ## 3.27.4 — 2026-09-24
 
 **Windows, the second step** (spec 020). Claude Code's skills in

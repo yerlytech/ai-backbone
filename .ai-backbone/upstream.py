@@ -727,7 +727,7 @@ def main():
 
     if CACHE.parent.is_dir():
         released = {name: {"pin": pin, "at": "" if at == "?" else at} for name, pin, at, *_ in rows}
-        CACHE.write_text(json.dumps({"behind": behind, "moved": moved, "released": released}, indent=1))
+        CACHE.write_bytes(json.dumps({"behind": behind, "moved": moved, "released": released}, indent=1).encode("utf-8"))
     return 0
 
 

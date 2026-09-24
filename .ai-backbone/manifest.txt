@@ -55,6 +55,7 @@ src/README.md
 .ai-backbone/seed/Justfile -> Justfile
 .ai-backbone/seed/pre-commit-config.yaml -> .pre-commit-config.yaml
 .ai-backbone/seed/docs-README.md -> docs/README.md
+.ai-backbone/seed/gitattributes -> .gitattributes
 
 [backbone]
 .ai-backbone/self-test.sh
