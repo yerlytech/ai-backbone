@@ -66,11 +66,11 @@ watched. Measured that day:
 - [x] `just upstream` shows a release date for just, prek, graphify and uv in the cloud sandbox.
 - [x] graphify is not reported newer while PyPI has nothing newer.
 - [x] uv and `actions/checkout` are watched; v7.0.1 is not "newer" than a pin of v7.
-- [ ] The gate is green on three machines with `actions/checkout@v7`, and `promote.yml` carries a push with it.
+- [x] The gate is green on three machines with `actions/checkout@v7` (run 36121318206); `promote.yml` with it is read on the next carry.
 - [ ] A routine run that finds a moved tool moves it, and the gate carries it.
 
 ## Tasks
 
 - [x] `pypi:` in upstream.py, `major`, tools-update, the watch list, their checks.
 - [x] The brief: current tools after the gate, the radar every third day; the docs.
-- [ ] `actions/checkout@v7` and graphify's pin, carried to main by hand (a workflow).
+- [x] `actions/checkout@v7` and graphify's pin, carried to main by hand (a workflow): fb02c01.
