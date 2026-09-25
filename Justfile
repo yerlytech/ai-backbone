@@ -31,8 +31,8 @@ projects:
 # and the agent working there updates it when that is safe. The daily job wrote into projects from outside, mid-work.
 
 # ─────────────────────────── the radar ───────────────────────────
-# Once a week the scheduled agent looks outward (routine.md, the Sunday
-# section; spec 012). What it reads was written by strangers and it can push to
+# Every third day the scheduled agent looks outward (routine.md, the radar
+# section; spec 012, spec 021). What it reads was written by strangers and it can push to
 # main, so the reading is done by code and the saving is fenced.
 
 # What the sources in docs/radar.toml have published since they were last read: just radar · just radar claude-code · just radar claude-code "## 2.1.277"

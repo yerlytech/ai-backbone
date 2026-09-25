@@ -11,7 +11,7 @@ a project built on it starts with a two-line `docs/README.md` of its own.
 | `adr/` | architecture decisions, one file each, numbered, newest last, `just adr <name>`; one that changes an earlier one: `just adr <name> --amends NNNN` |
 | `backlog.md` | notes from the projects for the backbone, `just backbone-note "..."`; agents work through the open lines, `- [?]` lines wait for the maintainer |
 | `routine-log.md` | one line per run of the scheduled agent: its only memory, since its sandbox keeps nothing |
-| `radar.toml` | what the scheduled agent reads on a Sunday, and how far it has read: `just radar` |
+| `radar.toml` | what the scheduled agent reads every third day, and how far it has read: `just radar` |
 
 `.ai-backbone/routine.md` is the brief for a scheduled agent that works the
 backlog on its own (Claude routine, Cursor cloud agent or a GitHub Action).

@@ -71,7 +71,7 @@ missing.
 | **just** | a command runner: `just save`, `just doctor` | one word per action, the same in every language, so the person types four commands and the agent types the rest |
 | **prek** | runs the checks before every commit (a hook runner) | the guards run whether or not anybody remembers them; **gitleaks**, which it runs, stops a password from ever reaching GitHub |
 | **graphify** | draws a map of the code | the agent reads the map instead of the whole codebase: fewer tokens, better answers |
-| **uv** | installs Python tools into their own folder | the backbone's three small helpers (the tool watch, the Sunday look at what other agent tools published, the budget line) run without touching the system's Python or your project's language |
+| **uv** | installs Python tools into their own folder | the backbone's three small helpers (the tool watch, the look every third day at what other agent tools published, the budget line) run without touching the system's Python or your project's language |
 | **gh** | GitHub's command line | only for talking to GitHub: `just publish` creates a repository with it, `just ci` reads the checks. Saving and undoing never need it |
 
 ## What it costs

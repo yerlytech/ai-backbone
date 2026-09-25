@@ -11,6 +11,7 @@
 #
 #   name        short, the one you would say out loud
 #   source      github:owner/repo · crates:name · npm:name · pub:name ·
+#               pypi:name (what uv and pip install from) ·
 #               flutter:stable (the Flutter SDK: its GitHub release pages
 #               stopped at 3.19, its own list did not; flutter:beta works too)
 #   pin         the version this project uses today, written the way the source
@@ -24,6 +25,9 @@
 #   check       what to look at before following it upstream
 #   prereleases true to count release candidates as newer (for something
 #               deliberately tracked before it is stable)
+#   major       true when the pin is a major version that takes its own
+#               updates (a workflow's actions/checkout@v7): only a new major
+#               is newer
 #   docs        optional: where that version's own documentation lives, a URL
 #
 #   A tool that lives as a binary and in no file has no pinned_in; MOVED cannot

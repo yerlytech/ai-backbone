@@ -39,7 +39,7 @@ jobs:
       GATE_SHA: ${{ github.event.workflow_run.head_sha }}
       GATE_ENDED: ${{ github.event.workflow_run.conclusion }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0

@@ -208,6 +208,27 @@ def from_pub(name):
     ]
 
 
+def from_pypi(name):
+    """PyPI, for a tool installed with uv (just as rust-just, prek, graphifyy,
+    uv itself). What is released here is what `uv tool upgrade` can install:
+    graphify's GitHub tags said 1.0.0 while PyPI's newest was 0.9.67, and a
+    watch read from GitHub reported as new what nobody could install
+    (2026-09-25, spec 021). A release is dated by its first file; one whose
+    files were all yanked is not one to follow. PEP 440 writes a prerelease
+    with letters (1.0.0rc1, 2.0b3, 1.0.dev4), never with a hyphen."""
+    data = fetch_json(f"https://pypi.org/pypi/{name}/json")
+    out = []
+    for version, files in (data.get("releases") or {}).items():
+        if not files or all(f.get("yanked") for f in files):
+            continue
+        at = min((f.get("upload_time_iso_8601") or f.get("upload_time") or "") for f in files)[:10]
+        out.append({"version": version, "at": at, "title": version, "notes": "",
+                    "url": f"https://pypi.org/project/{name}/{version}/",
+                    "prerelease": bool(re.search(r"\d(a|b|rc|c|dev|pre|alpha|beta)\d*", version, re.I))})
+    out.sort(key=lambda r: r["at"], reverse=True)
+    return out
+
+
 def from_flutter(channel):
     """Flutter's own release list, because GitHub has none: the release pages of
     flutter/flutter stop at 3.19.0-0.1.pre, and 3.47.5 was out (2026-09-19). This
@@ -318,6 +339,14 @@ def newer_than(pin, releases, want_prereleases):
         if theirs == label and number > mine and dated:
             out.append(release)
     return out
+
+
+def new_majors(pin, releases):
+    """For a row with `major = true`: the pin is a major version that takes its
+    own updates, as a workflow's `actions/checkout@v7` runs every v7.x
+    (spec 021). Only a new major is news there."""
+    mine = parts(str(pin))[0][:1]
+    return [r for r in releases if parts(r["version"])[0][:1] > mine]
 
 
 def unanswered(pin, releases):
@@ -500,7 +529,7 @@ def pin_is_real(entry):
 
 
 SOURCES = {"github": from_github, "crates": from_crates, "npm": from_npm, "pub": from_pub,
-           "flutter": from_flutter}
+           "pypi": from_pypi, "flutter": from_flutter}
 
 
 def look(entry):
@@ -510,7 +539,7 @@ def look(entry):
     kind, _, rest = source.partition(":")
     if kind not in SOURCES or not rest:
         raise ValueError(f"unknown source `{source}` — use github:owner/repo, crates:name, npm:name,"
-                         " pub:name or flutter:stable")
+                         " pub:name, pypi:name or flutter:stable")
     if OFFLINE:
         raise Unreachable("offline: AI_BACKBONE_OFFLINE is set")
     return SOURCES[kind](rest)
@@ -645,6 +674,8 @@ def main():
             rows.append((name, entry.get("pin", "?"), at, "nothing published", "unknown", pin_is_real(entry)))
             continue
         ahead = newer_than(entry.get("pin", "0"), releases, entry.get("prereleases", False))
+        if entry.get("major"):
+            ahead = new_majors(entry.get("pin", "0"), ahead)
         # Nothing newer is "current" only when the source lists the pin itself.
         silence = "" if ahead else unanswered(entry.get("pin", "0"), releases)
         if silence:

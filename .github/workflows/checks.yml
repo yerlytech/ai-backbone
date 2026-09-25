@@ -48,7 +48,7 @@ jobs:
     outputs:
       what: ${{ steps.look.outputs.what }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - id: look
@@ -86,7 +86,7 @@ jobs:
     env:
       HOMEBREW_NO_AUTO_UPDATE: 1
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: which machine this is
         # Named first, so a red that follows an image move reads as one.

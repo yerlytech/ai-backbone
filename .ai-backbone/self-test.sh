@@ -293,7 +293,7 @@ check "README and docs/README lead to it"              "grep -q 'docs/how-it-wor
 # 3.22.0 gave the scheduled agent a Sunday of its own and left the pages that
 # describe that agent as they were. The picture above draws the radar, so the
 # words beside it must exist too.
-check "the docs say what the scheduled agent does on a Sunday" "grep -q 'radar.toml' '$root/docs/01-getting-started.md' && grep -q 'radar.toml' '$root/docs/README.md'"
+check "the docs say what the scheduled agent does every third day" "grep -q 'radar.toml' '$root/docs/01-getting-started.md' && grep -q 'radar.toml' '$root/docs/README.md'"
 check "project name kept as typed"                    "grep -q '^| project | Deneme Projesi |' AGENTS.md"
 check "brain_lang and chat_lang set from the argument" "grep -q '^| brain_lang | tr |' AGENTS.md && grep -q '^| chat_lang | tr |' AGENTS.md"
 check "no .env.example before the first secret"       "[ ! -f .env.example ]"
@@ -887,7 +887,7 @@ cp "$root/.ai-backbone/upstream.py" .ai-backbone/upstream.py; rm -f docs/upstrea
 # tools-update checks above. Four rows: one to move, one a file holds, one a file
 # holds with its keys in another order, one that is ahead of what is installed.
 tu="$tmp/st-tools"; mkdir -p "$tu/bin" "$tu/work/docs"; ln -sf "$(command -v just)" "$tu/bin/just"
-printf '#!/bin/sh\nexit 0\n' > "$tu/bin/uv"
+printf '#!/bin/sh\n[ "$1" = --version ] && echo "uv 0.12.19 (x 2026-09-25)"\nexit 0\n' > "$tu/bin/uv"
 printf '#!/bin/sh\necho "graphify 0.9.64"\n' > "$tu/bin/graphify"
 printf '#!/bin/sh\necho "prek 0.5.3 (b7eb60271 2026-09-13)"\n' > "$tu/bin/prek"
 chmod +x "$tu"/bin/*
@@ -914,13 +914,19 @@ pin = "0.0.1"
 name = "just"
 source = "github:casey/just"
 pin = "v999.0.0"
+
+[[watch]]
+name = "installer"
+source = "pypi:uv"
+pin = "0.12.0"
 TOML
 cp "$tu/work/docs/upstream.toml" "$tu/before.toml"
 tools_update() { env PATH="$tu/bin:/usr/bin:/bin" just -f "$root/Justfile" -d "$tu/work" tools-update; }
 out=$(tools_update 2>&1)
 check "tools-update moves the pin of a tool no file holds to what is installed, and says so" "grep -q '^docs/upstream.toml: map pin 0.9.62 -> 0.9.64' <<<\"\$out\" && grep -q '^pin = \"0.9.64\"   # by hand\$' '$tu/work/docs/upstream.toml'"
 changed=$(diff "$tu/before.toml" "$tu/work/docs/upstream.toml")
-check "and that one line only, once: not a pin a file holds, not one that is ahead" "[ \$(grep -c '^[<>]' <<<\"\$changed\") -eq 2 ] && ! says ' pin .* -> ' tools_update"
+check "a row read from PyPI moves too (spec 021)" "grep -q '^docs/upstream.toml: installer pin 0.12.0 -> 0.12.19' <<<\"\$out\""
+check "and that one line only, once: not a pin a file holds, not one that is ahead" "[ \$(grep -c '^[<>]' <<<\"\$changed\") -eq 4 ] && ! says ' pin .* -> ' tools_update"
 # hooks-install in a sandbox: prek wants a Go from go.dev, which is closed there.
 # The stand-in prek prepares its hooks only when the go first on the PATH is the
 # one it asked for, and names that one in the log file it was handed, as prek
@@ -1156,6 +1162,10 @@ check "and that is an answer, not a failed recipe"          "just upstream examp
 # Whoever moves the second in the seed moves the first with it.
 seedrev=$(awk '/gitleaks\/gitleaks/ {f=1; next} f && /rev:/ {print $2; exit}' "$root/.ai-backbone/seed/pre-commit-config.yaml")
 check "the example row pins what the seed hook config holds ($seedrev)" "[ -n '$seedrev' ] && grep -qx 'pin = \"$seedrev\"' '$root/.ai-backbone/templates/upstream.toml'"
+# The routine moves the scanner in the backbone's own config (spec 021); a
+# project gets the seed's, so the two, and the backbone's own watch row, move
+# together or the suite says which one stayed behind.
+check "the seed's scanner is the backbone's own, and its watch row says so ($seedrev)" "[ '$seedrev' = '$hookrev' ] && grep -qx 'pin = \"$hookrev\"' '$root/docs/upstream.toml'"
 # A monorepo tags its sub-packages by path; the 2 in `a2ui` was read as a version
 # and called newer than v0.9 every week.
 check "a monorepo tag is not newer than the pin"        "\"\$(just _py)\" -c 'import importlib.util as i; s=i.spec_from_file_location(\"u\", \".ai-backbone/upstream.py\"); u=i.module_from_spec(s); s.loader.exec_module(u); raise SystemExit(0 if u.parts(\"python/a2ui-core/v0.1.1\") < u.parts(\"v0.9\") < u.parts(\"v1.0\") else 1)'"
@@ -1264,6 +1274,13 @@ check "the template names Flutter's own source"           "grep -q 'flutter:stab
 # a pin written with its label (rust-v0.155.0) is held by a file that says 0.155.0.
 printf 'flame: 1.38.20\nimage: surrealdb/surrealdb:v3.2.4-alpine\ncodex = "0.155.0"\n' > "$tmp/hostile/docs/held.txt"
 printf '[[watch]]\nname = "near"\nsource = "pub:flame"\npin = "1.38.2"\npinned_in = "docs/held.txt"\n\n[[watch]]\nname = "image"\nsource = "github:a/b"\npin = "3.2.4"\npinned_in = "docs/held.txt"\n\n[[watch]]\nname = "codex"\nsource = "github:a/b"\npin = "rust-v0.155.0"\npinned_in = "docs/held.txt"\n' > "$tmp/hostile/docs/upstream.toml"
+# PyPI, where uv installs from (spec 021): a release is dated by its first file,
+# one with no files or only yanked files is not a release, and 1.2.0rc1 is a
+# prerelease. From a fixture, with every other address refused.
+pypi() { "$py" -c "import importlib.util as i, json, sys; s=i.spec_from_file_location('u', '$rootw/.ai-backbone/upstream.py'); u=i.module_from_spec(s); s.loader.exec_module(u); u.fetch_json=lambda url, headers=None: json.load(open('$rootw/.ai-backbone/fixtures/pypi-releases.json')) if url == 'https://pypi.org/pypi/tool/json' else sys.exit('asked ' + url); r=u.from_pypi('tool'); print(' '.join(x['version'] + '@' + x['at'] + ('~pre' if x['prerelease'] else '') for x in r)); print('newer', ' '.join(x['version'] for x in u.newer_than('1.0.0', r, False)))"; }
+check "a PyPI release is dated by its first file, and a yanked or empty one is no release" "[ \"\$(pypi | head -1)\" = '1.2.0rc1@2026-04-01~pre 1.1.0@2026-03-01 1.0.0@2026-01-10 0.9.0@2025-12-01' ]"
+check "and what is newer than a pin leaves its release candidates out" "[ \"\$(pypi | tail -1)\" = 'newer 1.1.0' ]"
+check "a major pin takes its own minors: only a new major is newer" "upy '[r[\"version\"] for r in u.new_majors(\"v7\", [{\"version\": v} for v in (\"v7.0.1\", \"v8\", \"v8.1.0\")])] == [\"v8\", \"v8.1.0\"]'"
 check "a pin that is only the start of a longer version is MOVED" "says '^  near .* MOVED\$' hostile env && says '^  image .* ok\$' hostile env && says '^  codex .* ok\$' hostile env"
 check "the template says where a pub pin lives"            "grep -q 'pubspec.lock for pub' '$root/.ai-backbone/templates/upstream.toml'"
 # pub.dev is a source kind, for Dart and Flutter (3.20.0): a `pub:` row is counted

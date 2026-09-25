@@ -1,5 +1,5 @@
-# What the scheduled agent reads on Sundays, and how far it has read
-# (.ai-backbone/routine.md, the Sunday section; spec 012). `just radar` reads,
+# What the scheduled agent reads every third day, and how far it has read
+# (.ai-backbone/routine.md, the radar section; spec 012, spec 021). `just radar` reads,
 # `just radar-mark <name>` moves one marker, `just radar-save` commits this file
 # and the run's log line and refuses anything else.
 #

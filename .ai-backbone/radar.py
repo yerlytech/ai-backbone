@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """What the projects next door have published, as little of it as will do.
 
-Once a week the scheduled agent looks outward (`.ai-backbone/routine.md`, the
-Sunday section). Whatever it reads there was written by strangers, and the
+Every third day the scheduled agent looks outward (`.ai-backbone/routine.md`,
+the radar section). Whatever it reads there was written by strangers, and the
 agent that reads it pushes to `cloud`, from where the gate carries it to
 `main`, the maintainer's machine pulls it and seven projects copy it. So the
 reading is done here, by code, and

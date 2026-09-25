@@ -281,7 +281,13 @@ yes/no question; tell the answer to the agent in any project and it passes it
 on (`just backbone-note "decision: ..."`). A yes is built by an agent you are
 working with, never by the scheduled one.
 
-On a Sunday its one item is the radar: it looks outward instead of at the
+Before the backlog, every run looks at the tools the backbone is built on
+(`docs/upstream.toml`: just, prek, gitleaks, graphify, uv and the gate's
+`actions/checkout`). When one has a new release, moving to it is that run's
+item, and the gate tests it on the three machines before it reaches `main`; a
+change to a workflow is left for a session you are in (spec 021).
+
+Every third day its one item is the radar: it looks outward instead of at the
 backlog. `just radar` reads what Claude Code, OpenSpec, Spec Kit and Gemini CLI
 have published, and whether the AGENTS.md and Agent Skills standards or
 Copilot's page about AGENTS.md have changed. It shows the agent headings and a

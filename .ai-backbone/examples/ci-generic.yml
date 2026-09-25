@@ -45,7 +45,7 @@ jobs:
   checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # Replace this step with this project's build and tests, then delete it.
       # Whatever `just lint` and `just test` do on your machine is the list;

@@ -8,16 +8,21 @@
 # language, its database, its framework and its protocol — see the template at
 # `.ai-backbone/templates/upstream.toml`.
 
+# Read where each is installed from: just, prek, graphify and uv come through
+# uv from PyPI, so PyPI says what can be installed and when (spec 021); GitHub's
+# tags ran ahead of it once. gitleaks is fetched by prek from GitHub, and
+# actions/checkout is what GitHub runs the gate with.
+
 [[watch]]
 name = "just"
-source = "github:casey/just"
+source = "pypi:rust-just"
 pin = "1.58.0"
 why = "every repeatable command in every project built on this is a recipe"
 check = "recipe syntax, [group] attributes, whether --list output changed, and whether the floor setup.sh names (1.29.0) is still the oldest just that reads core.just"
 
 [[watch]]
 name = "prek"
-source = "github:j178/prek"
+source = "pypi:prek"
 pin = "0.5.3"
 why = "runs the git hooks: lint before a commit, and the secret scanner"
 check = "whether .pre-commit-config.yaml is still read the same way"
@@ -32,7 +37,23 @@ check = "new rules that would make an existing project's commit fail"
 
 [[watch]]
 name = "graphify"
-source = "github:Graphify-Labs/graphify"
-pin = "0.9.64"
+source = "pypi:graphifyy"
+pin = "0.9.67"
 why = "the code map an agent reads instead of the whole codebase"
 check = "whether the query commands or the output folder changed"
+
+[[watch]]
+name = "uv"
+source = "pypi:uv"
+pin = "0.12.19"
+why = "installs just, prek and graphify, and finds the Python the helpers run on"
+check = "whether `uv tool install`, `uv tool upgrade` and `uv python find` still answer the way setup.sh and _py read them"
+
+[[watch]]
+name = "actions/checkout"
+source = "github:actions/checkout"
+pin = "v7"
+major = true
+pinned_in = ".github/workflows/checks.yml"
+why = "the first step of every job of the gate, and of the workflow ci-init writes into a project"
+check = "what the new major drops or changes (fetch-depth, credentials, the Node it runs on); the workflows are carried to main by an attended session only"

@@ -68,7 +68,7 @@ jobs:
   checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: room to build in
         run: |
@@ -143,7 +143,7 @@ jobs:
 #  shipped:
 #    runs-on: ubuntu-latest
 #    steps:
-#      - uses: actions/checkout@v5
+#      - uses: actions/checkout@v7
 #      - uses: dtolnay/rust-toolchain@stable
 #      - uses: Swatinem/rust-cache@v2
 #      - name: build it, and keep cargo's record of what went into it

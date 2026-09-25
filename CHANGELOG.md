@@ -11,6 +11,26 @@ when the repository went public: a newcomer reads a repository, not a diary.
 The entries below are the record of every version; the tags before 3.27.2 are
 gone with the history.
 
+## 3.28.0 — 2026-09-25
+
+**Current tools, and a radar every third day** (spec 021). The scheduled agent
+checks the tools the backbone is built on at the start of every run, and when
+one has moved, moving to it is that run's item: `setup.sh` has installed the
+newest already, `just tools-update` moves the pins and the hooks' `rev:` lines,
+and the gate tests it on Linux, macOS and Windows before it reaches `main`. A
+workflow pin is left for an attended session, since the gate never carries a
+changed workflow. `just upstream` reads a new source, `pypi:<name>`: what uv
+installs from, with each release's date. just, prek, graphify and uv are read
+there, so their dates show in the cloud sandbox too, where GitHub's API
+answered 403, and graphify is no longer reported "newer" for a GitHub tag PyPI
+does not have. uv and `actions/checkout` are watched; a row with
+`major = true` counts only a new major. graphify's pin is 0.9.67, what is
+installed, and the gate runs `actions/checkout@v7` (from v5: v6 keeps the
+credentials in a file of their own, v7 refuses a fork's pull request under
+`workflow_run`, which `promote.yml` never checks out). The radar reads the
+standards every third day instead of on Sundays; the weekly question stays on
+Sunday. The suite checks that the seed's gitleaks is the backbone's own.
+
 ## 3.27.14 — 2026-09-25
 
 **`just doctor` no longer sends a fresh clone in a circle.** A missing `brain/`

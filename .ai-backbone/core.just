@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.27.14
+# .ai-backbone/core.just — the backbone's recipes, version 3.28.0
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -684,14 +684,18 @@ tools-update:
     # line of the file is rewritten; the list is the project's own.
     moved=""
     if [ -f docs/upstream.toml ]; then
-      for pair in just=casey/just prek=j178/prek graphify=graphify-labs/graphify gh=cli/cli uv=astral-sh/uv; do
+      # Each tool by every source a row may read it from: GitHub, or PyPI where
+      # uv installs it (spec 021).
+      for pair in "just=github:casey/just pypi:rust-just" "prek=github:j178/prek pypi:prek" \
+                  "graphify=github:graphify-labs/graphify pypi:graphifyy" "gh=github:cli/cli" \
+                  "uv=github:astral-sh/uv pypi:uv"; do
         tool="${pair%%=*}"
         have=$("$tool" --version 2>/dev/null | grep -oE '[0-9]+(\.[0-9]+)+' | head -1 || true)
         [ -n "$have" ] || continue
         # "line<TAB>pin<TAB>name" of the first row that watches this tool and says no file holds its pin.
-        row=$(awk -v want="github:${pair#*=}" '
+        row=$(awk -v want=" ${pair#*=} " '
           function val(s) { sub(/^[^"]*"/, "", s); sub(/".*$/, "", s); return s }
-          function flush() { if (!said && src == want && at && !infile) { print at "\t" pin "\t" (name == "" ? want : name); said = 1 } }
+          function flush() { if (!said && src != "" && index(want, " " src " ") && at && !infile) { print at "\t" pin "\t" (name == "" ? src : name); said = 1 } }
           /^\[\[watch\]\]/           { flush(); src = ""; name = ""; pin = ""; at = 0; infile = 0; next }
           /^[ \t]*source[ \t]*=/     { src = tolower(val($0)) }
           /^[ \t]*name[ \t]*=/       { name = val($0) }
