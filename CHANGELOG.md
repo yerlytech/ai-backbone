@@ -11,6 +11,16 @@ when the repository went public: a newcomer reads a repository, not a diary.
 The entries below are the record of every version; the tags before 3.27.2 are
 gone with the history.
 
+## 3.27.14 — 2026-09-25
+
+**`just doctor` no longer sends a fresh clone in a circle.** A missing `brain/`
+counted as a MISS, and MISS means a tool `setup.sh` installs, so doctor ended
+with "run `sh .ai-backbone/setup.sh`" — a script that never makes a vault, says
+so in its own header, and ends by printing that same line again. Git never
+carries `brain/`, so every fresh clone met this. The row is now a warn naming
+`just brain-init`, the way every other row under Repo names its own recipe, and
+a clone whose tools are all there ends on "Everything needed is installed".
+
 ## 3.27.13 — 2026-09-24
 
 **`just snapshot` on Windows, measured** (spec 020). 3.27.12 looked for

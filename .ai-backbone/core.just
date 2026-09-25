@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.27.13
+# .ai-backbone/core.just — the backbone's recipes, version 3.27.14
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -382,7 +382,14 @@ doctor:
       echo
     fi
     echo "Repo:"
-    if [ -d brain ]; then echo "  ok    brain/"; else echo "  MISS  brain/ -> just brain-init"; missing=1; fi
+    # A warn and not a MISS, and it never sets `missing`. MISS means a tool
+    # setup.sh installs, and the ending that `missing` chooses says to run
+    # setup.sh; setup.sh has never made a vault and says so in its own header.
+    # So a fresh clone — where git has carried no brain/, because it never
+    # carries one — used to end on advice pointing at a script that ends by
+    # printing this same line again. The fix is one recipe, named here, the way
+    # every other row under Repo names its own.
+    if [ -d brain ]; then echo "  ok    brain/"; else echo "  warn  no brain/ yet (git never carries it) -> just brain-init"; fi
     # brain/ is ignored by git on purpose, so GitHub is no second copy of it. Is
     # there one, and how old is it: the age is read off the file `_vault-copy`
     # writes into the copy each time, because only that says when a copy was
