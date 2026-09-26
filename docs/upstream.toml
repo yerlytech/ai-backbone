@@ -38,7 +38,7 @@ check = "new rules that would make an existing project's commit fail"
 [[watch]]
 name = "graphify"
 source = "pypi:graphifyy"
-pin = "0.9.67"
+pin = "0.9.68"
 why = "the code map an agent reads instead of the whole codebase"
 check = "whether the query commands or the output folder changed"
 

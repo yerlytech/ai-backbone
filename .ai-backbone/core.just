@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.28.0
+# .ai-backbone/core.just — the backbone's recipes, version 3.28.1
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -1692,8 +1692,12 @@ update-map:
       exit 0
     fi
     # Everything below was measured on graphify 0.9.64 (2026-09-19), in a scratch
-    # project holding swap-smash's three Dart files. Measure again before
-    # trusting it on a graphify much newer than that.
+    # project holding swap-smash's three Dart files, and measured again on 0.9.68
+    # (2026-09-26) in a scratch project of four Python files: the two commands,
+    # the folder they write to, the report file, the byte-identical second run,
+    # the pruning of a deleted file and the moved folder all still behave as
+    # written here. Measure again before trusting it on a graphify much newer
+    # than that.
     #
     # The ignore list. With the list as it was, 52 of the first map's 76 nodes
     # came from .ai-backbone/ (upstream.py, setup.sh, routine.sh) and 6 from the

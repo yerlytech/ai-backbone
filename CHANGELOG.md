@@ -11,6 +11,18 @@ when the repository went public: a newcomer reads a repository, not a diary.
 The entries below are the record of every version; the tags before 3.27.2 are
 gone with the history.
 
+## 3.28.1 — 2026-09-26
+
+**graphify 0.9.68.** The pin in `docs/upstream.toml` moves to the release the
+setup script now installs. Its row asks whether the query commands or the
+output folder changed, and 0.9.68 publishes no notes, so it was measured
+instead of remembered: `extract --code-only`, `cluster-only`, `query`,
+`explain` and `affected` all still answer, `graphify-out/GRAPH_REPORT.md` is
+still what they write, a second run over an unchanged tree is still byte for
+byte the same graph, a deleted file's nodes still go without `--force`, and a
+moved project folder still needs nothing. `update-map`'s comment says so, so
+the next agent reads a measurement and not a memory.
+
 ## 3.28.0 — 2026-09-25
 
 **Current tools, and a radar every third day** (spec 021). The scheduled agent
