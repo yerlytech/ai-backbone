@@ -13,6 +13,14 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## 3.31.4 — 2026-10-01
+
+Spec 024 is closed: the history is one commit (3.31.3, `v3.31.3`), verified in
+a fresh clone on the maintainer's machine, and every acceptance line says
+where it was checked. One comment in `core.just` still gave one project's
+measurements of the code map in numbers and a function's name; it says the
+same in general words now.
+
 ## 3.31.3 — 2026-10-01
 
 **A lesson keeps the lesson and drops the project.** The names had left the

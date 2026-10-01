@@ -1,5 +1,5 @@
 ---
-status: approved
+status: done
 date: 2026-09-30
 ---
 
@@ -88,27 +88,45 @@ All five answered by the maintainer on 2026-09-30, each as proposed.
 
 ## Acceptance
 
-- [ ] `git grep` over the tracked files for the names of the projects on the
+- [x] `git grep` over the tracked files for the names of the projects on the
       maintainer's machine finds only `LICENSE`.
-- [ ] `docs/backlog.md` holds open lines only, each `- [ ] DATE, n-XXXXXX: text`
+      *Checked on the maintainer's Mac in a fresh clone of 3df4f64, 2026-10-01:
+      each name finds only `LICENSE` and the backbone's own GitHub address.*
+- [x] `docs/backlog.md` holds open lines only, each `- [ ] DATE, n-XXXXXX: text`
       or `- [?] DATE, n-XXXXXX: …`, none naming a project; the routine builds from them as
       before (measured on a scratch run of the brief's step 5).
-- [ ] `just backbone-note` writes an id, keeps the pairing in the sender's
+      *The suite checks the shape and scans every line with the note check;
+      the routine built 3.31.2 from the list on 2026-10-01.*
+- [x] `just backbone-note` writes an id, keeps the pairing in the sender's
       `brain/notes-to-backbone.md`, and the sender's `just session-start`
       says from it how many are still open, on their way, set aside by the
       hooks, or no longer listed (built).
-- [ ] A note that names the sender, a sibling project, or no recipe and no
+      *Suite: the notes block, all four counts.*
+- [x] A note that names the sender, a sibling project, or no recipe and no
       backbone file is refused with the reason, and nothing is written.
-- [ ] A commit in the backbone that names a project next to it on the machine
+      *Suite: each refusal, Turkish letters and respellings included, with the
+      outbox and the pairing file checked empty after.*
+- [x] A commit in the backbone that names a project next to it on the machine
       is refused by the backbone's own hooks; the hook carries no name.
-- [ ] The suite refuses a backlog line that carries a name in the id's place.
-- [ ] The history on GitHub is one commit, tagged with the new version;
+      *Suite: added lines, file names, renames and the message; the names come
+      from the machine. The Mac's squash commit went through all 22 hooks.*
+- [x] The suite refuses a backlog line that carries a name in the id's place.
+      *Suite: the backlog shape check, broken once on purpose.*
+- [x] The history on GitHub is one commit, tagged with the new version;
       `git log --all` in a fresh clone shows nothing older; the CHANGELOG
       says so in its header, as it does for 3.0.0 and 3.27.2.
-- [ ] The routine's brief, the backbone-dev and session skills, the
+      *2026-10-01, on the maintainer's Mac: orphan commit 3df4f64 (3.31.3),
+      main and cloud force-pushed together, the 23 old tags deleted, `v3.31.3`
+      the only tag; a fresh clone shows one line. Old commits stay fetchable
+      by hash until GitHub's garbage collection; sooner needs GitHub support,
+      the maintainer's call.*
+- [x] The routine's brief, the backbone-dev and session skills, the
       getting-started page and how-it-works say the rule and the new line.
-- [ ] The Windows session and the code-map comparison are in the
+      *And, since 3.31.3, the second rule: a lesson keeps the lesson and drops
+      the project.*
+- [x] The Windows session and the code-map comparison are in the
       maintainer's journal and nowhere public.
+      *brain/01-journal/2026-09-30.md, the set-aside list.*
 
 ## Tasks
 
@@ -123,9 +141,12 @@ All five answered by the maintainer on 2026-09-30, each as proposed.
 - [x] The hook in the backbone's own `.pre-commit-config.yaml`, with its
       check.
 - [x] Reviewed by three independent readers (privacy and leaks; correctness and portability; docs, brief and tests), each reproducing its findings; all fixed; twenty-two checks broken once on purpose, each turning its check red.
-- [ ] Published as one version (3.31.0 on main at b7dc564, the gate green on
+- [x] Published as one version (3.31.0 on main at b7dc564, the gate green on
       three machines, 2026-09-30; 3.31.1 after what the Mac found: the
       respelling example was two neighbours' names, and the hook read the
-      owner in the backbone's own address as a name); then, on the maintainer's Mac: the squash,
-      the force push, the tags; verified in a fresh clone. The CHANGELOG
-      header already says it.
+      owner in the backbone's own address as a name; 3.31.3 after its second,
+      read-only sweep: the lesson stays, the project goes); then, on the
+      maintainer's Mac: the squash, the force push, the tags; verified in a
+      fresh clone. *Done 2026-10-01: 3df4f64, `v3.31.3`, one line in
+      `git log --all`; the two sentences the sweep had still missed were
+      generalized in that commit.*

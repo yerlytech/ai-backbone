@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.31.3
+# .ai-backbone/core.just — the backbone's recipes, version 3.31.4
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -1898,10 +1898,10 @@ uses word:
     # and the map knows only the callers graphify can draw. In Dart that is next
     # to none: it reads Dart with regular expressions, and the only calls that
     # reader knows are a BLoC's events and states (extractors/dart.py, 0.9.64).
-    # Measured on 0.9.64: the map of a Flutter project's three Dart files has 12 lines
-    # between its nodes and not one is a call, where the backbone's own Python
-    # has 33; in the project itself "affected move" named neither of move's two
-    # real callers. A word search knows no language and misses nothing spelled
+    # Measured on 0.9.64: the map of a small Flutter project has a few lines
+    # between its Dart nodes and not one is a call, where the backbone's own
+    # Python has dozens; in the project itself `affected` named none of a
+    # function's real callers. A word search knows no language and misses nothing spelled
     # the same, so it is asked as well as the map, never instead of it. A whole
     # word, exactly as typed: no pattern to get wrong.
     if [ -z "$1" ]; then echo "Which word? For example: just uses TetrisGame"; exit 1; fi
