@@ -1,5 +1,5 @@
 ---
-status: approved
+status: done
 date: 2026-09-19
 ---
 
@@ -65,10 +65,11 @@ None open for the build. The two `- [?]` lines are asked one per turn.
       place the maintainer named once for the machine; nothing is deleted
       there; `doctor` says how old the copy is, and says when a key file sits
       outside `brain/`.
-- [ ] `docs/how-it-works.md` draws itself on GitHub (both pictures were drawn with
-      mermaid-cli in the review) and the maintainer has seen it. The second
-      half is the one thing left: it is theirs to look at. (Walked 2026-09-28,
-      spec 022: still the one line left, and still theirs; the spec stays open.)
+- [x] `docs/how-it-works.md` draws itself on GitHub (both pictures were drawn with
+      mermaid-cli in the review) and the maintainer has seen it. (Walked 2026-09-28,
+      spec 022: still the one line left, and still theirs.) *Seen by the
+      maintainer on GitHub, 2026-10-01: both pictures drawn. The second one is
+      in the README too since 3.31.5.*
 - [x] The integrated change was reviewed from several lenses and each finding
       reproduced by a second agent before it was saved.
 

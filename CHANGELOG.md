@@ -13,6 +13,15 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## 3.31.5 — 2026-10-01
+
+**The life of one idea, on the front page.** The README carries the second
+picture of how-it-works: idea, spec, suite, gate, version, your projects. The
+picture and its paragraph said a version needed Linux and macOS green; it
+needs all three machines since spec 020, and both say so now. Spec 013 is
+closed: the maintainer has seen the pictures drawn on GitHub, which was its
+last open line.
+
 ## 3.31.4 — 2026-10-01
 
 Spec 024 is closed: the history is one commit (3.31.3, `v3.31.3`), verified in

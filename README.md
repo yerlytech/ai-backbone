@@ -58,6 +58,37 @@ update replaces only the files the backbone owns and never yours.
   runs the backbone's own test suite on a clean Linux, a clean Mac and a
   clean Windows machine before a change reaches `main`.
 
+## The life of one idea
+
+```mermaid
+flowchart TD
+    idea["A note or an idea"]
+    spec["One-page spec"]
+    build["The agent builds"]
+    test["just self-test"]
+    gate["The gate on GitHub (three machines)"]
+    ver["New version"]
+    projs["Your projects"]
+
+    idea --> spec
+    spec --> build
+    build --> test
+    test -->|"red"| build
+    test -->|"green: pushed to cloud"| gate
+    gate -->|"red"| build
+    gate -->|"green on all three"| ver
+    ver -->|"just template-update"| projs
+```
+
+Every change to the backbone goes this way, whoever starts it: a note from a
+project or an idea the radar brought in becomes a one-page spec, the agent
+builds it, the suite tries it on throwaway projects, GitHub runs the same
+suite on a clean Linux, Mac and Windows machine, and green becomes a tagged
+version your projects take in at their next session. Anything that would
+change what you type waits for your yes first. The whole picture, with the
+loop between you, the agent and the backbone, is in
+[docs/how-it-works.md](docs/how-it-works.md).
+
 ## What it is built on, and why
 
 Six small tools, installed once by `sh .ai-backbone/setup.sh` (on a Mac it

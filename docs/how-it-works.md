@@ -96,7 +96,7 @@ flowchart TD
     test -->|"red"| build
     test -->|"green: pushed to cloud"| gate
     gate -->|"red"| build
-    gate -->|"green on Linux and macOS"| ver
+    gate -->|"green on all three"| ver
     ver -->|"just template-update"| projs
 ```
 
@@ -106,7 +106,7 @@ a project, or an idea the radar brought in, becomes a one-page spec in
 `just self-test` tries it out on throwaway projects. Red means it is not saved,
 and the agent goes back to building. Green is pushed to the branch `cloud`,
 where GitHub runs the same suite on a clean Linux, Mac and Windows machine.
-When Linux and macOS are green it becomes a new version on `main`, tagged, with
+When all three are green it becomes a new version on `main`, tagged, with
 an entry in `CHANGELOG.md`, and each of your projects takes it in the next time
 an agent works there. Whatever would change something you type waits for your
 yes first, as a question in the loop above.
