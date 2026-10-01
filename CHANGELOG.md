@@ -32,7 +32,10 @@ meant for the maintainer goes into `brain/`, in their language
 (`brain/06-marketing/` is new); what code needs stays in `docs/`. A project
 adds a role of its own as a skill whose description starts "The <name> role."
 Markdown only: no framework, no runtime, no key. A new project's ceiling of
-tracked files moves from 43 to 59, the maintainer's decision.
+tracked files moves from 43 to 59, the maintainer's decision. The radar reads one more changelog every third day, BMAD-METHOD's, the
+markdown method of agile roles, and only its headline sentences, so the
+scheduled agent sees when the way roles hand over or size their ceremony
+moves on, and proposes it for the team skill.
 
 ## 3.31.5 — 2026-10-01
 

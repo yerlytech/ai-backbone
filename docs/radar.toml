@@ -50,6 +50,16 @@ read = "2026-09-30"
 touches = ".agents/skills/spec/SKILL.md, .ai-backbone/templates/spec.md, the spec recipe in core.just"
 
 [[source]]
+name = "bmad-method"
+url = "https://raw.githubusercontent.com/bmad-code-org/BMAD-METHOD/main/CHANGELOG.md"
+bytes = 40000
+heading = "^## v[0-9]"
+filter = "^\\*\\*[A-Z]"
+seen = "## v6.12.0 - 2026-09-03"
+read = "2026-10-01"
+touches = ".agents/skills/team/SKILL.md and the role skills (research, data, marketing): how roles hand over, how much ceremony a change needs, how a review is triaged"
+
+[[source]]
 name = "gemini-cli"
 url = "https://raw.githubusercontent.com/google-gemini/gemini-cli/main/docs/changelogs/index.md"
 bytes = 20000
