@@ -1,5 +1,5 @@
 ---
-status: draft
+status: done
 date: 2026-10-01
 ---
 
@@ -60,8 +60,10 @@ frameworks that work:
 
 Small first, built to grow into a full team:
 
-- A project adds a role of its own as a skill in `.agents/skills/<name>/` and
-  a row under "Team" in its own `AGENTS.md`. The backbone never touches it.
+- A project adds a role of its own as a skill in `.agents/skills/<name>/`
+  whose description starts "The <name> role." The backbone never touches it,
+  and the `team` skill says that every role skill it does not list is the
+  project's own, so no second list can drift from the folder.
 - A role grows by adding `references/`, not by adding skills.
 - A role the backbone does not have (sales, support, legal, design) is added
   to the backbone when two projects have written one, not before.
@@ -81,34 +83,37 @@ Small first, built to grow into a full team:
 
 ## Questions
 
-- Where does a role write what is meant for the person (research, marketing
-  plans, numbers)? Answer I would give: `brain/`, in `brain_lang`, because the
-  person reads it and it may hold money and strategy; what code needs stays in
-  `docs/` in English; final page and store copy goes into the product's own
-  source. Cost: a cloud agent cannot see `brain/`.
+None open. Answered by the maintainer, 2026-10-01: start small, on a path that
+grows into a full team; a role writes what is meant for the person into
+`brain/`, in `brain_lang` (it may hold money and strategy, and the person reads
+it); what code needs stays in `docs/`; final page and store copy goes into the
+product's own source. The cost, accepted: a cloud agent cannot see `brain/`.
 
 ## Acceptance
 
-- [ ] `.agents/skills/team/SKILL.md` lists the eight roles with their skill,
+- [x] `.agents/skills/team/SKILL.md` lists the eight roles with their skill,
       inputs, output path and handover, and the four rules above.
-- [ ] `research`, `marketing` and `data` exist, each with the same parts, and
+- [x] `research`, `marketing` and `data` exist, each with the same parts, and
       `marketing/references/` holds search, ads, copy and launch.
-- [ ] The manifest lists the four skills; `just template-update` brings them
+- [x] The manifest lists the four skills; `just template-update` brings them
       into a project and `just sync-rules` copies them to `.claude/skills/`.
-- [ ] The brain template lists `06-marketing/`.
-- [ ] `just new-project` writes an empty "Team" section into `AGENTS.md` for
-      the project's own roles.
-- [ ] The self-test checks that every skill in the manifest has `name` and
-      `description` and that each role file has the seven parts.
-- [ ] `docs/` names the team in one place; the README's table of skills lists
-      the new ones.
+- [x] The brain template lists `06-marketing/`.
+- [x] The seed `AGENTS.md` names the team in section 3, so `just
+      template-update` lists the rule to a project that lacks it, and stays
+      under the size a session loads (7100 bytes with `CLAUDE.md`).
+- [x] The self-test checks that each role skill has the seven parts, a
+      description that starts "The <name> role." and a row in the roster, and
+      that a new project carries the team with its copies for Claude Code.
+- [x] A new project's ceiling of tracked files moves from 43 to 59 (the
+      maintainer's word, 2026-10-01: the references stay separate files).
+- [x] `docs/01-getting-started.md` names the team where it lists the skills.
 
 ## Tasks
 
-- [ ] `team` skill and the role template it describes.
-- [ ] `research` skill.
-- [ ] `data` skill.
-- [ ] `marketing` skill and its four references.
-- [ ] Manifest, brain template, `new-project`'s AGENTS.md.
-- [ ] Self-test checks.
-- [ ] Docs, README, CHANGELOG, version.
+- [x] `team` skill and the role template it describes.
+- [x] `research` skill.
+- [x] `data` skill.
+- [x] `marketing` skill and its four references.
+- [x] Manifest, brain template, the seed `AGENTS.md`.
+- [x] Self-test checks.
+- [x] Docs, README, CHANGELOG, version.

@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.31.5
+# .ai-backbone/core.just — the backbone's recipes, version 3.32.0
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -571,7 +571,7 @@ brain-init:
     #!/usr/bin/env bash
     set -euo pipefail
     if [ -d brain ]; then echo "brain/ already exists."; exit 0; fi
-    mkdir -p brain/01-journal brain/02-research brain/03-stack brain/04-chat-archive brain/05-files brain/_templates
+    mkdir -p brain/01-journal brain/02-research brain/03-stack brain/04-chat-archive brain/05-files brain/06-marketing brain/_templates
     if [ -d .ai-backbone/brain-template ]; then
       cp -R .ai-backbone/brain-template/. brain/
       just _stamp-brain-lang brain/_templates/journal.md

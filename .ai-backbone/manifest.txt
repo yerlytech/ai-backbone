@@ -42,6 +42,14 @@ CHANGELOG.md -> .ai-backbone/CHANGELOG.md
 .agents/skills/backbone-update/SKILL.md
 .agents/skills/backbone-dev/SKILL.md
 .agents/skills/audit/SKILL.md
+.agents/skills/team/SKILL.md
+.agents/skills/research/SKILL.md
+.agents/skills/data/SKILL.md
+.agents/skills/marketing/SKILL.md
+.agents/skills/marketing/references/copy.md
+.agents/skills/marketing/references/search.md
+.agents/skills/marketing/references/ads.md
+.agents/skills/marketing/references/launch.md
 
 [seed]
 AGENTS.md

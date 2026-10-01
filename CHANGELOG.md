@@ -13,6 +13,27 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## 3.32.0 — 2026-10-01
+
+**A team of roles** (spec 025). Every job in a project now has a role, and
+every role writes one kind of file: the product manager the spec, the
+architect the ADR, the engineer the code, the reviewer the audit, and three
+new ones for the side that turns a built product into a sold one. The
+researcher answers questions about the world with every claim traced to a
+dated source (`research`); the data analyst answers questions about the
+product's own numbers, with source, range and count (`data`); the marketer
+keeps one context file per product (who it is for, the promise, the voice,
+the words people search) and writes copy, search, ads and launch plans from it
+(`marketing`, with four references read only when needed). The `team` skill
+holds the roster, the chain from idea to numbers, and four rules that keep it
+from turning into soup: hand over through files, one owner per document,
+small jobs direct and big ones through the chain, one role at a time. What is
+meant for the maintainer goes into `brain/`, in their language
+(`brain/06-marketing/` is new); what code needs stays in `docs/`. A project
+adds a role of its own as a skill whose description starts "The <name> role."
+Markdown only: no framework, no runtime, no key. A new project's ceiling of
+tracked files moves from 43 to 59, the maintainer's decision.
+
 ## 3.31.5 — 2026-10-01
 
 **The life of one idea, on the front page.** The README carries the second

@@ -215,7 +215,10 @@ n=$(git ls-files | wc -l | tr -d ' ')
 # somebody has to decide to raise, never a scheduled run.
 # 43 since 3.27.5: .gitattributes, so a project checks out with LF on Windows
 # (spec 020, which the maintainer approved on 2026-09-24 in an attended session).
-check "tracked files at most 43 (got $n)"             "[ $n -le 43 ]"
+# 59 since 3.32.0: the team (spec 025), four role skills and the marketer's four
+# references, each with its copy for Claude Code; the maintainer raised it on
+# 2026-10-01 in an attended session, choosing separate references over one file.
+check "tracked files at most 59 (got $n)"             "[ $n -le 59 ]"
 # Two more ceilings, set at what a new project measured on 2026-09-19 (spec 012).
 # An agent nobody watches works on this backbone every day and builds ideas it
 # read about; every one of them is small and sensible, and a hundred of them are
@@ -278,6 +281,19 @@ kinds_named() {
 }
 check "and every kind of commit message that save accepts" "kinds_named"
 check "the spec skill asks for a question that carries its answer" "grep -q 'the answer you would give' .agents/skills/spec/SKILL.md && grep -q 'each with the answer you' .ai-backbone/templates/spec.md"
+# Spec 025: a role is a skill with seven parts, so an agent with no skill
+# support follows it by reading the file, and the team skill lists every role
+# the backbone ships. A new project carries them, and Claude Code gets copies.
+role_parts() {
+  local r p
+  for r in research data marketing; do
+    case "$(sed -n 3p ".agents/skills/$r/SKILL.md")" in "description: The "*" role. "*) ;; *) echo "$r: description"; return 1 ;; esac
+    grep -qF "| \`$r\` |" .agents/skills/team/SKILL.md || { echo "$r: not in the roster"; return 1; }
+    for p in When Inputs Steps Output Done Handover Never; do grep -qx "## $p" ".agents/skills/$r/SKILL.md" || { echo "$r: ## $p"; return 1; }; done
+  done
+}
+check "every role skill has the seven parts, and the team skill lists it" "role_parts"
+check "a new project gets the team, copied for Claude Code, and a place for marketing" "[ -f .claude/skills/team/SKILL.md ] && [ -f .claude/skills/marketing/references/launch.md ] && [ -d brain/06-marketing ]"
 # OpenSpec 1.13.2 (PR #1955): each task group lands the tests and docs its own
 # work calls for, and no final group gathers them. Ours adds the lesson of spec
 # 012, whose last box also waited for a radar day: a step that waits on
