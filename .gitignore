@@ -1,0 +1,75 @@
+# ── OS ───────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# ── Private vault — never committed ──────────────────────────
+brain/
+
+# ── Read-only reference clones ───────────────────────────────
+.references/*
+!.references/README.md
+!.references/references.toml
+
+# ── Local snapshots ──────────────────────────────────────────
+.snapshots/
+
+# ── Secrets ──────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+.envrc
+# Key and certificate files are secrets and live in brain/ (AGENTS.md section
+# 7); a build reads them from there. Ignored everywhere else, because a save
+# takes every file git does not ignore: an Android .keystore next to the app
+# was one save away from GitHub.
+*.pem
+*.key
+*.p8
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.mobileprovision
+
+# ── What the backbone's own tools leave behind ───────────────
+# Every project carries upstream.py and radar.py, so every project can grow a
+# __pycache__/ the moment `just upstream` runs. The scheduled run of 2026-09-22
+# staged one: a save takes every file git does not ignore. A tracked .pyc is
+# worse than clutter — it holds the source's mtime, so a fresh checkout
+# recompiles it, `git status` is never empty again, and step 0 of the routine
+# brief stops every later run before it starts.
+__pycache__/
+*.pyc
+
+# ── Code map — only the readable report is committed ─────────
+graphify-out/*
+!graphify-out/GRAPH_REPORT.md
+!graphify-out/README.md
+
+# ── Agent local state ────────────────────────────────────────
+.claude/settings.local.json
+CLAUDE.local.md
+.gemini/
+.aider*
+.windsurf/
+
+# ── Editor ───────────────────────────────────────────────────
+.idea/
+*.iml
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# ── YOUR STACK GOES HERE ─────────────────────────────────────
+# Add your language's build artifacts below, or keep them in a
+# stack-specific template. Examples:
+#   Rust:   target/
+#   Node:   node_modules/  dist/  .next/
+#   Python: __pycache__/  .venv/
+#   Swift:  *.xcodeproj  DerivedData/  .build/
+#   Flutter: .kotlin/   and keep the .gitignore files `flutter create` writes
+#           inside the app: they cover build/ and .dart_tool/ there, and not
+#           at a pub workspace's root (stack-flutter.just names the lines).
+#           Never *.xcodeproj here: ios/Runner.xcodeproj is part of the app.

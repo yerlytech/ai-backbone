@@ -1,0 +1,21 @@
+# Dependabot: GitHub's built-in dependency bot. Zero setup, free.
+# Copy to .github/dependabot.yml. It opens a pull request when a crate is
+# behind; your agent reviews and merges it.
+#
+#     just ci-init rust      writes this and the workflow together
+#
+# `directory` is where Cargo.toml lives. Add one entry per workspace.
+version: 2
+updates:
+  - package-ecosystem: "cargo"
+    directory: "/server"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+  # The workflow's own steps are other people's repositories too, and they go
+  # out of date the same way. Without this block nobody finds out until an
+  # action is retired and every push starts failing at once.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

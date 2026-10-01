@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Written by `just routine-install`. Removed by `just routine-remove`.
+  LABEL, ROOT, WEEKDAY, HOUR and MINUTE are filled in there; nothing is edited
+  here by hand.
+
+  A user agent, not a daemon: it runs as the person who installed it, only while
+  they are logged in, and it can be removed without an administrator. If the
+  machine is asleep at the appointed time, launchd runs it once on waking.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>LABEL</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>ROOT/.ai-backbone/routine.sh</string>
+  </array>
+  <key>WorkingDirectory</key><string>ROOT</string>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Weekday</key><integer>WEEKDAY</integer>
+    <key>Hour</key><integer>HOUR</integer>
+    <key>Minute</key><integer>MINUTE</integer>
+  </dict>
+  <key>StandardOutPath</key><string>ROOT/brain/05-files/routine.log</string>
+  <key>StandardErrorPath</key><string>ROOT/brain/05-files/routine.log</string>
+  <key>ProcessType</key><string>Background</string>
+</dict>
+</plist>

@@ -1,0 +1,19 @@
+# What the code map leaves out. `just update-map` copies this once; after that
+# the file is yours: add lines freely. A line this list gains later is added at
+# the end of yours. To say no to one, comment it out instead of deleting it.
+brain/
+.references/
+.archive/
+.snapshots/
+graphify-out/
+**/.obsidian/
+**/node_modules/
+**/dist/
+**/build/
+**/.venv/
+# The backbone's own plumbing, the same in every project: most of a new
+# project's first map came from here, not from the project (graphify 0.9.64).
+.ai-backbone/
+# The map is of code. A run that read documents too made the changelog the most
+# connected node of a new project's first map.
+*.md

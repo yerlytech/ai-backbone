@@ -1,0 +1,40 @@
+rust	UNKNOWN STEP	﻿2026-01-02T03:04:05.1123456Z Current runner version: '2.300.0'
+rust	UNKNOWN STEP	2026-01-02T03:04:05.2123456Z ##[group]Runner Image Provisioner
+rust	UNKNOWN STEP	2026-01-02T03:04:05.3123456Z ^[[36;1mif [[ -z $toolchain ]]; then^[[0m
+rust	UNKNOWN STEP	2026-01-02T03:04:05.4123456Z test the_fixture_fails_on_purpose ... FAILED
+rust	UNKNOWN STEP	2026-01-02T03:04:05.5123456Z
+rust	UNKNOWN STEP	2026-01-02T03:04:05.6123456Z failures:
+rust	UNKNOWN STEP	2026-01-02T03:04:05.7123456Z
+rust	UNKNOWN STEP	2026-01-02T03:04:05.8123456Z ---- the_fixture_fails_on_purpose stdout ----
+rust	UNKNOWN STEP	2026-01-02T03:04:05.9123456Z
+rust	UNKNOWN STEP	2026-01-02T03:04:06.0123456Z thread 'the_fixture_fails_on_purpose' (4242) panicked at src/fixture/tests/offline.rs:42:5:
+rust	UNKNOWN STEP	2026-01-02T03:04:06.1123456Z ^[[1m^[[91merror^[[0m: failed to download `example_crate v0.1.6`
+rust	UNKNOWN STEP	2026-01-02T03:04:06.2123456Z
+rust	UNKNOWN STEP	2026-01-02T03:04:06.3123456Z Caused by:
+rust	UNKNOWN STEP	2026-01-02T03:04:06.4123456Z   attempting to make an HTTP request, but --offline was specified
+rust	UNKNOWN STEP	2026-01-02T03:04:06.5123456Z
+rust	UNKNOWN STEP	2026-01-02T03:04:06.6123456Z note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+rust	UNKNOWN STEP	2026-01-02T03:04:06.7123456Z
+rust	UNKNOWN STEP	2026-01-02T03:04:06.8123456Z
+rust	UNKNOWN STEP	2026-01-02T03:04:06.9123456Z failures:
+rust	UNKNOWN STEP	2026-01-02T03:04:07.0123456Z     the_fixture_fails_on_purpose
+rust	UNKNOWN STEP	2026-01-02T03:04:07.1123456Z
+rust	UNKNOWN STEP	2026-01-02T03:04:07.2123456Z test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+rust	UNKNOWN STEP	2026-01-02T03:04:07.3123456Z
+rust	UNKNOWN STEP	2026-01-02T03:04:07.4123456Z ^[[1m^[[91merror^[[0m: test failed, to rerun pass `-p example-crate --test offline`
+rust	UNKNOWN STEP	2026-01-02T03:04:07.5123456Z ##[error]Process completed with exit code 101.
+rust	UNKNOWN STEP	2026-01-02T03:04:07.6123456Z Post job cleanup.
+rust	UNKNOWN STEP	2026-01-02T03:04:07.7123456Z [command]/usr/bin/git version
+rust	UNKNOWN STEP	2026-01-02T03:04:07.8123456Z git version 2.50.0
+rust	UNKNOWN STEP	2026-01-02T03:04:07.9123456Z Temporarily overriding HOME='/home/runner/work/_temp/00000000-1111-2222-3333-444444444444' before making global git config changes
+rust	UNKNOWN STEP	2026-01-02T03:04:08.0123456Z Adding repository directory to the temporary git global config as a safe directory
+rust	UNKNOWN STEP	2026-01-02T03:04:08.1123456Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/example/example
+rust	UNKNOWN STEP	2026-01-02T03:04:08.2123456Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+rust	UNKNOWN STEP	2026-01-02T03:04:08.3123456Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+rust	UNKNOWN STEP	2026-01-02T03:04:08.4123456Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+rust	UNKNOWN STEP	2026-01-02T03:04:08.5123456Z http.https://github.com/.extraheader
+rust	UNKNOWN STEP	2026-01-02T03:04:08.6123456Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+rust	UNKNOWN STEP	2026-01-02T03:04:08.7123456Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+rust	UNKNOWN STEP	2026-01-02T03:04:08.8123456Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+rust	UNKNOWN STEP	2026-01-02T03:04:08.9123456Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+rust	UNKNOWN STEP	2026-01-02T03:04:09.0123456Z Cleaning up orphan processes

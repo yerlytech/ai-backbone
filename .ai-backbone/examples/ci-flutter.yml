@@ -1,0 +1,102 @@
+# Every push, the same checks a person runs before saving work: `just lint` and
+# `just test` over the whole pub workspace, on Linux, with no simulator, no
+# emulator and no phone.
+#
+# `just ci-init flutter` copied this here. It is a starting point, not a
+# standard: change the paths until they are this project's. Unlike the Rust
+# one, it calls the language layer (`just get`, `just lint`, `just test`)
+# rather than the tools under it, so the checks here and the ones on your
+# machine cannot drift apart: setup-just below puts `just` on the runner.
+#
+#   just ci          how the last push went, without opening a browser
+#   just ci-check    whether the lessons below are still in force. It runs
+#                    before every commit that touches .github/workflows/.
+#
+# Lifted from the first Flutter project on this backbone, where it was written
+# on 2026-09-22. It has not run on a GitHub runner yet: that project keeps
+# Actions off. What was measured is on a laptop: `flutter analyze` and
+# `flutter test` took three to four seconds each there. How long a run takes on
+# a runner is not known; the ten-minute cap below is the budget, and the first
+# run's `just ci` is the answer.
+#
+# Linux only, one job, no matrix. The tests and the analyzer run in the Dart VM
+# and need no Mac, and a macOS minute costs about ten times a Linux one
+# (GitHub's billing page, read 2026-09-19). The iOS and Android builds run on a
+# person's machine: `just build-ios`, `just build-android`.
+#
+# Three of the steps are other people's repositories, running with this
+# repository's token: actions/checkout, subosito/flutter-action and
+# extractions/setup-just. Each is pinned to a commit, with the tag it was read
+# from beside it (git ls-remote, 2026-09-23): a tag can be moved to other code
+# by whoever holds that repository, a commit cannot. `.github/dependabot.yml`
+# came with this file and moves the pins, and the tags beside them, when a new
+# version comes out. `permissions:` gives them the least the job can work with.
+
+name: checks
+
+# A push that changes only documentation has nothing here to check, and in a
+# private repository every run is paid for out of the account's free minutes.
+# If you ever make this check required before a pull request can be merged, a
+# pull request that changes only docs waits for a check that never starts
+# (GitHub's docs on skipped required checks); take the two paths-ignore blocks
+# out then.
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+  pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+
+# The job needs to read this repository and nothing else. Without this block it
+# gets whatever the repository's default is, which on an older repository is
+# write access to everything.
+permissions:
+  contents: read
+
+# A branch under review can be pushed to three times in a minute, and there is
+# nothing to learn from the checks on the commit before last: for a pull request
+# the key is the branch, so the older run is cancelled. On the default branch the
+# key is the commit, which is unique, so every push gets a group of one — nothing
+# cancels it and nothing queues behind it, and the history somebody reads later
+# to find where something broke is complete. `cancel-in-progress` is a question,
+# not a plain `true`; writing `true` there is the usual mistake and it throws
+# exactly that history away. These three lines contain no language and no
+# project. Copy them unchanged.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    # A job with no cap runs for six hours when something hangs, and every one
+    # of those minutes is billed.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The Flutter the workspace root pins, with the Dart inside it, cached
+      # between runs together with the pub packages. flutter-action reads the
+      # one line `environment: flutter:` of this file and takes it as a version,
+      # so the pin must be exact: `flutter: 3.47.5`, never a range such as
+      # `>=3.44.0` (its action.yaml calls the input "exact Flutter version
+      # defined"; read at this commit, 2026-09-23). The line names the
+      # workspace root's pubspec.yaml: src/ in this file, and wherever
+      # `just ci-init` found it in the copy it wrote (the root of the
+      # repository, or src/<app> for one app there).
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version-file: src/pubspec.yaml
+          cache: true
+
+      - uses: extractions/setup-just@f8a3cce218d9f83db3a2ecd90e41ac3de6cdfd9b # v3.1.0
+
+      # A step of its own, so a pin this Flutter does not satisfy, or a
+      # package pub cannot find, is named apart from a lint that fails.
+      - run: just get
+      - run: just lint
+      - run: just test

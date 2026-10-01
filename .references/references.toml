@@ -1,0 +1,28 @@
+# Read-only references: other people's repos, kept to learn from. Never edit them.
+# The clones are not committed. `just ref-fetch` brings them back on a new machine;
+# `just ref-add <url> "why"` adds one. A local folder can be listed with `path`
+# instead of `url`: it is read where it stands. A git repository on this machine
+# with no address anywhere else (an old repo of yours with no remote) is added
+# with `just ref-add <folder> "why"`: cloned into .references/, listed with
+# url = "" and a `from` line saying where it came from. ref-fetch cannot bring
+# either back on another machine, and says so.
+#
+# [[ref]]
+# name   = "old-project"
+# path   = "/absolute/path/on/this/machine"
+# note   = "why this is here, one line"
+# status = "frozen"
+
+[[ref]]
+name   = "openspec"
+url    = "https://github.com/Fission-AI/OpenSpec"
+note   = "Spec-driven development for AI agents. Borrowed: propose/apply/archive became draft/approved/done, one file instead of four."
+added  = "2026-09-13"
+status = "frozen"
+
+[[ref]]
+name   = "spec-kit"
+url    = "https://github.com/github/spec-kit"
+note   = "GitHub's spec-driven toolkit. Borrowed: constitution = AGENTS.md, clarify step = the Questions section in specs."
+added  = "2026-09-13"
+status = "frozen"
