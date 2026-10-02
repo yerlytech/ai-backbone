@@ -16,8 +16,9 @@ a project built on it starts with a two-line `docs/README.md` of its own.
 `.ai-backbone/routine.md` is the brief for a scheduled agent that works the
 backlog on its own (Claude routine, Cursor cloud agent or a GitHub Action).
 `.ai-backbone/templates/routine-project.md` is the same for a project: one task
-of the oldest approved spec per run. A project is updated from the inside: its
-own `just session-start` brings the backbone next to it level with GitHub
+of the oldest approved spec per run, skipping any box that waits on the
+maintainer and naming it in the report. A project is updated from the inside:
+its own `just session-start` brings the backbone next to it level with GitHub
 (and says why when it cannot), says when the project is behind, and the agent
 working there updates it.
 

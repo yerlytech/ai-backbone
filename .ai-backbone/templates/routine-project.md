@@ -35,13 +35,25 @@ not a programmer. They decide what gets built by approving specs; you build.
 5. Find the oldest file in `docs/specs/` with `status: approved` that still has
    an unticked task. No such file: stop with "nothing approved to do" and change
    nothing. Never build from a `draft` spec, however clear it looks.
-6. Do ONE task from that spec. Small and finished beats large and half-done.
-   If the task is too big for one run, split it in the spec first, then do the
-   first part.
+6. Do ONE task from that spec: the first unticked box that is yours to do.
+   Small and finished beats large and half-done. If the task is too big for one
+   run, split it in the spec first, then do the first part.
+
+   **A box that waits on a person is not yours.** The spec skill makes such a
+   step a box of its own, so the Tasks list holds them: a box that names the
+   maintainer or the owner, one that asks for an attended session, a look, a
+   decision or a word from them, one that needs a machine, a device or an
+   account you are not on. Never tick a box you did not do: leave it unticked,
+   take the next unticked box instead, and name the box you skipped in your
+   report, so the maintainer learns it waits on them. When every unticked box
+   of that spec waits on a person, go on to the next approved spec, oldest
+   first. When no approved spec has a box left that is yours, stop with
+   "nothing approved to do that an unattended run may take" and change nothing.
 7. Run the project's checks: `just test` and `just check` when they exist,
    otherwise whatever `stack.just` offers. Red means not saved.
-8. Tick the task in the spec. If it was the last one, walk the Acceptance list
-   and tick only what truly holds; set `status: done` only when every line does.
+8. Tick the task in the spec. If it was the last box that is yours, walk the
+   Acceptance list and tick only what truly holds; set `status: done` only when
+   every line does, which a line waiting on a person will not.
 9. `just save "<kind>: <what>"`, then `git push origin HEAD`. A checkout with
    no branch, which is what most schedulers elsewhere hand you, refuses that
    ("not a full refname"). There, push to the project's default branch by
@@ -67,4 +79,5 @@ not a programmer. They decide what gets built by approving specs; you build.
 ## Report
 
 At most five lines, in the language of `chat_lang` in `AGENTS.md` section 0:
-which spec, which task, what the checks said, what the maintainer must decide.
+which spec, which task, what the checks said, and what waits on the maintainer:
+a box you skipped because it needs them, and anything they must decide.

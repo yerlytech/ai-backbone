@@ -307,6 +307,12 @@ check "the ADR template takes no 'from memory' after Nothing" "grep -q 'is never
 # `routine.sh --brief` naming a file that begins "# Routine", so that is run.
 check "the project brief is pointed at, never pasted"  "brief13=\$(sh .ai-backbone/routine.sh --brief) && case \"\$(head -1 \"\$brief13\")\" in '# Routine'*) grep -q 'routine.sh --brief' \"\$brief13\" && ! grep -qi 'paste it as the prompt' \"\$brief13\" ;; *) false ;; esac"
 check "and says what to do with no branch, and with a push GitHub refuses" "grep -q 'git push origin HEAD:<branch>' .ai-backbone/templates/routine-project.md && grep -q 'git pull --rebase origin <branch>' .ai-backbone/templates/routine-project.md && grep -q 'git rebase --abort' .ai-backbone/templates/routine-project.md"
+# The spec skill makes a step that waits on the maintainer a box of its own, so
+# the Tasks list holds boxes no unattended run may take ("walk the acceptance
+# list with the owner", a measurement on a machine it is not on). The project
+# brief took the oldest unticked one whatever it said; now it skips such a box,
+# names it in the report, and says so when a spec has none left that is its own.
+check "the project brief leaves a task that waits on a person to the person" "grep -q 'is not yours' .ai-backbone/templates/routine-project.md && grep -q 'nothing approved to do that an unattended run may take' .ai-backbone/templates/routine-project.md && grep -q 'Never tick a box you did not do' .ai-backbone/templates/routine-project.md"
 check "the walkthrough sends an edit of the brief to a copy no update overwrites" "grep -q 'edit the copy' '$root/docs/01-getting-started.md' && ! grep -q 'by editing the brief it reads' '$root/docs/01-getting-started.md'"
 # just on Linux is rust-just from PyPI, a third party's repackaging, and until
 # now no tracked file said so. The header ends where the script begins (set -u).

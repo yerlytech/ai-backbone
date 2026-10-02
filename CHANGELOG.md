@@ -13,6 +13,15 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## 3.32.1 — 2026-10-02
+
+**A project's unattended routine leaves the boxes that wait on a person.** The
+spec skill makes a step that needs the maintainer a box of its own, so a Tasks
+list holds boxes no unattended run may take; the project brief took the oldest
+unticked one whatever it said. It now skips such a box, names it in its report
+so the maintainer learns it waits on them, moves on to the next approved spec
+when a spec has none left that is its own, and never ticks a box it did not do.
+
 ## 3.32.0 — 2026-10-01
 
 **A team of roles** (spec 025). Every job in a project now has a role, and
