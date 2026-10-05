@@ -13,6 +13,20 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## 3.32.2 — 2026-10-05
+
+The code map's pin moves to the graphify now installed, three releases on from
+it. None of the three publishes notes, and the suite runs against a stand-in
+graphify, so the row's question — whether the query commands or the output
+folder changed — was measured against the real one, not remembered: the two
+commands, `graphify-out/` and its report, the byte-identical second run, the
+pruning of a file taken out of the tree with no `--force` (7 nodes to 5), the
+moved folder and all three of query, explain and affected behave as
+`update-map`'s comment says. The comment now names the version and the day it
+was measured, and says that the cached-file line written down at the last
+measurement is still said the same way, so the next agent does not read it as
+a fault of ours.
+
 ## 3.32.1 — 2026-10-02
 
 **A project's unattended routine leaves the boxes that wait on a person.** The

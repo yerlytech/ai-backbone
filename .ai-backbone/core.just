@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.32.1
+# .ai-backbone/core.just — the backbone's recipes, version 3.32.2
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -1828,21 +1828,22 @@ update-map:
     fi
     # Everything below was measured on graphify 0.9.64 (2026-09-19), in a scratch
     # project holding a Flutter project's three Dart files, and again on 0.9.68
-    # (2026-09-26), 0.9.70 (2026-09-28), 0.9.71 (2026-09-29) and 0.9.73
-    # (2026-10-01) in a scratch project of four Python files and one JSON: the
+    # (2026-09-26), 0.9.70 (2026-09-28), 0.9.71 (2026-09-29), 0.9.73
+    # (2026-10-01) and 0.9.76 (2026-10-05) in a scratch project of Python files
+    # and one JSON: the
     # two commands, the folder they write to, the report file, the
-    # byte-identical second run, the pruning of a deleted file (13 nodes to 10
+    # byte-identical second run, the pruning of a deleted file (7 nodes to 5
     # on the last of them, with no --force) and the moved folder all still
     # behave as written here, and query, explain and affected — what AGENTS.md
     # section 4 sends an agent to — all still answer. Measure again before
     # trusting it on a graphify much newer than that.
     #
-    # 0.9.73 says one line 0.9.71 did not, on every run: a file the manifest
+    # From 0.9.73 on, a line 0.9.71 did not say comes on every run: a file the manifest
     # stamped that yields no nodes — the JSON — is re-queued as a "prior failed
     # extraction (#2543)". It is graphify's own bookkeeping about its own cache:
     # the graph that run writes is the same byte for byte, the file count in the
     # summary is unchanged, and a project of code alone never sees the line.
-    # Nothing here answers it.
+    # Nothing here answers it; 0.9.76 says it the same way.
     #
     # The ignore list. With the list as it was, most of a first map's nodes came
     # from .ai-backbone/ (upstream.py, setup.sh, routine.sh) and few from the
