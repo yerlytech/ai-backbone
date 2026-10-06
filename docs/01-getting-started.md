@@ -115,6 +115,14 @@ path no longer here, reported and never a reason for lint to fail.
 
 ## 5b. Let GitHub run the checks too
 
+A project that must never reach GitHub says so once, and `just publish`,
+`just publish-on-save` and `just ci-init` refuse, the hints about GitHub go
+quiet, and `just hooks-install` adds a hook that refuses every push:
+
+```bash
+git config ai-backbone.local-only true
+```
+
 The same checks, again on every push, so nobody can send something broken —
 including you, in a hurry. (This is GitHub *Actions* running your tests. It is
 not the same thing as the scheduled agent further down, which also lives in

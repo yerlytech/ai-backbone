@@ -2445,6 +2445,25 @@ check "run again it says the copy is the backbone's" "says 'ok      .github/work
 printf '# edited here\n' >> .github/workflows/image.yml
 check "and says when the copy differs, without overwriting it" "says 'differs .github/workflows/image.yml' just ci-init image && grep -q '^# edited here' .github/workflows/image.yml"
 check "and the checks it waits for can still be added after it" "just ci-init generic >/dev/null 2>&1; [ -f .github/workflows/checks.yml ] && grep -q '^name: checks' .github/workflows/checks.yml"
+# A project that never goes to GitHub, and one that keeps no second copy of
+# brain/: both said per project, in its own git config (spec 026).
+git config ai-backbone.local-only true
+check "a local-only project refuses publish, publish-on-save and ci-init" "says 'Not sent: this project is local-only' just publish && ! just publish && says 'local-only' just publish-on-save on && says 'no GitHub to run checks on' just ci-init && ! just ci-init"
+check "and session-start does not ask for a GitHub address" "! says 'GitHub: no address yet' just session-start && says 'ok    local-only' just doctor"
+just hooks-install >/dev/null 2>&1
+git init -q --bare "$tmp/s26-remote.git"; git remote add origin "$tmp/s26-remote.git"
+check "hooks-install adds a pre-push hook that refuses every push" "! git push -q origin HEAD 2>/dev/null && says 'Not pushed: this project is local-only' git push origin HEAD && says 'local-only, and it has a GitHub address' just doctor"
+git config --unset ai-backbone.local-only
+check "and that hook lets pushes through once the setting is off" "git push -q origin HEAD 2>/dev/null"
+git remote remove origin
+mkdir -p "$tmp/s26-vault"; git config --global ai-backbone.vault-copy "$tmp/s26-vault"
+git config ai-backbone.vault-copy off
+check "a project can turn its vault copy off, and doctor and session-end say so" "says 'turned it off' just doctor && says 'keeps no second copy' just session-end && [ ! -d '$tmp/s26-vault/s26' ]"
+git config ai-backbone.vault-copy "$tmp/s26-own"; mkdir -p "$tmp/s26-own"
+# Where the copy goes is asked of _vault-dest, so a machine without rsync checks it too.
+check "and a place set in the project comes before the machine's" "[ \"\$(just _vault-dest)\" = '$tmp/s26-own/s26' ]"
+git config --unset ai-backbone.vault-copy; git config --global --unset ai-backbone.vault-copy
+
 # After a merge, union can bring a removed backlog line back, or twin an edited one.
 bm="$tmp/bm"; mkdir -p "$bm/docs"; cd "$bm" || exit 1
 # As the backbone's own: LF on every machine (Windows wrote CRLF and the edit

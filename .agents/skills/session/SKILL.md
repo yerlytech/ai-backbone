@@ -112,6 +112,9 @@ the record of what this project promised to keep working.
    it says the machine has no place yet, ask the maintainer once for a folder (a
    folder in a cloud drive, a second disk), then
    `git config --global ai-backbone.vault-copy "<folder>"`. They type nothing.
+   A project that must not be copied there says so in its own config
+   (`git config ai-backbone.vault-copy off`), or names a place of its own
+   (`git config ai-backbone.vault-copy "<folder>"`); doctor says which.
 2. Fill the journal in the maintainer's language (`brain_lang` in AGENTS.md):
    what changed, why this way, open questions, next steps.
 3. If code changed something `docs/` describes, update `docs/` now.

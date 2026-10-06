@@ -13,6 +13,22 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## 3.34.0 — 2026-10-06
+
+Two notes that arrived while 3.33.0 was built (spec 026).
+
+- **A project that never goes to GitHub.** `git config ai-backbone.local-only
+  true` in it, and `just publish`, `just publish-on-save` and `just ci-init`
+  refuse, session-start and the language layer stop pointing at GitHub, doctor
+  says so (and warns when the project has an address all the same), and `just
+  hooks-install` adds a pre-push hook that refuses even a plain `git push`
+  while the setting holds. Written only where no pre-push hook is.
+- **A project's own say over the copy of `brain/`.** `git config
+  ai-backbone.vault-copy off` in a project keeps its vault and its secret
+  files out of the machine's second-copy folder; a folder set there instead is
+  that project's place. Read before the machine's own (`--global`); doctor and
+  session-end say which.
+
 ## 3.33.0 — 2026-10-06
 
 **The whole backlog, in one batch** (spec 026). The maintainer asked for every

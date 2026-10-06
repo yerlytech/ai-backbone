@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.33.0
+# .ai-backbone/core.just — the backbone's recipes, version 3.34.0
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -206,6 +206,9 @@ ci-init lang="":
     set -euo pipefail
     shopt -s nullglob
     lang="$1"
+    if [ -n "$(just _local-only)" ]; then
+      echo "This project is local-only (git config ai-backbone.local-only true): there is no GitHub to run checks on."; exit 1
+    fi
     # `just ci-init image`: not a language but the delivery after the checks
     # (spec 026). A recipe of its own would have been the 41st a new project
     # lists; it is a kind of check written once, like the others here.
@@ -473,7 +476,9 @@ doctor:
     # writes into the copy each time, because only that says when a copy was
     # really written. Whether a cloud drive has uploaded it since, nothing here
     # can know, so nothing here says.
-    if [ -d brain ]; then
+    if [ -d brain ] && [ -n "$(just _vault-off)" ]; then
+      echo "  --    brain/ has no second copy: this project turned it off (git config ai-backbone.vault-copy off)"
+    elif [ -d brain ]; then
       dest=$(just _vault-dest 2>/dev/null || true)
       if [ -z "$dest" ]; then echo "  --    $(just _doctor-msg copy-none)"
       elif [ ! -d "$(dirname "$dest")" ]; then echo "  warn  $(just _doctor-msg copy-unreachable "$(dirname "$dest")")"
@@ -523,7 +528,11 @@ doctor:
     if [ -d .github/workflows ]; then
       if just ci-check >/dev/null 2>&1; then echo "  ok    checks on every push (.github/workflows)"
       else echo "  warn  the checks have dropped a lesson -> just ci-check"; fi
-    elif [ -n "$(just _is-repo)" ]; then echo "  --    no checks on push yet. When you want them: just ci-init"; fi
+    elif [ -n "$(just _is-repo)" ] && [ -z "$(just _local-only)" ]; then echo "  --    no checks on push yet. When you want them: just ci-init"; fi
+    if [ -n "$(just _local-only)" ]; then
+      if git remote get-url origin >/dev/null 2>&1; then echo "  warn  local-only, and it has a GitHub address (origin): git remote remove origin, or turn local-only off"
+      else echo "  ok    local-only: nothing goes to GitHub (git config ai-backbone.local-only)"; fi
+    fi
     if just --summary 2>/dev/null | tr ' ' '\n' | grep -qx outdated; then echo "  info  run 'just outdated' to see which dependencies are behind"; fi
     # A project with a language has a toolchain, a framework and a database
     # whose releases matter, and without a watch list nothing says when they
@@ -703,7 +712,8 @@ stack lang="":
     added=$(just _hook-lint || true)
     if [ -n "$added" ]; then echo "$added"; just hooks-install >/dev/null 2>&1 || true; fi
     # The update bot needs no workflow, so the hint no longer waits for one.
-    if [ -f "$src/.ai-backbone/examples/ci-$lang.yml" ]; then
+    if [ -n "$(just _local-only)" ]; then :
+    elif [ -f "$src/.ai-backbone/examples/ci-$lang.yml" ]; then
       echo "GitHub can run these checks on every push, and open update PRs: just ci-init $lang"
     elif [ -f "$src/.ai-backbone/examples/dependabot-$lang.yml" ]; then
       echo "GitHub can open a pull request when a package is behind: just ci-init $lang"
@@ -882,6 +892,20 @@ hooks-install:
         echo "warn  the subagent cap hook could not be merged into .claude/settings.json (a comment or a trailing comma in it?): copy the PreToolUse group from the backbone's .claude/settings.json by hand."
       fi
     fi
+    # A local-only project refuses every push, even a plain `git push` (spec 026).
+    # The hook reads the setting when it runs, so turning it off needs nothing
+    # more; it is written only where no pre-push hook is, and never over one.
+    if [ -n "$(just _local-only)" ]; then
+      pp="$(git rev-parse --git-path hooks)/pre-push"
+      if [ ! -e "$pp" ]; then
+        printf '%s\n' '#!/bin/sh' '# Written by just hooks-install for a local-only project (git config ai-backbone.local-only true).' \
+          '[ "$(git config --get --bool ai-backbone.local-only 2>/dev/null)" = true ] || exit 0' \
+          'echo "Not pushed: this project is local-only (git config ai-backbone.local-only true)." >&2' 'exit 1' > "$pp"
+        chmod +x "$pp"; echo "Local-only: a pre-push hook now refuses every push."
+      elif ! grep -q 'ai-backbone.local-only' "$pp" 2>/dev/null; then
+        echo "Local-only: a pre-push hook is there already, so none was added; just publish refuses, a plain git push is not stopped."
+      fi
+    fi
     if [ -n "$push" ]; then echo "Hooks installed. They run on every save, and the pre-push ones before every push."
     else echo "Hooks installed. They run on every save."; fi
 
@@ -980,7 +1004,7 @@ _session-start-body:
     # the agent does not run publish on its own, because that creates a repository
     # under the person's account. It asks git and nothing else, so it is said in
     # offline mode too.
-    if git rev-parse --git-dir >/dev/null 2>&1 && ! git remote get-url origin >/dev/null 2>&1; then
+    if git rev-parse --git-dir >/dev/null 2>&1 && ! git remote get-url origin >/dev/null 2>&1 && [ -z "$(just _local-only)" ]; then
       echo "GitHub: no address yet. This code has no second copy; it lives on this machine only. Ask the person, then -> just publish"
     fi
     # How the last push went, in one line and only when it is not good news.
@@ -1415,7 +1439,7 @@ save msg *paths:
     # A repository can ask for every save to reach GitHub as well, so that no
     # work exists only on one disk. Off unless somebody turned it on, because
     # the promise elsewhere is that nothing leaves the machine unasked.
-    if [ "$(git config --get ai-backbone.publish-on-save 2>/dev/null || echo false)" = "true" ] \
+    if [ "$(git config --get ai-backbone.publish-on-save 2>/dev/null || echo false)" = "true" ] && [ -z "$(just _local-only)" ] \
        && git remote get-url origin >/dev/null 2>&1; then
       # --follow-tags: a version's tag goes where its commit goes (spec 016).
       # Inside the backbone, main is the gate's to move (spec 017).
@@ -1436,6 +1460,9 @@ publish-on-save mode="on":
     set -euo pipefail
     case "$1" in
       on|true|yes)
+        if [ -n "$(just _local-only)" ]; then
+          echo "This project is local-only (git config ai-backbone.local-only true): nothing goes to GitHub."; exit 1
+        fi
         if ! git remote get-url origin >/dev/null 2>&1; then
           echo "No GitHub address yet. Run: just publish"; exit 1
         fi
@@ -1453,6 +1480,9 @@ publish-on-save mode="on":
 publish:
     #!/usr/bin/env bash
     set -euo pipefail
+    if [ -n "$(just _local-only)" ]; then
+      echo "Not sent: this project is local-only (git config ai-backbone.local-only true), so nothing goes to GitHub. Its work is saved on this machine."; exit 1
+    fi
     if ! git remote get-url origin >/dev/null 2>&1; then
       name=$(just _slug "$(basename "$PWD")")
       just _msg no-remote
@@ -1710,7 +1740,7 @@ release step="":
     echo "Released $tag${last:+ (after $last)}. CHANGELOG.md says what is in it."
     # With publish-on-save on, the release goes to GitHub the way a save does,
     # and its tag with it. Off, it stays here until `just publish`.
-    if [ "$(git config --get ai-backbone.publish-on-save 2>/dev/null || echo false)" = "true" ] \
+    if [ "$(git config --get ai-backbone.publish-on-save 2>/dev/null || echo false)" = "true" ] && [ -z "$(just _local-only)" ] \
        && git remote get-url origin >/dev/null 2>&1; then
       if git push -q origin HEAD --follow-tags 2>/dev/null; then echo "  -> GitHub, with $tag"
       else echo "  not sent to GitHub — released here. Try: just publish"; fi
@@ -3341,6 +3371,24 @@ _build-wait:
     echo "The other build is still running after $(span "$limit"). Going on anyway, with $half of this machine's $cores cores ($jobs=$half), so the two builds together use less memory." >&2
     printf '%s=%s\n' "$jobs" "$half"
 
+# "yes" when this project has said it never goes to GitHub (spec 026):
+#     git config ai-backbone.local-only true
+# publish, publish-on-save and ci-init refuse, the hints that point at GitHub
+# go quiet, and hooks-install adds a pre-push hook that refuses every push
+# while the setting holds. Per project, never global: a machine has projects of
+# both kinds. Nothing otherwise.
+_local-only:
+    #!/usr/bin/env bash
+    [ "$(git config --get --bool ai-backbone.local-only 2>/dev/null || true)" = true ] && echo yes || true
+
+# "yes" when this project has turned off the second copy of brain/ (spec 026):
+#     git config ai-backbone.vault-copy off
+# The machine's place (`--global`) holds for every other project. A path set
+# in the project instead is the place for this one. Nothing otherwise.
+_vault-off:
+    #!/usr/bin/env bash
+    case "$(git config --local --get ai-backbone.vault-copy 2>/dev/null | tr 'A-Z' 'a-z')" in off|false|no|none) echo yes ;; esac
+
 # After a merge, put back what union got wrong in docs/backlog.md (spec 026).
 # `merge=union` keeps both sides of a hunk, and when a run removed one of the
 # last lines (built) while a note landed after it, or edited one (blocked), the
@@ -3526,7 +3574,10 @@ _build-shared dir:
 # folder's name.
 _vault-dest:
     #!/usr/bin/env bash
-    place=$(git config --global --get --path ai-backbone.vault-copy 2>/dev/null || true)
+    [ -z "$(just _vault-off)" ] || exit 0
+    # The project's own place, when it set one, before the machine's.
+    place=$(git config --local --get --path ai-backbone.vault-copy 2>/dev/null || true)
+    [ -n "$place" ] || place=$(git config --global --get --path ai-backbone.vault-copy 2>/dev/null || true)
     [ -n "$place" ] || exit 0
     project=$(grep -E '^\| *project *\|' AGENTS.md 2>/dev/null | head -1 | awk -F'|' '{print $3}' | sed 's/^ *//;s/ *$//')
     if [ "$project" = ai-backbone ] && [ -z "$(just _is-backbone)" ]; then project=""; fi
@@ -3575,6 +3626,9 @@ _vault-copy:
     #!/usr/bin/env bash
     set -uo pipefail
     [ -d brain ] || exit 0
+    if [ -n "$(just _vault-off)" ]; then
+      echo "brain/ was not copied: this project keeps no second copy (git config ai-backbone.vault-copy off). Back on: git config --unset ai-backbone.vault-copy"; exit 0
+    fi
     dest=$(just _vault-dest 2>/dev/null || true)
     if [ -z "$dest" ]; then
       echo "brain/ has no second copy: this machine has no place for one yet. An agent asks the person once for a folder (a cloud drive folder, a second disk), then: git config --global ai-backbone.vault-copy \"<folder>\""
