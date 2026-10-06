@@ -2447,7 +2447,9 @@ check "and says when the copy differs, without overwriting it" "says 'differs .g
 check "and the checks it waits for can still be added after it" "just ci-init generic >/dev/null 2>&1; [ -f .github/workflows/checks.yml ] && grep -q '^name: checks' .github/workflows/checks.yml"
 # After a merge, union can bring a removed backlog line back, or twin an edited one.
 bm="$tmp/bm"; mkdir -p "$bm/docs"; cd "$bm" || exit 1
-git init -q -b cloud; printf 'docs/backlog.md merge=union\n' > .gitattributes; printf "import '%s/.ai-backbone/core.just'\n" "$root" > Justfile
+# As the backbone's own: LF on every machine (Windows wrote CRLF and the edit
+# below never matched), and the import by a path just on Windows can read.
+git init -q -b cloud; printf '* text=auto eol=lf\ndocs/backlog.md merge=union\n' > .gitattributes; printf "import '%s/.ai-backbone/core.just'\n" "$rootw" > Justfile
 printf '# Backlog\n\n- [ ] 2026-10-01, n-aaaaaa: first\n- [ ] 2026-10-02, n-bbbbbb: second\n- [ ] 2026-10-03, n-cccccc: third\n' > docs/backlog.md
 git add -A; git commit -qm "docs: base" --no-verify
 git checkout -qb side; printf -- '- [ ] 2026-10-06, n-dddddd: new note\n' >> docs/backlog.md; git commit -qam "docs: note" --no-verify
