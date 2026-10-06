@@ -23,8 +23,8 @@ bytes = 150000
 heading = "^## [0-9]"
 filter = "AGENTS\\.md|CLAUDE\\.md|SKILL\\.md|\\.claude/(skills|rules|settings)|settings\\.json|SessionStart|^- (\\[[^]]*\\] )?(Added|Changed|Removed|Deprecated) .*(routine|scheduled|claude -p|--permission-mode|headless)"
 skip = "^- \\[(VSCode|JetBrains|Claude Tag|Desktop|Chrome)"
-seen = "## 2.1.288"
-read = "2026-10-03"
+seen = "## 2.1.290"
+read = "2026-10-06"
 touches = "CLAUDE.md, .claude/settings.json, .agents/skills/, .ai-backbone/routine.md, sync-rules in core.just"
 
 [[source]]
@@ -34,8 +34,8 @@ bytes = 100000
 heading = "^## [0-9]"
 filter = "^ *[-*] "
 skip = "dependenc|bump|typo|^ *[-*] \\[?[0-9a-f]{7}"
-seen = "## 1.14.0"
-read = "2026-10-03"
+seen = "## 1.14.1"
+read = "2026-10-06"
 touches = ".agents/skills/spec/SKILL.md, .ai-backbone/templates/spec.md, the spec recipe and session-start in core.just"
 
 [[source]]
@@ -46,7 +46,7 @@ heading = "^## \\[[0-9]"
 filter = "^ *[-*] "
 skip = "extension|catalog|preset|integration|chore|bump|dependabot|typo|^- test"
 seen = "## [1.1.0] - 2026-10-02"
-read = "2026-10-03"
+read = "2026-10-06"
 touches = ".agents/skills/spec/SKILL.md, .ai-backbone/templates/spec.md, the spec recipe in core.just"
 
 [[source]]
@@ -56,7 +56,7 @@ bytes = 40000
 heading = "^## v[0-9]"
 filter = "^\\*\\*[A-Z]"
 seen = "## v6.12.0 - 2026-09-03"
-read = "2026-10-03"
+read = "2026-10-06"
 touches = ".agents/skills/team/SKILL.md and the role skills (research, data, marketing): how roles hand over, how much ceremony a change needs, how a review is triaged"
 
 [[source]]
@@ -66,26 +66,26 @@ bytes = 20000
 heading = "^## Announcements: v"
 filter = "AGENTS\\.md|GEMINI\\.md|SKILL\\.md|skills?[ ,.:)]|settings\\.json|[^a-z]hooks?[ ,.:)]|context file|memory"
 seen = "## Announcements: v0.61.0 - 2026-09-23"
-read = "2026-10-03"
+read = "2026-10-06"
 touches = "GEMINI.md, sync-rules in core.just"
 
 [[source]]
 name = "agent-skills-spec"
 url = "https://raw.githubusercontent.com/agentskills/agentskills/main/docs/specification.mdx"
 hash = "d9a2db099d905da8b879a5c6f996728073985279"
-read = "2026-10-03"
+read = "2026-10-06"
 touches = "the header of every .agents/skills/*/SKILL.md"
 
 [[source]]
 name = "agents-md"
 url = "https://raw.githubusercontent.com/agentsmd/agents.md/main/README.md"
 hash = "8ce701e74909d5f08e2810380e0ff15f547aa0c8"
-read = "2026-10-03"
+read = "2026-10-06"
 touches = "AGENTS.md, sync-rules in core.just"
 
 [[source]]
 name = "copilot-agents-md"
 url = "https://raw.githubusercontent.com/github/docs/main/data/reusables/copilot/custom-instructions-agents.md"
 hash = "b95c3e459229b058719085e6c278f020ed97d72f"
-read = "2026-10-03"
+read = "2026-10-06"
 touches = ".github/copilot-instructions.md, which sync-rules generates"
