@@ -28,6 +28,14 @@ server_dir := if path_exists("Cargo.toml") == "true" { "." } else { "server" }
 # Two builds that share a folder wait on one lock anyway, and two at once on a
 # machine with little memory can run it out at link time. BUILD_WAIT_MINUTES=0
 # switches it off. Put a recipe of your own that compiles through it too.
+#
+# In front of that, `$(just _heavy)`: on a machine whose owner caps heavy work
+# (one reached by remote desktop must stay usable), cargo runs under a nice
+# level and a job cap, CARGO_BUILD_JOBS and RUST_TEST_THREADS among them, from
+# one setting per machine:
+#     git config --global ai-backbone.nice 15
+#     git config --global ai-backbone.jobs half      # or a number
+# Unset, it prints nothing and cargo runs as always.
 
 # Run the backend locally
 [group('rust')]
@@ -37,18 +45,18 @@ dev:
 # Fast type check. No tests, no codegen.
 [group('rust')]
 check:
-    cd {{server_dir}} && env $(just _build-wait) cargo check --workspace --all-targets
+    cd {{server_dir}} && $(just _heavy) env $(just _build-wait) cargo check --workspace --all-targets
 
 # Unit tests only. Database tests are separate, see test-db.
 [group('rust')]
 test:
-    cd {{server_dir}} && env $(just _build-wait) cargo test --workspace
+    cd {{server_dir}} && $(just _heavy) env $(just _build-wait) cargo test --workspace
 
 # Formatter and linter. Both must pass before a commit. The last line reports
 # docs that name a path no longer here; the leading - keeps it from failing lint.
 [group('rust')]
 lint:
-    cd {{server_dir}} && env $(just _build-wait) cargo clippy --workspace --all-targets -- -D warnings
+    cd {{server_dir}} && $(just _heavy) env $(just _build-wait) cargo clippy --workspace --all-targets -- -D warnings
     cd {{server_dir}} && cargo fmt --check
     -@just stale
 
@@ -71,12 +79,12 @@ fmt:
 # The tests without the doctests: quick enough to run before a commit
 [group('rust')]
 test-fast:
-    cd {{server_dir}} && env $(just _build-wait) cargo test --workspace --lib --bins --tests
+    cd {{server_dir}} && $(just _heavy) env $(just _build-wait) cargo test --workspace --lib --bins --tests
 
 # Release build
 [group('rust')]
 build:
-    cd {{server_dir}} && env $(just _build-wait) cargo build --release
+    cd {{server_dir}} && $(just _heavy) env $(just _build-wait) cargo build --release
 
 # ──────────────────────── build output ───────────────────────
 # Where cargo writes, for `just doctor` and the wait above (spec 015). A Rust

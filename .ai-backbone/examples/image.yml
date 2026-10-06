@@ -1,0 +1,68 @@
+# The project's Docker image, built on GitHub once the checks have passed on
+# main, and sent to GitHub's own registry, ghcr.io, tagged by the commit it was
+# built from. Written by `just ci-init image`, which also says when this copy is
+# behind the backbone's.
+#
+# Why this shape:
+#   - It runs after the workflow named `checks` (`just ci-init` writes it) and
+#     only when that run passed on a push to main: an image of a red commit is
+#     never made.
+#   - It builds the commit the checks tested, not whatever main is by then.
+#   - It logs in with the run's own token, which may write this repository's
+#     packages and nothing else. No secret is added to the repository.
+#   - The server pulls: `docker pull ghcr.io/<owner>/<repo>:<commit>`. GitHub
+#     never holds a key to the server, so a leaked workflow cannot reach it. A
+#     private package needs, on the server, a token that can only read packages.
+#   - One tag per commit, never `latest`: what runs is always a commit you can
+#     name, and going back is pulling the one before.
+#   - Plain docker commands, no third-party action: nothing to pin or trust
+#     beyond the checkout, and the runner has docker.
+#
+# Nothing here has run on a runner yet; the first push of the first project
+# that uses it is the measurement (`just ci` reads it).
+
+name: image
+
+on:
+  workflow_run:
+    workflows: [checks]
+    types: [completed]
+    branches: [main]
+
+# Nothing by default; the job below asks for what it needs.
+permissions: {}
+
+# One group per tested commit: two pushes in a row each get their image, and
+# nothing cancels one. The commit is the checks run's (`head_sha`); github.sha
+# would be main's newest.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_sha || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  image:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+
+      - name: build the image and send it to ghcr.io
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          # ghcr.io takes names in small letters only.
+          image="ghcr.io/$(printf '%s' "$REPO" | tr '[:upper:]' '[:lower:]')"
+          printf '%s' "$TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+          docker build --label "org.opencontainers.image.revision=$SHA" --label "org.opencontainers.image.source=https://github.com/$REPO" -t "$image:$SHA" .
+          docker push "$image:$SHA"
+          echo "On the server: docker pull $image:$SHA"

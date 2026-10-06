@@ -19,6 +19,9 @@ you fill that slot.
 | `dependabot-rust.yml` | GitHub opens a pull request when a crate is behind |
 | `dependabot-swift.yml` | same, for Swift packages |
 | `dependabot-flutter.yml` | same, for pub.dev packages (Dart and Flutter) |
+| `image.yml` | the project's Docker image, built on GitHub after the checks pass on main and sent to ghcr.io tagged by commit; `just ci-init image` writes it |
+| `dependabot-docker.yml` | the update bot for a project that ships as containers: its languages, the base images, the compose file, the workflow |
+| `compose-service.yml` | a service contract for a Docker host several projects share: names, healthcheck, memory, not root, secrets from files, the edge network, daily dumps |
 
 Each language layer has an `outdated` recipe. `just doctor` points at it when it
 exists. `just ci-init` writes the Dependabot file for the language it finds,
@@ -44,6 +47,18 @@ just ci              # how the last push went
 Then edit `stack.just` until it fits. A recipe that takes an argument carries
 `[positional-arguments]` and reads `$1`, never `{{arg}}` in its script —
 `build-app` in `stack-swift.just` is the example.
+
+## A project that ships as a container
+
+`just ci-init image` writes `.github/workflows/image.yml` (and the Docker update
+bot, when there is none). After every green `checks` run on a push to main,
+GitHub builds the image from the commit the checks tested and sends it to
+ghcr.io, tagged by that commit, with the run's own token. The server pulls
+it; GitHub never holds a key to the server. Run again after a template
+update, it says when the project's copy differs from the backbone's and
+never overwrites it. `compose-service.yml` is the contract a service keeps on
+a host it shares with other projects. Neither has run on a real runner or
+host yet: the first project that uses them is the measurement.
 
 ## Two things only the language layer can tell `just doctor`
 

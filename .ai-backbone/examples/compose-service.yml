@@ -1,0 +1,128 @@
+# A service contract for a Docker host that runs several projects. Copy it to
+# the project as compose.yml, rename `myapp` everywhere, and keep what fits.
+# Nothing here has run on a host yet: it is the contract written down, and the
+# first project that deploys with it is the measurement. Read your images' own
+# documentation for the paths and users they expect; they are not guessed here.
+#
+# What every service on a shared host promises:
+#   - one compose name, and every container named <project>-<service>, so
+#     `docker ps` on a host of ten projects says whose each one is
+#   - a healthcheck, so "running" means "answering"
+#   - a memory limit, so one project cannot take the host down with it
+#   - not root, no capabilities it does not need, no new privileges, and a
+#     read-only file system wherever the program allows it
+#   - secrets read from files (`*_FILE`), never from the environment or the image
+#   - only the front service on the shared `edge` network, which the host's
+#     proxy owns; the database on this project's own internal network, never on
+#     `edge` (the audit lens "One network, several projects" asks why)
+#   - its data and its backups under /srv/<project>/, a daily dump kept two weeks
+#
+# The image is the one the `image` workflow builds on GitHub and sends to
+# ghcr.io, tagged by commit (`just ci-init image`). The host pulls it; GitHub never
+# holds a key to the host:
+#     IMAGE_TAG=<commit> docker compose pull && IMAGE_TAG=<commit> docker compose up -d
+
+name: myapp
+
+services:
+  app:
+    image: ghcr.io/owner/myapp:${IMAGE_TAG:?set IMAGE_TAG to the commit to run}
+    container_name: myapp-app
+    restart: unless-stopped
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    environment:
+      DATABASE_HOST: db
+      DATABASE_PASSWORD_FILE: /run/secrets/db_password
+    secrets:
+      - db_password
+    healthcheck:
+      # A command inside the image that exits 0 when the app answers. An image
+      # with no shell and no curl ships a small one of its own.
+      test: ["CMD", "/app/healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - edge
+      - internal
+
+  db:
+    image: postgres:18
+    container_name: myapp-db
+    restart: unless-stopped
+    mem_limit: 1g
+    environment:
+      POSTGRES_USER: myapp
+      POSTGRES_DB: myapp
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets:
+      - db_password
+    volumes:
+      # Where the image keeps its data moved between PostgreSQL majors: read
+      # the image's own page for the version you pin before you mount it.
+      - /srv/myapp/db:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U myapp -d myapp"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
+  # One dump a day into /srv/myapp/backups, the last fourteen kept. The host's
+  # own backup takes that folder off the machine; a dump on the same disk as
+  # the database is a copy, not a backup.
+  backup:
+    image: postgres:18
+    container_name: myapp-backup
+    restart: unless-stopped
+    mem_limit: 256m
+    environment:
+      PGHOST: db
+      PGUSER: myapp
+      PGDATABASE: myapp
+      PGPASSFILE: /tmp/pgpass
+    secrets:
+      - db_password
+    volumes:
+      - /srv/myapp/backups:/backups
+    entrypoint: ["/bin/sh", "-c"]
+    # $$ is a single $ once compose has read the file.
+    command:
+      - |
+        printf 'db:5432:myapp:myapp:%s\n' "$$(cat /run/secrets/db_password)" > /tmp/pgpass
+        chmod 600 /tmp/pgpass
+        while true; do
+          pg_dump --format=custom --file="/backups/myapp-$$(date +%Y-%m-%d).dump" && echo "dumped"
+          find /backups -name 'myapp-*.dump' -mtime +14 -delete
+          sleep 86400
+        done
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - internal
+
+secrets:
+  # A file on the host, readable by its owner alone, never in the repository.
+  db_password:
+    file: /srv/myapp/secrets/db_password
+
+networks:
+  # Made once per host by whoever runs the proxy: docker network create edge
+  edge:
+    external: true
+  internal:
+    internal: true

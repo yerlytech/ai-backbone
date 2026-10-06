@@ -8,7 +8,7 @@
 set -uo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd -P)"
 mine=$(grep -m1 -oE 'version [0-9.]+' "$root/.ai-backbone/core.just" | awk '{print $2}')
-printf "  %-14s %-9s %-8s %-7s %-11s %s\n" project backbone unsaved github "last save" note
+printf "  %-14s %-9s %-8s %-7s %-11s %-9s %s\n" project backbone unsaved github "last save" upstream note
 found=0
 for d in "$root"/../*/ "$root"/../*/*/; do
   d="${d%/}"
@@ -28,11 +28,22 @@ for d in "$root"/../*/ "$root"/../*/*/; do
   else
     unsaved="-"; remote="-"; last="no git"
   fi
+  # What the project's own weekly check last found newer than its pins, read
+  # from the cache it left (spec 026): no network, nothing asked. "-" for a
+  # project with no watch list or no check yet.
+  up="-"; behind=""
+  cache=$(git -C "$d" rev-parse --git-path upstream-cache.json 2>/dev/null || true)
+  case "$cache" in ""|/*) ;; *) cache="$d/$cache" ;; esac
+  if [ -f "$d/docs/upstream.toml" ] && [ -n "$cache" ] && [ -f "$cache" ]; then
+    behind=$(python3 -c 'import json, sys; print(" ".join(json.load(open(sys.argv[1])).get("behind", [])))' "$cache" 2>/dev/null || true)
+    if [ -n "$behind" ]; then up="$(wc -w <<< "$behind" | tr -d ' ') newer"; else up="current"; fi
+  fi
   note=""
   [ "$v" != "$mine" ] && note="${note:+$note; }behind, $mine here -> just template-update"
   [ "$unsaved" != 0 ] && [ "$unsaved" != "-" ] && note="${note:+$note; }unsaved work"
   [ "$remote" = none ] && note="${note:+$note; }only on this machine"
-  printf "  %-14s %-9s %-8s %-7s %-11s %s\n" "$name" "$v" "$unsaved" "$remote" "$last" "$note"
+  [ -n "$behind" ] && note="${note:+$note; }newer upstream: ${behind// /, }"
+  printf "  %-14s %-9s %-8s %-7s %-11s %-9s %s\n" "$name" "$v" "$unsaved" "$remote" "$last" "$up" "$note"
 done
 echo
 if [ "$found" -eq 0 ]; then echo "No projects found next to the backbone."; else echo "$found project(s). Backbone here: $mine."; fi

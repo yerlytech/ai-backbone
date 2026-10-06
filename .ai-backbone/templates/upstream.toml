@@ -27,7 +27,12 @@
 #               deliberately tracked before it is stable)
 #   major       true when the pin is a major version that takes its own
 #               updates (a workflow's actions/checkout@v7): only a new major
-#               is newer
+#               is newer, and any listed release of the pinned major answers
+#               "current" (docker-v29 is current when docker-v29.4.1 is listed)
+#   tag         optional: how the source spells a version when it differs from
+#               the file that pins it, with {major}, {minor} and {patch}:
+#               tag = "REL_{major}_{minor}" reads PostgreSQL's REL_18_6 as 18.6,
+#               so pin = "18.6" and pinned_in a compose file that says 18.6
 #   docs        optional: where that version's own documentation lives, a URL
 #
 #   A tool that lives as a binary and in no file has no pinned_in; MOVED cannot

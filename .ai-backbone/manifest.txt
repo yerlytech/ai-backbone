@@ -87,6 +87,9 @@ docs/routine-log.md
 .ai-backbone/examples/ci-rust.yml
 .ai-backbone/examples/ci-flutter.yml
 .ai-backbone/examples/ci-generic.yml
+.ai-backbone/examples/image.yml
+.ai-backbone/examples/dependabot-docker.yml
+.ai-backbone/examples/compose-service.yml
 .ai-backbone/fixtures/gh-log-failed.txt
 .ai-backbone/fixtures/gh-annotations-not-started.json
 .ai-backbone/fixtures/flutter-releases.json

@@ -52,7 +52,9 @@ read it: on a backlog line you leave open, in the CHANGELOG, in a new
    fetch), `git checkout -q --detach origin/cloud`, and
    `git merge -q --no-edit origin/main`: the notes the projects sent to `main`
    since the last carry come in that way, by a merge, never a rebase (a rebase
-   would replay them as twins). If the merge stops, `git merge --abort`,
+   would replay them as twins). Then `just _backlog-mend`: union can bring
+   back a line one side removed, or twin one it edited, and this puts it right
+   and commits only that. If the merge stops, `git merge --abort`,
    change nothing, and say so in your report. Then `just session-start`. It
    ends with the last two lines of `docs/routine-log.md`: what the runs before
    you did, could not read, and left alone, and what the gate said. It prints
@@ -204,8 +206,9 @@ read it: on a backlog line you leave open, in the CHANGELOG, in a new
 12. `git push origin HEAD:cloud`. If it is refused because `cloud` has moved —
     another session pushed while you worked — run
     `git fetch -q origin +refs/heads/cloud:refs/remotes/origin/cloud` and
-    `git merge --no-edit origin/cloud` (a merge, never a rebase), run
-    `just self-test` again when what came in touched anything outside `docs/`,
+    `git merge --no-edit origin/cloud` (a merge, never a rebase), then
+    `just _backlog-mend` (the line you removed, a note that landed after it:
+    union kept both), run `just self-test` again when what came in touched anything outside `docs/`,
     and push once more. If the merge stops, `git merge --abort`, push nothing,
     and say so in your report: tomorrow's run starts from a fresh checkout and
     does the item again. You never tag and never push `main`: the gate tests

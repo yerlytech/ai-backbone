@@ -13,6 +13,76 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## 3.33.0 — 2026-10-06
+
+**The whole backlog, in one batch** (spec 026). The maintainer asked for every
+open line at once; all 27 are built, and `docs/backlog.md` is empty.
+
+- **`just save "msg" <path>...`** saves only the paths named, with `git
+  commit -- <paths>`, and names what it left unsaved: an urgent fix can go out
+  while other work is half done. A path that is not there is refused. Which
+  agent session wrote which file is not told: git does not know it.
+- **Notes reach a session that is already working.** `just save` and `just
+  session-end` show a note another project left since the inbox was last
+  shown, once; `just session-start` marks what it showed. `just project-note
+  ai-backbone "..."` reaches the backbone folder's own `brain/`, never its
+  public backlog.
+- **`just release` keeps a subject's own letters.** The draft read the log as
+  bytes and wrote it out as UTF-8 a second time ("Amiral Battı" became
+  "Amiral BattÄ±"); perl now reads it as UTF-8 too (`-CSD`).
+- **`just ci-init image`**, for a project with a Dockerfile: after green
+  `checks` on a push to main, GitHub builds the image from the tested commit
+  and sends it to ghcr.io tagged by that commit, with the run's own token; the
+  server pulls, and GitHub never holds a key to it. Run again after an update,
+  it says when the project's copy differs from the backbone's and never
+  overwrites it. Beside it, `examples/compose-service.yml`, the contract a
+  service keeps on a host it shares (names, healthcheck, memory, not root,
+  secrets from files, the edge network, daily dumps), and
+  `examples/dependabot-docker.yml` (cargo, pub, npm, docker, docker-compose,
+  github-actions; the names read in GitHub's own documentation source). None
+  has run on a runner or a host yet; the first project is the measurement. A
+  subcommand rather than a recipe: a new project lists 40 recipes at most.
+- **`just upstream`** finds a pin written `v2.11.4` in a file that says
+  `2.11.4` (an image tag); a `major = true` row is answered by any listed
+  release of its major (docker-v29 read UNKNOWN when the window held no
+  29.0.0); a row may say how its source spells versions, `tag =
+  "REL_{major}_{minor}"`, and keep its `pinned_in`.
+- **`just doctor`** says when a tool is older than its pin in
+  `docs/upstream.toml`, when a project with a language layer has no watch
+  list, and when a skill's folder and the `name:` in its SKILL.md differ
+  (`sync-rules` says it too: claude-code 2.1.290 lists both, and before it a
+  skill asked for by its name was not found). `just tools-update` moves a uv
+  its own installer put there (`uv self update`, measured: 0.11.32 to 0.12.23
+  on a Linux sandbox); on Linux nothing upgraded uv before.
+- **`just session-start`** names a done spec whose Acceptance list still has an
+  open box (the spec skill now says to tick each line as it is checked, or mark
+  it `[~]` with its reason; spec 001's one open line says why); a red run names
+  the jobs that failed and the run; a gh that is not signed in is said, since
+  it answered nothing and looked like green.
+- **Heavy work on a capped machine.** `git config --global ai-backbone.nice 15`
+  and `ai-backbone.jobs 8` (or `half`): every save's checks, `just release`'s
+  commit and the Rust layer's builds run under them, through `_heavy`; a wait
+  that gives up keeps the machine's cap when it is lower. Unset, nothing
+  changes.
+- **`just routine-install`** on a Mac refuses a project in Desktop, Documents
+  or Downloads, which a scheduled job may not read; `just routine-status`
+  shows how the last run ended and names a macOS refusal in its log.
+- **`just projects`** adds what each project's last weekly check found newer
+  upstream, from its cache.
+- **The backlog after a merge.** `merge=union` brought back a line one side
+  had removed, or twinned one it had edited, when a note landed in the same
+  hunk; `_backlog-mend` reads the merge against its base by id and puts it
+  right, in a commit of its own. The brief runs it after both its merges, and a
+  session's pull on `cloud` after its own.
+- **Text.** Three audit lenses for products that have them (identity, one
+  network for several projects, who owns the sign-in) and an app's first-day
+  checklist; the spec template asks what crosses between two products; the
+  vault's README, the session and team skills, and `AGENTS.md` (a
+  `managed_by` row) say how a project follows a managing repository: its
+  decisions cited by id, never copied, a conflict sent up with `just
+  project-note`. `AGENTS.md` stays under its 7,000 bytes by saying two
+  sentences once.
+
 ## 3.32.2 — 2026-10-05
 
 The code map's pin moves to the graphify now installed, three releases on from

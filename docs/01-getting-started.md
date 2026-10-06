@@ -122,6 +122,7 @@ not the same thing as the scheduled agent further down, which also lives in
 
 ```bash
 just ci-init         # writes .github/workflows/checks.yml and .github/dependabot.yml
+just ci-init image   # with a Dockerfile: after green checks on main, the image is built on GitHub and sent to ghcr.io, tagged by commit; the server pulls it
 just ci              # how the last push went, without opening a browser
 just ci-check        # do the checks still carry the lessons they were built on
 ```
@@ -181,7 +182,8 @@ just snapshot        # zip the whole thing, just in case
 just archive <path>  # retire a file or folder into .archive/, kept but not read
 just ref-add <url> "why"   # keep a read-only copy of another repo to learn from
 just ref-add <folder> "why"   # or list an old repo of yours that lives on this machine only
-just project-note <project> "one line"   # a note for another project on this machine; its next session-start shows it
+just project-note <project> "one line"   # a note for another project on this machine (or ai-backbone); its next session-start, save or session-end shows it
+just save "msg" <path>...                # save only those paths, and hear what was left unsaved
 just --list          # everything
 ```
 
@@ -217,6 +219,10 @@ just routine-status                   # is it on, and what did it do last time
 just routine-now                      # run it now, in this terminal
 just routine-remove                   # stop it
 ```
+
+On a Mac, a project kept in Desktop, Documents or Downloads cannot have one:
+macOS does not let a scheduled job read those folders, and the recipe says so
+instead of installing a job that would fail every week.
 
 Which agent runs it is not the backbone's business: it uses whichever of claude,
 opencode, gemini, codex, crush, cursor-agent or amp is on the machine, and
@@ -366,7 +372,7 @@ this machine, and the days-left count follows), and a different cap for good
 just ci              # how the last push went
 just template-check  # is the backbone itself behind
 just template-update # pull it: only its own files, prints what changed and says when the rules gained a line only your agent can add
-just tools-update    # newer prek, graphify, hook versions, and just where uv installed it
+just tools-update    # newer prek, graphify, hook versions, uv itself, and just where uv installed it
 just upstream        # what the language, database and frameworks you build on have released, and when
 just upstream <name> # that project's own release notes, and where the pinned version's source and docs sit on this machine
 just upstream-init   # start the watch list, docs/upstream.toml; its example row watches the secret scanner the hook config already pins
@@ -377,7 +383,18 @@ just outdated        # which of the project's dependencies have newer versions (
 their own; the agent runs `just tools-update` when a tool is behind, and tells
 you in a paragraph what a release upstream would change if you followed it.
 Nothing is ever upgraded because it is newer: an upgrade is work, with a spec
-and a test that proves what it might have broken still holds.
+and a test that proves what it might have broken still holds. `just doctor`
+says when a tool on this machine is older than its pin, and when a project with
+a language has no watch list yet.
+
+A machine whose owner keeps heavy work in check (one reached by remote desktop
+that must stay usable) says so once, and every save's checks and the Rust
+layer's builds follow it:
+
+```bash
+git config --global ai-backbone.nice 15     # run them at a lower priority
+git config --global ai-backbone.jobs half   # or a number: at most that many parallel jobs
+```
 
 Every session `just session-start` also prints, offline, what the project is
 built on and which of those versions came out in the last twelve months, with

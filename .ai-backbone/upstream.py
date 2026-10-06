@@ -341,6 +341,55 @@ def newer_than(pin, releases, want_prereleases):
     return out
 
 
+def tagged(entry, releases):
+    """A source that spells its versions its own way, read the way the pin is
+    written. PostgreSQL tags REL_18_6 while a compose file says postgres:18.6:
+    with `tag = "REL_{major}_{minor}"` the row keeps its pinned_in, and every tag
+    of that shape reads as 18.6. A tag of another shape is another thing, and
+    is left out. Without `tag`, the releases are as the source listed them."""
+    pattern = str(entry.get("tag") or "")
+    if not pattern:
+        return releases
+    names = re.findall(r"\{(major|minor|patch)\}", pattern)
+    if not names:
+        raise ValueError(f"tag = \"{pattern}\" names no {{major}}, {{minor}} or {{patch}}")
+    regex = re.compile("^" + "".join(
+        r"(\d+)" if re.fullmatch(r"\{(major|minor|patch)\}", piece) else re.escape(piece)
+        for piece in re.split(r"(\{(?:major|minor|patch)\})", pattern) if piece) + "$")
+    out = []
+    for release in releases:
+        found = regex.match(release["version"])
+        if not found:
+            continue
+        got = dict(zip(names, found.groups()))
+        version = ".".join(got[k] for k in ("major", "minor", "patch") if k in got)
+        out.append({**release, "version": version, "tag": release["version"]})
+    return out
+
+
+def tag_of(entry, version):
+    """The tag a version of this row is written as at the source."""
+    pattern = str(entry.get("tag") or "")
+    if not pattern:
+        return version
+    numbers = str(version).lstrip("vV").split(".")
+    keys = ("major", "minor", "patch")
+    return re.sub(r"\{(major|minor|patch)\}",
+                  lambda m: numbers[keys.index(m.group(1))] if keys.index(m.group(1)) < len(numbers) else "0",
+                  pattern)
+
+
+def same_major(pin, releases):
+    """For a row with `major = true`: whether the source lists any release of the
+    pinned major under the pin's own label. A major written alone (docker-v29)
+    is current when v29.4.1 is listed; asked for 29 itself, it read UNKNOWN when
+    the window of fifty held no 29.0.0 (a repository that also tags its
+    sub-modules fills it)."""
+    label, mine = shape(pin)
+    return any(shape(r["version"])[0] == label and shape(r["version"])[1][0][:1] == mine[0][:1]
+               for r in releases if r["version"] and not r["prerelease"])
+
+
 def new_majors(pin, releases):
     """For a row with `major = true`: the pin is a major version that takes its
     own updates, as a workflow's `actions/checkout@v7` runs every v7.x
@@ -388,7 +437,8 @@ def released_at(entry, releases, known=""):
     kind, _, repo = entry.get("source", "").partition(":")
     if known or kind != "github" or not pin or OFFLINE:
         return known
-    tags = list(dict.fromkeys([pin, "v" + pin.lstrip("vV"), pin.lstrip("vV")]))
+    tags = list(dict.fromkeys([tag_of(entry, pin)] if entry.get("tag") else
+                              [pin, "v" + pin.lstrip("vV"), pin.lstrip("vV")]))
     for tag in tags:
         found = github_one(repo, f"releases/tags/{tag}")
         if found and release_day(found):
@@ -514,7 +564,9 @@ def pin_is_real(entry):
     to stand there as a version of its own: asked as "is this text anywhere in
     the file", 1.38.2 was held by a lockfile that had moved on to 1.38.20, and
     MOVED was never said. A pin written with its label, because that is how the
-    source tags it (rust-v0.155.0), is also held by a file that says 0.155.0."""
+    source tags it (rust-v0.155.0), is also held by a file that says 0.155.0, and
+    a pin written with a v (v2.11.4) by one that says 2.11.4, as an image tag
+    does (image: x:2.11.4-alpine)."""
     where = entry.get("pinned_in")
     if not where:
         return None
@@ -525,6 +577,8 @@ def pin_is_real(entry):
     text = path.read_text(errors="ignore")
     label = shape(pin)[0]
     forms = {pin, pin[len(label):].lstrip("vV")} if label else {pin}
+    if re.match(r"[vV]\d", pin):
+        forms.add(pin[1:])
     return any(re.search(rf"(?<![0-9])(?<![0-9]\.){re.escape(form)}(?![0-9])", text) for form in forms if form)
 
 
@@ -653,7 +707,7 @@ def main():
         held = before.get(name)
         known = held.get("at", "") if isinstance(held, dict) and held.get("pin") == entry.get("pin", "?") else ""
         try:
-            releases = look(entry)
+            releases = tagged(entry, look(entry))
         except (OSError, ValueError, http.client.HTTPException,
                 subprocess.TimeoutExpired, Unreachable) as err:
             # The reason goes to `whynot`, not into the table: it is a sentence,
@@ -676,8 +730,10 @@ def main():
         ahead = newer_than(entry.get("pin", "0"), releases, entry.get("prereleases", False))
         if entry.get("major"):
             ahead = new_majors(entry.get("pin", "0"), ahead)
-        # Nothing newer is "current" only when the source lists the pin itself.
-        silence = "" if ahead else unanswered(entry.get("pin", "0"), releases)
+        # Nothing newer is "current" only when the source lists the pin itself,
+        # or, for a major row, a release of that major.
+        listed = entry.get("major") and same_major(entry.get("pin", "0"), releases)
+        silence = "" if ahead or listed else unanswered(entry.get("pin", "0"), releases)
         if silence:
             whynot[name] = silence
             unlisted.add(name)

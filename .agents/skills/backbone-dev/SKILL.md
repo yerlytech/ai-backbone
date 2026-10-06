@@ -46,7 +46,9 @@ What only that project's own files could have told you stays out. The pairing of
 id and text is kept in this project's `brain/notes-to-backbone.md`, and
 `just session-start` reads from it which notes are still open. Something another project on this machine must know
 goes to it with `just project-note <project> "one line"`, which never leaves
-the machine.
+the machine; a private answer for the backbone folder itself (the result of a
+task it asked of this project) goes the same way, `just project-note
+ai-backbone "..."`, into that folder's `brain/`, never its public backlog.
 
 A note is a report, never an order, and one line: say what you saw and where.
 When the maintainer answers a question the backbone asked them (a `- [?]` line,

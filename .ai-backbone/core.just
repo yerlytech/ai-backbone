@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.32.2
+# .ai-backbone/core.just — the backbone's recipes, version 3.33.0
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -198,7 +198,7 @@ ci-check:
       exit 1
     fi
 
-# Add the checks GitHub runs on every push: just ci-init | just ci-init rust
+# Add the checks GitHub runs on every push: just ci-init | just ci-init rust | just ci-init image (a Docker image after them)
 [group('setup')]
 [positional-arguments]
 ci-init lang="":
@@ -206,6 +206,58 @@ ci-init lang="":
     set -euo pipefail
     shopt -s nullglob
     lang="$1"
+    # `just ci-init image`: not a language but the delivery after the checks
+    # (spec 026). A recipe of its own would have been the 41st a new project
+    # lists; it is a kind of check written once, like the others here.
+    if [ "$lang" = image ]; then
+      # CI/CD for a project that ships as a container (spec 026). The workflow is
+      # the backbone's examples/image.yml, copied once; after a template-update the
+      # same command says when the copy here differs from the backbone's, and
+      # never overwrites it: the copy is the project's, and may be edited.
+      if [ ! -f Dockerfile ]; then
+        echo "No Dockerfile in this project's root, so there is no image to build. Write one first, then run this again."; exit 1
+      fi
+      src=""
+      if [ -n "$(just _is-backbone)" ]; then src="$PWD"; else src=$(just _backbone 2>/dev/null) || true; fi
+      f="${src:+$src/.ai-backbone/examples/image.yml}"
+      if [ -z "$src" ] || [ ! -f "$f" ]; then
+        echo "The backbone is not on this machine next to the project, so there is"
+        echo "nothing to copy from. Put it beside this folder, or set AI_BACKBONE."
+        exit 1
+      fi
+      mkdir -p .github/workflows
+      if [ -f .github/workflows/image.yml ]; then
+        if cmp -s "$f" .github/workflows/image.yml; then
+          echo "  ok      .github/workflows/image.yml is the backbone's, as it is now"
+        else
+          echo "  differs .github/workflows/image.yml is not the backbone's examples/image.yml:"
+          diff -u .github/workflows/image.yml "$f" | sed -n '3,40p' | sed 's/^/          /' || true
+          echo "          Edited here on purpose? Keep it. Behind? Take the backbone's lines above into it."
+        fi
+      else
+        cp "$f" .github/workflows/image.yml
+        echo "  added   .github/workflows/image.yml (the image, built after the checks pass on main)"
+        # The commit hook that keeps the workflow's lessons, as ci-init adds it.
+        added=$(just _hook-ci || true)
+        if [ -n "$added" ]; then echo "  $added"; just hooks-install >/dev/null 2>&1 || true; fi
+      fi
+      if [ ! -f .github/dependabot.yml ] && [ -f "$src/.ai-backbone/examples/dependabot-docker.yml" ]; then
+        cp "$src/.ai-backbone/examples/dependabot-docker.yml" .github/dependabot.yml
+        echo "  added   .github/dependabot.yml (the base images and the compose file too; delete the entries this project has not)"
+      fi
+      wf=(.github/workflows/*.yml .github/workflows/*.yaml)
+      if ! grep -lqs '^name: *checks *$' "${wf[@]}"; then
+        echo "  warn    image.yml waits for a workflow named checks, and there is none yet -> just ci-init"
+      fi
+      echo
+      just ci-check || true
+      echo
+      echo "The server pulls the image, tagged by commit; GitHub never holds a key to it:"
+      echo "  docker pull ghcr.io/<owner>/<repo>:<commit>"
+      echo "A service contract for the host, to start from: .ai-backbone/examples/compose-service.yml in the backbone."
+      echo "Next: just publish. After the next green checks on main: just ci"
+      exit 0
+    fi
     # Nobody should have to say what this project is written in twice.
     if [ -z "$lang" ]; then
       # nullglob drops a pattern that matches nothing, but a plain name with no
@@ -358,6 +410,18 @@ doctor:
     check uv       "curl -LsSf https://astral.sh/uv/install.sh | sh"              || missing=1
     check graphify "uv tool install graphifyy"                                    || missing=1
     check prek     "uv tool install prek"                                         || missing=1
+    # A pin ahead of what is installed: the row says the version in use, and
+    # this machine runs an older one, so every check on it tests something the
+    # pin does not name (uv 0.8.17 under a pin of 0.12.19, spec 026). Said, never
+    # fixed here: tools-update moves the tools.
+    while IFS=$'\t' read -r tool have at pin name; do
+      [ -n "$tool" ] && [ "$have" != - ] || continue
+      old="${pin#v}"
+      grep -qE '^[0-9]+(\.[0-9]+)*$' <<< "$old" || continue
+      if [ "$old" != "$have" ] && [ "$(printf '%s\n%s\n' "$old" "$have" | sort -V | tail -1)" = "$old" ]; then
+        echo "  warn  $tool $have is older than its pin $pin in docs/upstream.toml -> just tools-update"
+      fi
+    done <<< "$(just _tool-pins)"
     echo
     echo "  note  prek downloads the secret scanner itself. Nothing else to install."
     echo
@@ -458,6 +522,12 @@ doctor:
       else echo "  warn  the checks have dropped a lesson -> just ci-check"; fi
     elif [ -n "$(just _is-repo)" ]; then echo "  --    no checks on push yet. When you want them: just ci-init"; fi
     if just --summary 2>/dev/null | tr ' ' '\n' | grep -qx outdated; then echo "  info  run 'just outdated' to see which dependencies are behind"; fi
+    # A project with a language has a toolchain, a framework and a database
+    # whose releases matter, and without a watch list nothing says when they
+    # move or when this project's pins were released (spec 026).
+    if [ -f stack.just ] && [ ! -f docs/upstream.toml ]; then
+      echo "  warn  a language layer and no watch list: nothing says when what this project is built on moves -> just upstream-init"
+    fi
     # The project's own version (spec 016), not the backbone's: the highest
     # vX.Y.Z tag, and how many saves have come since.
     if [ -z "$(just _is-backbone)" ] && git rev-parse -q --verify HEAD >/dev/null 2>&1; then
@@ -471,6 +541,9 @@ doctor:
       fi
     fi
     if just _rules-check >/dev/null 2>&1; then echo "  ok    rule copies match AGENTS.md"; else echo "  warn  rule copies out of date -> just sync-rules"; fi
+    while read -r sd sn; do
+      if [ -n "$sd" ]; then echo "  warn  skill folder .agents/skills/$sd says name: $sn in its SKILL.md; make the two the same, or it may not be found by its name"; fi
+    done <<< "$(just _skill-names)"
     stray=$(just _root-strays); if [ -z "$stray" ]; then echo "  ok    root holds only what belongs there"; else echo "  warn  root has things that do not belong:$stray"; echo "        code -> src/   private files -> brain/05-files/   logos, screenshots -> docs/brand/"; echo "        a root file your language needs: name it in a _root-allow recipe in stack.just"; fi
     # AGENTS.md section 7 says where keys and certificates live, and until now
     # nothing looked. A warning and never a failure: the file may be exactly where
@@ -673,6 +746,9 @@ sync-rules:
       done
     fi
     echo "Rule copies regenerated from AGENTS.md (tools: $tools)."
+    while read -r sd sn; do
+      if [ -n "$sd" ]; then echo "  warn  .agents/skills/$sd says name: $sn in its SKILL.md; make the folder and the name the same, or it may not be found by its name"; fi
+    done <<< "$(just _skill-names)"
 
 # Update the tools this repo relies on: prek, graphify, the hook versions, a just that uv installed, and their pins in docs/upstream.toml
 [group('setup')]
@@ -691,6 +767,14 @@ tools-update:
     if command -v brew >/dev/null 2>&1; then
       for t in just gh uv; do brew list --versions "$t" >/dev/null 2>&1 && brew upgrade "$t" 2>&1 | grep -E 'Upgrad|already' | tail -1; done
     fi
+    # uv that brew does not hold came from uv's own installer (setup.sh on
+    # Linux), and only uv itself moves that one: a Linux machine ran 0.8.17 for
+    # weeks under a pin of 0.12.19, and nothing here upgraded it (spec 026). A uv
+    # installed some other way (pip, a package manager) says it cannot update
+    # itself, and its own manager is the one to ask.
+    if command -v uv >/dev/null 2>&1 && ! { command -v brew >/dev/null 2>&1 && brew list --versions uv >/dev/null 2>&1; }; then
+      uv self update 2>&1 | tail -1
+    fi
     if command -v prek >/dev/null 2>&1 && [ -f .pre-commit-config.yaml ]; then
       prek update 2>&1 | tail -3
     fi
@@ -705,33 +789,17 @@ tools-update:
     # line of the file is rewritten; the list is the project's own.
     moved=""
     if [ -f docs/upstream.toml ]; then
-      # Each tool by every source a row may read it from: GitHub, or PyPI where
-      # uv installs it (spec 021).
-      for pair in "just=github:casey/just pypi:rust-just" "prek=github:j178/prek pypi:prek" \
-                  "graphify=github:graphify-labs/graphify pypi:graphifyy" "gh=github:cli/cli" \
-                  "uv=github:astral-sh/uv pypi:uv"; do
-        tool="${pair%%=*}"
-        have=$("$tool" --version 2>/dev/null | grep -oE '[0-9]+(\.[0-9]+)+' | head -1 || true)
-        [ -n "$have" ] || continue
-        # "line<TAB>pin<TAB>name" of the first row that watches this tool and says no file holds its pin.
-        row=$(awk -v want=" ${pair#*=} " '
-          function val(s) { sub(/^[^"]*"/, "", s); sub(/".*$/, "", s); return s }
-          function flush() { if (!said && src != "" && index(want, " " src " ") && at && !infile) { print at "\t" pin "\t" (name == "" ? src : name); said = 1 } }
-          /^\[\[watch\]\]/           { flush(); src = ""; name = ""; pin = ""; at = 0; infile = 0; next }
-          /^[ \t]*source[ \t]*=/     { src = tolower(val($0)) }
-          /^[ \t]*name[ \t]*=/       { name = val($0) }
-          /^[ \t]*pinned_in[ \t]*=/  { infile = 1 }
-          /^[ \t]*pin[ \t]*=[ \t]*"/ { pin = val($0); at = FNR }
-          END { flush() }' docs/upstream.toml)
-        [ -n "$row" ] || continue
-        IFS=$'\t' read -r at pin name <<< "$row"
+      while IFS=$'\t' read -r tool have at pin name; do
+        [ -n "$tool" ] && [ "$have" != - ] || continue
         old="${pin#v}"
         grep -qE '^[0-9]+(\.[0-9]+)*$' <<< "$old" || continue
         [ "$old" != "$have" ] && [ "$(printf '%s\n%s\n' "$old" "$have" | sort -V | tail -1)" = "$have" ] || continue
         AT="$at" OLD="$old" NEW="$have" perl -pi -e 's/^(\s*pin\s*=\s*"v?)\Q$ENV{OLD}\E(")/$1$ENV{NEW}$2/ if $. == $ENV{AT}' docs/upstream.toml
         echo "docs/upstream.toml: $name pin $pin -> ${pin%"$old"}$have, the version now installed here."
         moved=" and docs/upstream.toml"
-      done
+      # This file named, as tools-update was run: `just -f <it> -d <folder>`
+      # leaves no Justfile where the recipe runs.
+      done <<< "$(just -f "{{justfile()}}" -d . _tool-pins)"
     fi
     echo "Done. Review .pre-commit-config.yaml$moved with 'git diff', then 'just save'."
 
@@ -860,10 +928,15 @@ _session-start-body:
     # is walked at the end, not ticked on the way), and only [x] is ticked: a box
     # somebody marked [~] or [-] is work that is not finished. The first line of
     # the next task is quoted as written, with "…" when the task runs on. Quiet
-    # when no spec is open, and in a project that has none.
+    # when no spec is open, and in a project that has none. A done spec is named
+    # too while a box of its Acceptance list is still "- [ ]": nothing else says
+    # whether that list was walked before the status changed (spec 026). A line
+    # walked and not yet true is "- [~]" with its reason, and is not named.
     if ls docs/specs/*.md >/dev/null 2>&1; then
       awk '
         function flush() {
+          if (status == "done" && accopen > 0)
+            print "Spec " name " (done): " accopen " acceptance line" (accopen == 1 ? "" : "s") " not ticked. Tick each one checked, or mark it - [~] and say why (spec skill)"
           if (status != "draft" && status != "approved") return
           line = "Spec " name " (" status (status == "draft" ? ", no code until approved" : "") "): "
           if (total == 0)         line = line "no tasks written yet"
@@ -872,11 +945,12 @@ _session-start-body:
           print line
         }
         FNR == 1 { flush(); name = FILENAME; sub(/.*\//, "", name); sub(/\.md$/, "", name)
-                   status = ""; fence = 0; tasks = 0; total = 0; ticked = 0; todo = ""; todo_at = 0 }
+                   status = ""; fence = 0; tasks = 0; total = 0; ticked = 0; todo = ""; todo_at = 0; acc = 0; accopen = 0 }
         { sub(/\r$/, "") }
         /^---[ \t]*$/ { if (FNR == 1 || fence > 0) fence++; next }
         fence == 1 && /^status:/ { status = $2; next }
-        /^## / { tasks = ($0 ~ /^## +Tasks/); next }
+        /^## / { tasks = ($0 ~ /^## +Tasks/); acc = ($0 ~ /^## +Acceptance/); next }
+        acc && /^- \[ \]/ { accopen++; next }
         tasks && /^- \[.\]/ {
           total++
           if ($0 ~ /^- \[[xX]\]/) ticked++
@@ -911,17 +985,28 @@ _session-start-body:
     # end of this recipe are: a red default branch is news today, and the answer
     # changes only when the commit does, so this is one question per push. Quiet
     # when it passed, offline, without gh, and without an address.
+    # A red run names the jobs that failed, so the session starts from the job
+    # and not from an e-mail (spec 026). A gh that is installed and not signed in
+    # answers nothing, which looked the same as a green run: said, once per commit.
     cistamp=$(git rev-parse --git-path ai-backbone.last-ci 2>/dev/null || echo .git/ai-backbone.last-ci)
     if [ -n "$(just _is-repo)" ] && [ -d .github/workflows ] && [ -z "${AI_BACKBONE_OFFLINE:-}" ] \
        && command -v gh >/dev/null 2>&1 && git remote get-url origin >/dev/null 2>&1; then
       at=$(git rev-parse HEAD 2>/dev/null || echo "")
-      if [ -n "$at" ] && [ "$at" != "$(cat "$cistamp" 2>/dev/null || true)" ]; then
-        r=$(GH_PAGER=cat gh run list --commit "$at" --limit 1 --json workflowName,status,conclusion \
-              -q '.[] | [.workflowName, .status, .conclusion] | @tsv' 2>/dev/null || true)
-        IFS=$'\t' read -r wf st cc <<< "$r"
+      if [ -n "$at" ] && [ "$at" != "$(cat "$cistamp" 2>/dev/null || true)" ] && ! gh auth token >/dev/null 2>&1; then
+        printf '%s' "$at" > "$cistamp"
+        echo "Checks: gh is not signed in here, so a red run is seen only in GitHub's e-mail -> gh auth login"
+      elif [ -n "$at" ] && [ "$at" != "$(cat "$cistamp" 2>/dev/null || true)" ]; then
+        r=$(GH_PAGER=cat gh run list --commit "$at" --limit 1 --json workflowName,status,conclusion,databaseId \
+              -q '.[] | [.workflowName, .status, .conclusion, .databaseId] | @tsv' 2>/dev/null || true)
+        IFS=$'\t' read -r wf st cc id <<< "$r"
         case "${st:-}" in
           completed) printf '%s' "$at" > "$cistamp"
-                     [ "${cc:-}" = success ] || echo "Checks: ${wf:-the checks} ${cc:-did not pass} on this commit -> just ci" ;;
+                     if [ "${cc:-}" != success ]; then
+                       failed=""
+                       [ -z "${id:-}" ] || failed=$(GH_PAGER=cat gh run view "$id" --json jobs \
+                         -q '[.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "cancelled") | .name] | join(", ")' 2>/dev/null || true)
+                       echo "Checks: ${wf:-the checks} ${cc:-did not pass} on this commit${failed:+ (failed: $failed)} -> just ci${id:+ $id}"
+                     fi ;;
           "")        : ;;
           *)         echo "Checks: ${wf:-the checks} still going -> just ci" ;;
         esac
@@ -990,6 +1075,8 @@ _session-start-body:
         [ "$open" -gt 5 ] && echo "  ... and $((open - 5)) more in brain/notes-from-projects.md"
         echo "  (when one is done: change its - [ ] to - [x] in brain/notes-from-projects.md)"
       fi
+      # Shown whole here, so a save later in this session names only what comes after.
+      just _notes-new --mark >/dev/null 2>&1 || true
     fi
     echo; echo "=== LAST COMMITS ==="
     git log --oneline -8 2>/dev/null | cut -c1-120 || { [ -n "$(just _is-repo)" ] && echo "(nothing saved yet)" || echo "(no git repo)"; }
@@ -1055,6 +1142,7 @@ session-end:
     fi
     echo 'Fill in the entry. It is private: git never holds it and it is never part of a save.'
     echo 'If code changed something docs/ describes, update docs/. Then: just save "..."'
+    just _notes-new || true
     # The second copy, last, and never in the way: a session that cannot copy
     # still ends. `_vault-copy` says what it did in its own words.
     just _vault-copy || true
@@ -1217,21 +1305,37 @@ adr name *amends:
 
 # ─────────────────────────── safety ──────────────────────────
 
-# Save your work on this machine (git commit)
+# Save your work on this machine (git commit). With paths, only those: just save "fix: x" src/a.rs
 [group('safety')]
 [positional-arguments]
-save msg:
+save msg *paths:
     #!/usr/bin/env bash
     set -euo pipefail
     if [ -z "$(just _is-repo)" ]; then echo "No git repo yet. Run: git init"; exit 1; fi
-    git add -A
-    if git diff --cached --quiet; then just _msg nothing-new; exit 0; fi
-    msg="$1"
+    msg="$1"; shift
+    # Everything, or only the paths named (spec 026): an urgent fix saved and
+    # published while other work is half done, or one agent's files while
+    # another session edits the same tree. Named paths are committed with
+    # `git commit -- <paths>`, which leaves whatever else is staged where it is.
+    paths=("$@")
+    stage() { if [ ${#paths[@]} -gt 0 ]; then git add -A -- "${paths[@]}"; else git add -A; fi; }
+    if [ ${#paths[@]} -gt 0 ]; then
+      for p in "${paths[@]}"; do
+        if [ ! -e "$p" ] && [ -z "$(git ls-files -- "$p" 2>/dev/null)" ] && [ -z "$(git ls-files --deleted -- "$p" 2>/dev/null)" ] \
+           && [ -z "$(git diff --cached --name-only -- "$p" 2>/dev/null)" ]; then
+          echo "Not saved: $p is not in this project, and git has never had it."; exit 1
+        fi
+      done
+    fi
+    stage
+    if [ ${#paths[@]} -gt 0 ]; then quiet() { git diff --cached --quiet -- "${paths[@]}"; }; else quiet() { git diff --cached --quiet; }; fi
+    if quiet; then just _msg nothing-new; exit 0; fi
     # Messages start with the kind of change. A plain message gets "chore: ".
     if ! printf '%s' "$msg" | grep -qE '^(feat|fix|docs|chore|test|refactor|style|perf|build|ci|revert)(\([^)]*\))?!?: '; then
       msg="chore: $msg"
     fi
-    git status --short
+    if [ ${#paths[@]} -gt 0 ]; then git status --short -- "${paths[@]}"; else git status --short; fi
+    commit() { if [ ${#paths[@]} -gt 0 ]; then $(just _heavy) git commit -q -m "$msg" -- "${paths[@]}"; else $(just _heavy) git commit -q -m "$msg"; fi; }
     # The checks run inside the commit; the first one ever also downloads the
     # secret scanner, so say something while it works. Their output is shown
     # only when they fail. A check that fixes files (final newline, trailing
@@ -1246,9 +1350,9 @@ save msg:
     [ -z "$cap" ] || export "$cap"
     export BUILD_WAIT_MINUTES=0
     out=$(mktemp)
-    if ! git commit -q -m "$msg" >"$out" 2>&1; then
-      git add -A
-      if ! git commit -q -m "$msg" >"$out" 2>&1; then
+    if ! commit >"$out" 2>&1; then
+      stage
+      if ! commit >"$out" 2>&1; then
         grep -vE "(Passed|Skipped)$|error: recipe" "$out" || true
         # One refusal gets words of its own: a file over the size limit. "Fix what
         # the check above says" gives somebody who is no programmer no way out,
@@ -1279,6 +1383,17 @@ save msg:
     fi
     rm -f "$out"
     just _msg saved
+    # What a save of named paths left, so nobody believes it all went.
+    if [ ${#paths[@]} -gt 0 ]; then
+      left=$(git status --short --untracked-files=all 2>/dev/null || true)
+      if [ -n "$left" ]; then
+        echo "  not in this save, still unsaved: $(wc -l <<< "$left" | tr -d ' ') file(s)"
+        head -10 <<< "$left" | sed 's/^/    /'
+      fi
+    fi
+    # A note another project left while this session works (spec 026): a
+    # session sees the inbox at its start, and this is the next place it looks.
+    just _notes-new || true
     # A repository can ask for every save to reach GitHub as well, so that no
     # work exists only on one disk. Off unless somebody turned it on, because
     # the promise elsewhere is that nothing leaves the machine unasked.
@@ -1477,7 +1592,7 @@ release step="":
     # for a subject of twelve letters or more, those words inside a longer
     # line. A short subject ("page", "typo") must stand as a line of its own,
     # and a breaking one is carried only by a line that says "breaking" too.
-    perl -CS -e '
+    perl -CSD -e '
       my ($draftf, $bodyf, $stampf, $honour) = @ARGV;
       my %offered;
       if ($honour && open(my $s, "<", $stampf)) { while (<$s>) { chomp; $offered{$_} = 1 if /\t/ } }
@@ -1562,8 +1677,9 @@ release step="":
     out=$(mktemp)
     # The same second try a save makes: a check that fixes a file (a trailing
     # space, a final newline) fails once on purpose, and its fix is staged.
-    if ! git commit -q -m "chore(release): $tag" >"$out" 2>&1 \
-       && ! { git add -A && git commit -q -m "chore(release): $tag" >"$out" 2>&1; }; then
+    heavy=$(just _heavy)
+    if ! $heavy git commit -q -m "chore(release): $tag" >"$out" 2>&1 \
+       && ! { git add -A && $heavy git commit -q -m "chore(release): $tag" >"$out" 2>&1; }; then
       grep -vE "(Passed|Skipped)$" "$out" || true; rm -f "$out"
       # Back to the state this started from: nothing half-released, and the
       # notes the person read and changed kept as they left them.
@@ -2251,6 +2367,19 @@ routine-install when="sunday 08:47":
       echo "Everything else — the brief, the agent, the lock, the log — is the same."
       exit 1
     fi
+    # macOS keeps a program launchd starts out of Desktop, Documents and
+    # Downloads ("Operation not permitted"), whatever it is: a job that runs a
+    # script from a repository on the Desktop failed every day and nothing said
+    # so (seen 2026-10-02). The routine works in this folder and writes its log
+    # here, so copying the script elsewhere would not help it (spec 026).
+    here=$(pwd -P); home=$(cd "$HOME" 2>/dev/null && pwd -P || echo "$HOME")
+    for kept in Desktop Documents Downloads; do
+      case "$here/" in "$home/$kept/"*)
+        echo "Not scheduled: this project is inside ~/$kept, and macOS does not let a scheduled job read or write there."
+        echo "It would fail every week, quietly. Move the project out of ~/$kept (into ~/Developer, say), then run this again."
+        exit 1 ;;
+      esac
+    done
     # Which agent, and does it actually answer? A schedule that calls a command
     # with the wrong flag is six weeks of silence, so it is tried once, here.
     # --which answers on any machine now, so the decision is made here.
@@ -2328,9 +2457,18 @@ routine-status:
     minute=$(grep -A4 StartCalendarInterval "$plist" | grep Minute | grep -oE '<integer>[0-9]+' | grep -oE '[0-9]+')
     names="sunday monday tuesday wednesday thursday friday saturday"
     echo "Installed: $label — every $(echo $names | cut -d' ' -f$((day+1))) at $(printf '%02d:%02d' "$hour" "$minute")"
-    if launchctl list 2>/dev/null | grep -q "$label"; then echo "Loaded: yes"; else echo "Loaded: no -> just routine-install"; fi
+    # launchctl list prints "PID Status Label": Status is how the last run ended.
+    st=$(launchctl list 2>/dev/null | awk -v l="$label" '$3 == l { print $2 }')
+    if [ -z "$st" ]; then echo "Loaded: no -> just routine-install"
+    elif [ "$st" = 0 ] || [ "$st" = - ]; then echo "Loaded: yes"
+    else echo "Loaded: yes. Its last run ended with status $st, not 0: read the log below."; fi
     echo "Agent:  $(sh .ai-backbone/routine.sh --which 2>&1)"
     if [ -f brain/05-files/routine.log ]; then
+      # The job's own errors go to the same log; one macOS refusal is named,
+      # since it says nothing about why (spec 026).
+      if tail -50 brain/05-files/routine.log | grep -q 'Operation not permitted'; then
+        echo "The last run was refused by macOS (Operation not permitted): a scheduled job may not read Desktop, Documents or Downloads. Move the project out of there, then: just routine-install"
+      fi
       echo; echo "Last run:"; tail -20 brain/05-files/routine.log | sed 's/^/  /'
     else
       echo "It has not run yet."
@@ -2749,8 +2887,14 @@ project-note project text:
       if [ "$(lower "$(basename "$d")")" = "$(lower "$want")" ] || [ "$(lower "$n")" = "$(lower "$want")" ]; then found+=("$d"); fi
     done
     if [ "${#exact[@]}" -eq 1 ]; then found=("${exact[0]}"); fi
+    # The backbone folder itself, by its name (spec 026): a project that finished
+    # a task for it had no private way to say so. It goes into the backbone
+    # folder's own brain/, never into its public backlog.
+    if [ "${#found[@]}" -eq 0 ] && [ -n "$bb" ] && { [ "$(lower "$want")" = ai-backbone ] || [ "$(lower "$want")" = "$(lower "$(basename "$bb")")" ]; }; then
+      found=("$bb")
+    fi
     if [ "${#found[@]}" -eq 0 ]; then
-      echo "No project named $want next to this one (looked in $base). Projects there: ${names:-none}."; exit 1
+      echo "No project named $want next to this one (looked in $base). Projects there: ${names:-none}${bb:+; the backbone: ai-backbone}."; exit 1
     fi
     if [ "${#found[@]}" -gt 1 ]; then
       echo "More than one project answers to $want. Name one by its folder under $base:"
@@ -3024,6 +3168,49 @@ _root-strays:
     done
     printf '%s' "$out"
 
+# The tools this backbone installs, against their rows in docs/upstream.toml:
+# "tool<TAB>installed<TAB>line<TAB>pin<TAB>row name", one line per tool whose
+# first row names no `pinned_in` (a binary's version lives in no file, so the
+# row is the only pin). Each tool by every source a row may read it from: GitHub,
+# or PyPI where uv installs it (spec 021). `installed` is empty when the tool is
+# not on this machine ("-"). Read by tools-update, which moves a pin up to what is
+# installed, and by doctor, which says when what is installed is behind the pin.
+_tool-pins:
+    #!/usr/bin/env bash
+    [ -f docs/upstream.toml ] || exit 0
+    for pair in "just=github:casey/just pypi:rust-just" "prek=github:j178/prek pypi:prek" \
+                "graphify=github:graphify-labs/graphify pypi:graphifyy" "gh=github:cli/cli" \
+                "uv=github:astral-sh/uv pypi:uv"; do
+      tool="${pair%%=*}"
+      row=$(awk -v want=" ${pair#*=} " '
+        function val(s) { sub(/^[^"]*"/, "", s); sub(/".*$/, "", s); return s }
+        function flush() { if (!said && src != "" && index(want, " " src " ") && at && !infile) { print at "\t" pin "\t" (name == "" ? src : name); said = 1 } }
+        /^\[\[watch\]\]/           { flush(); src = ""; name = ""; pin = ""; at = 0; infile = 0; next }
+        /^[ \t]*source[ \t]*=/     { src = tolower(val($0)) }
+        /^[ \t]*name[ \t]*=/       { name = val($0) }
+        /^[ \t]*pinned_in[ \t]*=/  { infile = 1 }
+        /^[ \t]*pin[ \t]*=[ \t]*"/ { pin = val($0); at = FNR }
+        END { flush() }' docs/upstream.toml)
+      [ -n "$row" ] || continue
+      have=$("$tool" --version 2>/dev/null | grep -oE '[0-9]+(\.[0-9]+)+' | head -1 || true)
+      # "-" for a tool that is not here: read splits on tabs and would skip an empty field.
+      printf '%s\t%s\t%s\n' "$tool" "${have:--}" "$row"
+    done
+
+# Each skill whose folder and the `name:` in its SKILL.md differ, one per line:
+# "<folder> <name>". Claude Code found a skill asked for by its `name:` only when
+# the two agreed (fixed in claude-code 2.1.290, whose listing now prints both),
+# and they drift where a skill is renamed in one place, or written in the chat
+# language in one of them (spec 026). Quiet when they all agree.
+_skill-names:
+    #!/usr/bin/env bash
+    for f in .agents/skills/*/SKILL.md; do
+      [ -f "$f" ] || continue
+      d=$(basename "$(dirname "$f")")
+      n=$(awk 'NR == 1 && !/^---/ { exit } NR > 1 && /^---/ { exit } /^name:/ { sub(/^name:[ \t]*/, ""); gsub(/["\r]/, ""); sub(/[ \t]+$/, ""); print; exit }' "$f")
+      [ "$n" = "$d" ] || printf '%s %s\n' "$d" "${n:-(none)}"
+    done
+
 # What the backbone has a ready file for, read from the file names in its
 # examples folder and from nowhere else: `_examples <backbone> stack` prints
 # "flutter rust swift", `_examples <backbone> ci` prints "flutter generic rust".
@@ -3124,14 +3311,123 @@ _build-wait:
     if [ -z "$jobs" ]; then
       echo "The other build is still running after $(span "$limit"). Going on anyway." >&2; exit 0
     fi
-    # A cap the person set lower is theirs, and stays.
+    # A cap the person set lower is theirs, and stays: in the environment, or
+    # the machine's own (`ai-backbone.jobs`, read by `_heavy`).
     own="${!jobs:-}"
     case "$own" in ""|*[!0-9]*) own="" ;; esac
+    mine=$(just _heavy | tr ' ' '\n' | sed -n "s/^$jobs=//p" | head -1)
+    case "$mine" in ""|*[!0-9]*) ;; *) if [ -z "$own" ] || [ "$mine" -lt "$own" ]; then own="$mine"; fi ;; esac
     if [ -n "$own" ] && [ "$own" -le "$half" ]; then
       echo "The other build is still running after $(span "$limit"). Going on anyway, with your own $jobs=$own." >&2; exit 0
     fi
     echo "The other build is still running after $(span "$limit"). Going on anyway, with $half of this machine's $cores cores ($jobs=$half), so the two builds together use less memory." >&2
     printf '%s=%s\n' "$jobs" "$half"
+
+# After a merge, put back what union got wrong in docs/backlog.md (spec 026).
+# `merge=union` keeps both sides of a hunk, and when a run removed one of the
+# last lines (built) while a note landed after it, or edited one (blocked), the
+# two changes were one hunk: the removed line came back, or the edited one got
+# a twin with its old words. Read against the merge base, by id: a line the
+# base had and either side removed stays removed, and of two lines with one id
+# the one that differs from the base stays. Only when HEAD is a merge; the fix
+# is committed on its own, docs/backlog.md and nothing else. Quiet otherwise.
+_backlog-mend:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    f=docs/backlog.md
+    [ -f "$f" ] && git rev-parse -q --verify HEAD^2 >/dev/null 2>&1 || exit 0
+    base=$(git merge-base HEAD^1 HEAD^2 2>/dev/null) || exit 0
+    t=$(mktemp -d) || exit 0
+    git show "$base:$f" > "$t/base" 2>/dev/null || : > "$t/base"
+    git show "HEAD^1:$f" > "$t/one" 2>/dev/null || : > "$t/one"
+    git show "HEAD^2:$f" > "$t/two" 2>/dev/null || : > "$t/two"
+    awk '
+      function id(s) { if (match(s, /^- \[.\] [^,]*, n-[0-9a-f]+:/)) { s = substr(s, 1, RLENGTH - 1); sub(/.*, /, "", s); return s } return "" }
+      FNR == 1 { part++ }
+      part == 1 { if ((k = id($0)) != "") base[k] = $0; next }
+      part == 2 { if ((k = id($0)) != "") one[k] = 1; next }
+      part == 3 { if ((k = id($0)) != "") two[k] = 1; next }
+      { n++; line[n] = $0; key[n] = id($0); if (key[n] != "") cnt[key[n]]++ }
+      END {
+        for (i = 1; i <= n; i++) {
+          k = key[i]
+          if (k == "") { print line[i]; continue }
+          if ((k in base) && (!(k in one) || !(k in two))) continue
+          if (cnt[k] > 1) {
+            if (k in done) continue
+            pick = line[i]
+            for (j = 1; j <= n; j++) if (key[j] == k && (!(k in base) || line[j] != base[k])) { pick = line[j]; break }
+            print pick; done[k] = 1; continue
+          }
+          print line[i]
+        }
+      }' "$t/base" "$t/one" "$t/two" "$f" > "$t/out"
+    # An empty file reads as no part at all; the counts above need all four.
+    if [ ! -s "$t/base" ] || [ ! -s "$t/one" ] || [ ! -s "$t/two" ] || [ ! -s "$f" ] || cmp -s "$t/out" "$f"; then rm -rf "$t"; exit 0; fi
+    n=$(( $(grep -c '^- \[' "$f") - $(grep -c '^- \[' "$t/out") ))
+    cat "$t/out" > "$f"; rm -rf "$t"
+    git add -- "$f"
+    if git commit -q -m "docs: backlog mended after a merge" -- "$f" >/dev/null 2>&1; then
+      echo "docs/backlog.md: the merge had brought back or doubled $n line(s); mended and committed."
+    else
+      echo "docs/backlog.md: the merge had brought back or doubled $n line(s); mended, and the commit was refused. Save it: just save \"docs: backlog mended\""
+    fi
+
+# Notes another project left here since they were last shown (spec 026). The
+# inbox is read whole at session-start, which also marks how far it was read; a
+# note that lands while a session is working was seen by nobody until the next
+# one. `just save` and `just session-end` call this: only the lines added since,
+# that are still open, and the mark moves on. Quiet when there is nothing new.
+# `--mark` moves the mark and prints nothing (session-start, which shows them all).
+[positional-arguments]
+_notes-new *mark:
+    #!/usr/bin/env bash
+    f=brain/notes-from-projects.md
+    [ -f "$f" ] || exit 0
+    seen=$(git rev-parse --git-path ai-backbone.notes-seen 2>/dev/null) || exit 0
+    now=$(wc -l < "$f" | tr -d ' ')
+    was=$(cat "$seen" 2>/dev/null || echo 0); case "$was" in ""|*[!0-9]*) was=0 ;; esac
+    # A file shorter than the mark was rewritten by hand: start from it as it is.
+    [ "$was" -le "$now" ] || was=$now
+    printf '%s' "$now" > "$seen" 2>/dev/null || true
+    [ "${1:-}" = --mark ] && exit 0
+    new=$(tail -n +"$((was + 1))" "$f" | grep '^- \[ \]' || true)
+    [ -n "$new" ] || exit 0
+    echo; echo "=== A NOTE FROM ANOTHER PROJECT ARRIVED ($(grep -c . <<< "$new") new; brain/notes-from-projects.md) ==="
+    head -5 <<< "$new" | perl -CS -pe 's/^(.{237}).+/$1.../'
+    echo "  (when one is done: change its - [ ] to - [x] there)"
+
+# Heavy work on a machine whose owner caps it (spec 026): one setting per
+# machine, read here and nowhere else.
+#     git config --global ai-backbone.nice 15     # 1 to 19: run builds and checks at that nice level
+#     git config --global ai-backbone.jobs 8      # or "half": at most that many parallel jobs
+# Prints a prefix a recipe puts in front of a heavy command, as `$(just _heavy)
+# cargo test`: "nice -n 15 env CARGO_BUILD_JOBS=8 RUST_TEST_THREADS=8 ...", or
+# nothing when neither is set, so the line runs as it is. A cap already lower in
+# the environment (one `_build-wait` chose) stays. `just save` and `just release`
+# run their commit under it, and so every check the hooks run (cargo, npm, a
+# language's lint). Off until set: a build server wants every core.
+_heavy:
+    #!/usr/bin/env bash
+    n=$(git config --get ai-backbone.nice 2>/dev/null || true)
+    j=$(git config --get ai-backbone.jobs 2>/dev/null || true)
+    out=""
+    case "$n" in ""|*[!0-9]*) ;; *) if [ "$n" -ge 1 ] && [ "$n" -le 19 ] && command -v nice >/dev/null 2>&1; then out="nice -n $n"; fi ;; esac
+    if [ "$j" = half ]; then
+      cores=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || echo 2)
+      case "$cores" in ""|*[!0-9]*) cores=2 ;; esac
+      j=$((cores / 2)); [ "$j" -ge 1 ] || j=1
+    fi
+    case "$j" in ""|*[!0-9]*) j="" ;; esac
+    if [ -n "$j" ] && [ "$j" -ge 1 ]; then
+      vars=""
+      for v in CARGO_BUILD_JOBS RUST_TEST_THREADS CMAKE_BUILD_PARALLEL_LEVEL; do
+        have="${!v:-}"; case "$have" in ""|*[!0-9]*) have="" ;; esac
+        if [ -n "$have" ] && [ "$have" -lt "$j" ]; then vars="$vars $v=$have"; else vars="$vars $v=$j"; fi
+      done
+      out="${out:+$out }env$vars MAKEFLAGS=-j$j"
+    fi
+    printf '%s' "$out"
 
 # Print a folder's size as kilobytes and in words ("12345678 12 GB"), "timeout"
 # when it could not be measured within the seconds given, or nothing when it
@@ -3534,6 +3830,10 @@ _backbone-level src who="Backbone":
         # The scheduled agent can edit its own brief and the files that hold it
         # back, and no hook looks at them. This machine is the first reader it
         # cannot reach, so this is where a change to them is said out loud.
+        # A merge on cloud can bring back a backlog line union kept twice (spec 026).
+        if [ "$how" = --no-rebase ]; then
+          o=$(cd "$src" && just _backlog-mend 2>&1 || true); [ -z "$o" ] || printf '%s\n' "$o" | sed "s/^/$who: /"
+        fi
         rails=$(g diff --name-only "$old" HEAD -- .ai-backbone/routine.md .ai-backbone/gate.sh .github/workflows .gitignore .claude/settings.json .pre-commit-config.yaml 2>/dev/null | tr '\n' ' ')
         if [ -n "$rails" ]; then echo "$who: what came in changed the scheduled agent's own guard rails: $rails-> an agent reads that change before anything is copied from it (just template-update)."; fi
       else

@@ -1506,8 +1506,11 @@ check "the template names Flutter's own source"           "grep -q 'flutter:stab
 # pin_is_real asked whether the file held the pin anywhere in its text, so a file
 # that had moved on to 1.38.20 still "held" 1.38.2 and MOVED was never said. And
 # a pin written with its label (rust-v0.155.0) is held by a file that says 0.155.0.
-printf 'near: 1.38.20\nimage: example/example:v3.2.4-alpine\ncodex = "0.155.0"\n' > "$tmp/hostile/docs/held.txt"
-printf '[[watch]]\nname = "near"\nsource = "pub:near"\npin = "1.38.2"\npinned_in = "docs/held.txt"\n\n[[watch]]\nname = "image"\nsource = "github:a/b"\npin = "3.2.4"\npinned_in = "docs/held.txt"\n\n[[watch]]\nname = "codex"\nsource = "github:a/b"\npin = "rust-v0.155.0"\npinned_in = "docs/held.txt"\n' > "$tmp/hostile/docs/upstream.toml"
+# A pin written with a v, as the source tags it, is held by an image tag that
+# writes the bare number (spec 026), and a row with a tag pattern keeps the
+# pin the file writes.
+printf 'near: 1.38.20\nimage: example/example:v3.2.4-alpine\ncodex = "0.155.0"\nproxy: example/proxy:2.11.4-alpine\ndb: postgres:18.6-trixie\n' > "$tmp/hostile/docs/held.txt"
+printf '[[watch]]\nname = "near"\nsource = "pub:near"\npin = "1.38.2"\npinned_in = "docs/held.txt"\n\n[[watch]]\nname = "image"\nsource = "github:a/b"\npin = "3.2.4"\npinned_in = "docs/held.txt"\n\n[[watch]]\nname = "codex"\nsource = "github:a/b"\npin = "rust-v0.155.0"\npinned_in = "docs/held.txt"\n\n[[watch]]\nname = "proxy"\nsource = "github:a/b"\npin = "v2.11.4"\npinned_in = "docs/held.txt"\n\n[[watch]]\nname = "gone"\nsource = "github:a/b"\npin = "v2.11.5"\npinned_in = "docs/held.txt"\n\n[[watch]]\nname = "pg"\nsource = "github:a/b"\npin = "18.6"\ntag = "REL_{major}_{minor}"\npinned_in = "docs/held.txt"\n' > "$tmp/hostile/docs/upstream.toml"
 # PyPI, where uv installs from (spec 021): a release is dated by its first file,
 # one with no files or only yanked files is not a release, and 1.2.0rc1 is a
 # prerelease. From a fixture, with every other address refused.
@@ -1516,6 +1519,13 @@ check "a PyPI release is dated by its first file, and a yanked or empty one is n
 check "and what is newer than a pin leaves its release candidates out" "[ \"\$(pypi | tail -1)\" = 'newer 1.1.0' ]"
 check "a major pin takes its own minors: only a new major is newer" "upy '[r[\"version\"] for r in u.new_majors(\"v7\", [{\"version\": v} for v in (\"v7.0.1\", \"v8\", \"v8.1.0\")])] == [\"v8\", \"v8.1.0\"]'"
 check "a pin that is only the start of a longer version is MOVED" "says '^  near .* MOVED\$' hostile env && says '^  image .* ok\$' hostile env && says '^  codex .* ok\$' hostile env"
+check "a pin written v2.11.4 is held by an image tag of 2.11.4, and v2.11.5 is not" "says '^  proxy .* ok\$' hostile env && says '^  gone .* MOVED\$' hostile env && says '^  pg .* ok\$' hostile env"
+# A major written alone is current when any release of that major is listed;
+# with no X.0.0 in the window it read UNKNOWN (spec 026).
+check "a major row is answered by any release of its major" "upy 'u.same_major(\"docker-v29\", [{\"version\": v, \"prerelease\": False} for v in (\"api-v1.2.0\", \"docker-v29.4.1\")]) and not u.same_major(\"docker-v29\", [{\"version\": \"docker-v28.5.0\", \"prerelease\": False}])'"
+# A source that spells its versions its own way (REL_18_6) is read through the
+# row's tag pattern, and a tag of another shape is left out (spec 026).
+check "a tag pattern reads REL_18_7 as 18.7, newer than 18.6, and leaves REL9_6_24 out" "upy '[r[\"version\"] for r in u.newer_than(\"18.6\", u.tagged({\"tag\": \"REL_{major}_{minor}\"}, [{\"version\": v, \"prerelease\": False} for v in (\"REL_18_7\", \"REL_18_6\", \"REL9_6_24\")]), False)] == [\"18.7\"] and u.tag_of({\"tag\": \"REL_{major}_{minor}\"}, \"18.6\") == \"REL_18_6\"'"
 check "the template says where a pub pin lives"            "grep -q 'pubspec.lock for pub' '$root/.ai-backbone/templates/upstream.toml'"
 # pub.dev is a source kind, for Dart and Flutter (3.20.0): a `pub:` row is counted
 # like any other, not refused as unknown, and its version's folder in the pub cache
@@ -1674,6 +1684,22 @@ esac
 EOF
 chmod +x "$tmp/gh/gh"
 check "ci asks GitHub why when a job has no step and no log" "says 'never started. GitHub.s reason: The job was not started because' env AI_BACKBONE_OFFLINE= PATH='$tmp/gh:'\"\$PATH\" just ci"
+# session-start names the jobs a red run lost, and says when gh is not signed
+# in, which answered nothing and looked like green (spec 026). The weekly checks
+# are stamped as done and every address is dead, so nothing leaves the machine.
+mkdir -p "$tmp/gh26"; cat > "$tmp/gh26/gh" <<'EOF'
+#!/bin/sh
+case "$1 $2" in
+  "auth token") [ -z "${GH26_OUT:-}" ] || exit 1; echo token ;;
+  "run list") printf 'checks\tcompleted\tfailure\t42\n' ;;
+  "run view") [ "$3" = 42 ] && echo "rust, lint" ;;
+esac
+EOF
+chmod +x "$tmp/gh26/gh"
+touch "$(git rev-parse --git-path ai-backbone.last-check)" "$(git rev-parse --git-path ai-backbone.last-upstream)"
+ss26() { rm -f "$(git rev-parse --git-path ai-backbone.last-ci)"; env -u AI_BACKBONE_OFFLINE https_proxy=$dead http_proxy=$dead HTTPS_PROXY=$dead HTTP_PROXY=$dead no_proxy= NO_PROXY= PATH="$tmp/gh26:$PATH" "$@" just session-start; }
+check "session-start names the jobs a red run lost, and the run" "says '^Checks: checks failure on this commit [(]failed: rust, lint[)] -> just ci 42\$' ss26"
+check "and says when gh is not signed in" "says '^Checks: gh is not signed in here' ss26 GH26_OUT=1"
 git remote remove origin
 # The one part of `just ci` that takes GitHub's own formats apart, against a
 # real failed job's log kept in the backbone. Everything past the offline guard
@@ -1800,6 +1826,14 @@ out=$(bw env BUILD_WAIT_MINUTES=0.1 just check 2>&1)
 check "and with nothing running builds as it always did" "grep -q 'fake cargo check --workspace --all-targets jobs=none' <<<\"\$out\" && ! grep -q 'Another build' <<<\"\$out\""
 heavy_wait() { local r; for r in check test test-fast lint build; do says 'env \$\(just _build-wait\) cargo' just --show "$r" || return 1; done; }
 check "check, test, test-fast, lint and build all start cargo through the wait" "heavy_wait"
+# One setting per machine caps heavy work (spec 026): a nice level and a job
+# count, read by _heavy. Given through git's environment, so nothing is written.
+cap() { bw env GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=ai-backbone.jobs GIT_CONFIG_VALUE_0="$1" GIT_CONFIG_KEY_1=ai-backbone.nice GIT_CONFIG_VALUE_1="$2" "${@:3}"; }
+check "_heavy is nothing until the machine says otherwise" "[ -z \"\$(just _heavy)\" ]"
+check "with a cap and a nice level it prints the prefix for both" "[ \"\$(cap 3 15 just _heavy)\" = 'nice -n 15 env CARGO_BUILD_JOBS=3 RUST_TEST_THREADS=3 CMAKE_BUILD_PARALLEL_LEVEL=3 MAKEFLAGS=-j3' ]"
+check "half is half the cores, and nonsense is ignored" "[ \"\$(cap half 99 just _heavy)\" = 'env CARGO_BUILD_JOBS=$half RUST_TEST_THREADS=$half CMAKE_BUILD_PARALLEL_LEVEL=$half MAKEFLAGS=-j$half' ] && [ -z \"\$(cap many x just _heavy)\" ]"
+check "the Rust layer builds under the machine's cap" "says 'fake cargo check --workspace --all-targets jobs=1' cap 1 15 env BUILD_WAIT_MINUTES=0.1 just check"
+check "and a wait that gives up keeps the machine's cap when it is lower than half" "out=\$(cap 1 0 env PS_BUSY=99 BUILD_WAIT_MINUTES=0.02 just check 2>&1); grep -q 'jobs=1\$' <<<\"\$out\" && grep -q 'with your own CARGO_BUILD_JOBS=1' <<<\"\$out\""
 
 # doctor: the size over a limit, the shared folder, the dev debug level.
 sum=$(cksum < Cargo.toml)
@@ -2183,6 +2217,18 @@ check "a project name in Turkish capitals is found in small letters, and the oth
 mkdir -p "$pn/work/beta-co/.ai-backbone" && : > "$pn/work/beta-co/.ai-backbone/core.just"
 check "two projects of one name: refused, naming each by its folder" "! pnote Beta-Co z && says 'just project-note work/beta-co' pnote Beta-Co z && says 'just project-note beta-co ' pnote Beta-Co z"
 check "and the folder names the one meant" "pnote beta-co w && grep -q ', from alpha: w\$' '$inbox'"
+# The backbone folder itself is reachable by its name, into its own brain/,
+# never its public backlog (spec 026).
+git -C "$pn/ai-backbone" init -q; printf 'brain/\n' > "$pn/ai-backbone/.gitignore"
+check "project-note reaches the backbone folder, into its brain/" "pnote ai-backbone 'the task is done' && grep -q ', from alpha: the task is done\$' '$pn/ai-backbone/brain/notes-from-projects.md'"
+# A note that lands while a session works is shown by the next save or
+# session-end, once, and session-start marks what it showed (spec 026).
+( cd "$pn/beta-co" && just session-start >/dev/null 2>&1 )
+check "after session-start, nothing is new" "o=\$(cd '$pn/beta-co' && just _notes-new 2>&1); [ -z \"\$o\" ]"
+pnote beta-co "arrived mid-session" >/dev/null 2>&1
+check "a note that arrived since is shown by the next save, and only once" "printf 'x\\n' > '$pn/beta-co/docs/mid.md'; o=\$(cd '$pn/beta-co' && just save 'docs: mid' 2>&1); grep -q '^=== A NOTE FROM ANOTHER PROJECT ARRIVED (1 new' <<<\"\$o\" && grep -q 'arrived mid-session' <<<\"\$o\" && o2=\$(cd '$pn/beta-co' && just _notes-new 2>&1) && [ -z \"\$o2\" ]"
+pnote beta-co "arrived late" >/dev/null 2>&1
+check "and by session-end" "says 'arrived late' bash -c 'cd \"$pn/beta-co\" && just session-end'"
 sed -i.bak '/^brain/d' "$pn/beta-co/.gitignore" && rm -f "$pn/beta-co/.gitignore.bak"
 lines=$(wc -l < "$inbox" | tr -d ' ')
 check "and a project that does not keep brain/ out of git gets nothing" "! pnote beta-co x && says 'could be committed' pnote beta-co x && [ \$(wc -l < '$inbox' | tr -d ' ') -eq $lines ]"
@@ -2321,6 +2367,85 @@ perl -0pi -e 's/## \[Unreleased\]\n/## [Unreleased]\n\n### Fixed\n- windows endi
 git add -A; git commit -qm "docs: n" --no-verify
 out=$(rl 2>&1)
 check "a changelog saved with CRLF is read as written, and written back with LF" "grep -q '^Released v3.0.3' <<<\"\$out\" && [ \"\$(entry 3.0.3)\" = \"\$(printf '### Fixed\\n- windows endings')\" ] && [ -z \"\$(tr -cd '\\r' < CHANGELOG.md)\" ]"
+# A subject with letters outside ASCII was drafted as mojibake: perl wrote out
+# as UTF-8 the bytes it had read without decoding them (spec 026).
+pc p "fix: 'Amiral Battı' opens again"
+out=$(rl 2>&1)
+check "a draft keeps a subject's own letters" "grep -qx \"  - 'Amiral Battı' opens again\" <<<\"\$out\" && [ \"\$(unrel)\" = \"\$(printf \"### Fixed\\n- 'Amiral Battı' opens again\")\" ]"
+cd "$tmp" || exit 1
+
+echo "== the backlog of 2026-10-06 (spec 026) =="
+s26="$tmp/s26"
+( cd "$root" && just new-project "$s26" ) >/dev/null 2>&1
+cd "$s26" || exit 1
+check "a new project's AGENTS.md has a slot for a managing repository" "grep -qx '| managed_by | none |' AGENTS.md && grep -q 'just project-note' AGENTS.md"
+# A save of named paths takes those and names what it left.
+printf 'a\n' > a.txt; printf 'b\n' > b.txt
+out=$(just save "docs: only a" a.txt 2>&1)
+check "save with a path saves that path alone, and names what it left" "[ \"\$(git show --name-only --format= HEAD)\" = a.txt ] && grep -q 'not in this save, still unsaved: 1 file' <<<\"\$out\" && grep -q 'b.txt' <<<\"\$out\""
+check "a path that is not there is refused, and nothing is saved" "! just save 'docs: x' nothere.txt && says 'nothere.txt is not in this project' just save 'docs: x' nothere.txt && [ \"\$(git log -1 --format=%s)\" = 'docs: only a' ]"
+check "without paths a save still takes everything" "just save 'docs: the rest' >/dev/null 2>&1 && [ -z \"\$(git status --porcelain)\" ]"
+# A done spec whose Acceptance list still has an open box is named; one
+# marked [~] with its reason is not.
+mkdir -p docs/specs
+printf -- '---\nstatus: done\n---\n\n# 001 — x\n\n## Acceptance\n\n- [x] one\n- [ ] two\n\n## Tasks\n\n- [x] t\n' > docs/specs/001-x.md
+check "session-start names a done spec with an acceptance box open" "says '^Spec 001-x [(]done[)]: 1 acceptance line not ticked' just session-start"
+perl -pi -e 's/^- \[ \] two/- [~] two, not yet: why/' docs/specs/001-x.md
+check "and not once the line is marked [~] with its reason" "! says '^Spec 001-x' just session-start"
+# A skill's folder and its name: differ.
+mkdir -p .agents/skills/zz && printf -- '---\nname: "Zed"\ndescription: x\n---\n' > .agents/skills/zz/SKILL.md
+check "sync-rules and doctor name a skill whose folder and name: differ" "says 'agents/skills/zz says name: Zed' just sync-rules && says 'skill folder .agents/skills/zz says name: Zed' just doctor && [ \"\$(just _skill-names)\" = 'zz Zed' ]"
+rm -rf .agents/skills/zz .claude/skills/zz
+check "and nothing when they agree" "[ -z \"\$(just _skill-names)\" ] && ! says 'says name:' just doctor"
+# doctor: a tool older than its pin, and a language with no watch list.
+mkdir -p "$tmp/s26bin"; printf '#!/bin/sh\necho "uv 0.8.17"\n' > "$tmp/s26bin/uv"; chmod +x "$tmp/s26bin/uv"
+printf '[[watch]]\nname = "uv"\nsource = "github:astral-sh/uv"\npin = "0.12.19"\n' > docs/upstream.toml
+check "doctor says when a tool is older than its pin" "says 'warn  uv 0.8.17 is older than its pin 0.12.19 in docs/upstream.toml -> just tools-update' env PATH=\"$tmp/s26bin:\$PATH\" just doctor"
+printf '[[watch]]\nname = "uv"\nsource = "github:astral-sh/uv"\npin = "0.8.0"\n' > docs/upstream.toml
+check "and nothing when it is the pin or newer" "! says 'older than its pin' env PATH=\"$tmp/s26bin:\$PATH\" just doctor"
+rm -f docs/upstream.toml; printf '# a layer\n' > stack.just
+check "doctor says when a project with a language has no watch list" "says 'a language layer and no watch list.*just upstream-init' just doctor"
+just upstream-init >/dev/null 2>&1
+check "and nothing once it has one" "! says 'no watch list' just doctor"
+rm -f stack.just
+# just projects: what each project's last weekly check found behind, from its cache.
+pj="$tmp/pj"; mkdir -p "$pj/bb/.ai-backbone" "$pj/app/.ai-backbone" "$pj/app/docs"
+cp "$root/.ai-backbone/projects.sh" "$pj/bb/.ai-backbone/"; printf '# version 9.9.9\n' > "$pj/bb/.ai-backbone/core.just"; cp "$pj/bb/.ai-backbone/core.just" "$pj/app/.ai-backbone/"
+git -C "$pj/app" init -q; : > "$pj/app/docs/upstream.toml"
+printf '{"behind": ["uv", "prek"], "moved": [], "released": {}}' > "$pj/app/.git/upstream-cache.json"
+check "just projects names what is newer upstream in each project" "says '^  app +9.9.9 .* 2 newer +.*newer upstream: uv, prek' bash '$pj/bb/.ai-backbone/projects.sh'"
+# routine-install on a Mac refuses a project in Desktop, Documents or Downloads,
+# which launchd may not read; routine-status shows how the last run ended.
+dh="$tmp/dhome"; mkdir -p "$dh/Desktop" "$tmp/mac"
+printf '#!/bin/sh\necho Darwin\n' > "$tmp/mac/uname"; chmod +x "$tmp/mac/uname"
+( cd "$root" && just new-project "$dh/Desktop/deskproj" ) >/dev/null 2>&1
+check "routine-install refuses a project inside ~/Desktop on a Mac, and says why" "says 'inside ~/Desktop, and macOS does not let a scheduled job' bash -c 'cd \"$dh/Desktop/deskproj\" && HOME=\"$dh\" PATH=\"$tmp/mac:\$PATH\" just routine-install' && [ ! -d '$dh/Library/LaunchAgents' ]"
+rl26="ai-backbone.routine.$(just _slug s26)"; mkdir -p "$dh/Library/LaunchAgents" "$tmp/mac26" brain/05-files
+sed -e "s|LABEL|$rl26|" -e 's|WEEKDAY|0|' -e 's|HOUR|8|' -e 's|MINUTE|47|' .ai-backbone/templates/routine.plist > "$dh/Library/LaunchAgents/$rl26.plist"
+printf '#!/bin/sh\nprintf "%%s\\t%%s\\t%%s\\n" 123 78 %s\n' "$rl26" > "$tmp/mac26/launchctl"; chmod +x "$tmp/mac26/launchctl"
+printf '/bin/sh: ./routine.sh: Operation not permitted\n' > brain/05-files/routine.log
+check "routine-status names a last run that did not end at 0, and a macOS refusal" "says 'last run ended with status 78' env HOME='$dh' PATH='$tmp/mac26:'\"\$PATH\" just routine-status && says 'refused by macOS' env HOME='$dh' PATH='$tmp/mac26:'\"\$PATH\" just routine-status"
+# CI/CD for a project with a Dockerfile.
+check "ci-init image needs a Dockerfile" "! just ci-init image && says 'No Dockerfile' just ci-init image && [ ! -e .github/workflows/image.yml ]"
+printf 'FROM scratch\n' > Dockerfile
+out=$(just ci-init image 2>&1)
+check "ci-init image writes the image workflow and the update bot" "grep -q 'added   .github/workflows/image.yml' <<<\"\$out\" && cmp -s .github/workflows/image.yml '$root/.ai-backbone/examples/image.yml' && grep -q 'docker-compose' .github/dependabot.yml && grep -q 'named checks, and there is none yet' <<<\"\$out\""
+check "the workflow it wrote passes ci-check, and builds only after green checks on a push to main" "just ci-check >/dev/null 2>&1 && grep -q 'workflows: \\[checks\\]' .github/workflows/image.yml && grep -q \"conclusion == 'success'\" .github/workflows/image.yml && grep -q 'packages: write' .github/workflows/image.yml && ! grep -q ':latest' .github/workflows/image.yml"
+check "run again it says the copy is the backbone's" "says 'ok      .github/workflows/image.yml is the backbone' just ci-init image"
+printf '# edited here\n' >> .github/workflows/image.yml
+check "and says when the copy differs, without overwriting it" "says 'differs .github/workflows/image.yml' just ci-init image && grep -q '^# edited here' .github/workflows/image.yml"
+# After a merge, union can bring a removed backlog line back, or twin an edited one.
+bm="$tmp/bm"; mkdir -p "$bm/docs"; cd "$bm" || exit 1
+git init -q -b cloud; printf 'docs/backlog.md merge=union\n' > .gitattributes; printf "import '%s/.ai-backbone/core.just'\n" "$root" > Justfile
+printf '# Backlog\n\n- [ ] 2026-10-01, n-aaaaaa: first\n- [ ] 2026-10-02, n-bbbbbb: second\n- [ ] 2026-10-03, n-cccccc: third\n' > docs/backlog.md
+git add -A; git commit -qm "docs: base" --no-verify
+git checkout -qb side; printf -- '- [ ] 2026-10-06, n-dddddd: new note\n' >> docs/backlog.md; git commit -qam "docs: note" --no-verify
+git checkout -q cloud; perl -ni -e 'print unless /n-cccccc/; ' docs/backlog.md; perl -pi -e 's/second$/second blocked: x/' docs/backlog.md; git commit -qam "docs: built" --no-verify
+git merge -q --no-edit side >/dev/null 2>&1
+check "the union merge brought the removed line back and twinned the edited one" "grep -q n-cccccc docs/backlog.md && [ \$(grep -c n-bbbbbb docs/backlog.md) -eq 2 ]"
+out=$(just _backlog-mend 2>&1)
+check "_backlog-mend takes out both, keeps the note and the edit, and commits only that" "! grep -q n-cccccc docs/backlog.md && [ \$(grep -c n-bbbbbb docs/backlog.md) -eq 1 ] && grep -q 'second blocked: x' docs/backlog.md && grep -q n-dddddd docs/backlog.md && [ \"\$(git log -1 --format=%s)\" = 'docs: backlog mended after a merge' ] && grep -q 'brought back or doubled 2 line' <<<\"\$out\""
+check "and says nothing when there is nothing to mend" "[ -z \"\$(just _backlog-mend 2>&1)\" ]"
 cd "$tmp" || exit 1
 
 echo

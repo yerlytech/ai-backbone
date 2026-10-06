@@ -1,0 +1,44 @@
+# Dependabot for a project that ships as containers. Copy to
+# .github/dependabot.yml and keep the entries this project has; delete the rest.
+# Each opens a pull request when what it watches is behind; your agent reviews
+# and merges it.
+#
+#     just ci-init image   writes this when the project has no update bot yet
+#
+# `directory` is where the file it reads lives: Cargo.toml, pubspec.yaml,
+# package.json, the Dockerfile, the compose file. One entry per folder.
+# The ecosystem names were read in GitHub's own documentation source
+# (github/docs, data/reusables/dependabot/supported-package-managers.md,
+# 2026-10-06): docker-compose is its own ecosystem, beside docker.
+version: 2
+updates:
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+  - package-ecosystem: "pub"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+  # The base images in the Dockerfile (FROM rust:…, FROM debian:…).
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  # The images the compose file runs (postgres:…, a proxy).
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  # The workflow's own steps are other people's repositories too.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
