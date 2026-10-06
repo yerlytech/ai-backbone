@@ -2460,8 +2460,9 @@ mkdir -p "$tmp/s26-vault"; git config --global ai-backbone.vault-copy "$tmp/s26-
 git config ai-backbone.vault-copy off
 check "a project can turn its vault copy off, and doctor and session-end say so" "says 'turned it off' just doctor && says 'keeps no second copy' just session-end && [ ! -d '$tmp/s26-vault/s26' ]"
 git config ai-backbone.vault-copy "$tmp/s26-own"; mkdir -p "$tmp/s26-own"
-# Where the copy goes is asked of _vault-dest, so a machine without rsync checks it too.
-check "and a place set in the project comes before the machine's" "[ \"\$(just _vault-dest)\" = '$tmp/s26-own/s26' ]"
+# Where the copy goes is asked of _vault-dest, so a machine without rsync checks
+# it too; by its end, since git on Windows hands the folder back as C:/...
+check "and a place set in the project comes before the machine's" "says '/s26-own/s26\$' just _vault-dest"
 git config --unset ai-backbone.vault-copy; git config --global --unset ai-backbone.vault-copy
 
 # After a merge, union can bring a removed backlog line back, or twin an edited one.
