@@ -364,6 +364,11 @@ def tagged(entry, releases):
         got = dict(zip(names, found.groups()))
         version = ".".join(got[k] for k in ("major", "minor", "patch") if k in got)
         out.append({**release, "version": version, "tag": release["version"]})
+    # A pattern no tag fits is a typo in the list, not a source with nothing
+    # published: said, with the pattern, so the reader can fix it.
+    if releases and not out:
+        raise ValueError(f"no tag the source lists looks like tag = \"{pattern}\"; numbers only,"
+                         f" so a release candidate never does (the newest tag is {releases[0]['version']})")
     return out
 
 
@@ -577,7 +582,9 @@ def pin_is_real(entry):
     text = path.read_text(errors="ignore")
     label = shape(pin)[0]
     forms = {pin, pin[len(label):].lstrip("vV")} if label else {pin}
-    if re.match(r"[vV]\d", pin):
+    # Only a version with a dot: the bare 7 of a major pin (v7) would be held by
+    # any lone 7 in the file, a `cap: 7` or ubuntu-24.04's 24 alike.
+    if re.match(r"[vV]\d+\.\d", pin):
         forms.add(pin[1:])
     return any(re.search(rf"(?<![0-9])(?<![0-9]\.){re.escape(form)}(?![0-9])", text) for form in forms if form)
 

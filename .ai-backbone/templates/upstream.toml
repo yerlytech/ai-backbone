@@ -32,7 +32,9 @@
 #   tag         optional: how the source spells a version when it differs from
 #               the file that pins it, with {major}, {minor} and {patch}:
 #               tag = "REL_{major}_{minor}" reads PostgreSQL's REL_18_6 as 18.6,
-#               so pin = "18.6" and pinned_in a compose file that says 18.6
+#               so pin = "18.6" and pinned_in a compose file that says 18.6.
+#               It reads numbers only: a tag like REL_18_RC1 is never matched,
+#               so prereleases = true does nothing on such a row
 #   docs        optional: where that version's own documentation lives, a URL
 #
 #   A tool that lives as a binary and in no file has no pinned_in; MOVED cannot

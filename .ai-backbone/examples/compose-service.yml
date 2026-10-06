@@ -116,7 +116,10 @@ services:
       - internal
 
 secrets:
-  # A file on the host, readable by its owner alone, never in the repository.
+  # A file on the host, never in the repository. Compose mounts it with the
+  # host file's own owner and mode, so make it the app's user and nobody
+  # else's (chown 10001 and chmod 0400); db and backup start as root and read
+  # it all the same.
   db_password:
     file: /srv/myapp/secrets/db_password
 

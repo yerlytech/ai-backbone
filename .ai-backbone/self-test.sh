@@ -1509,8 +1509,8 @@ check "the template names Flutter's own source"           "grep -q 'flutter:stab
 # A pin written with a v, as the source tags it, is held by an image tag that
 # writes the bare number (spec 026), and a row with a tag pattern keeps the
 # pin the file writes.
-printf 'near: 1.38.20\nimage: example/example:v3.2.4-alpine\ncodex = "0.155.0"\nproxy: example/proxy:2.11.4-alpine\ndb: postgres:18.6-trixie\n' > "$tmp/hostile/docs/held.txt"
-printf '[[watch]]\nname = "near"\nsource = "pub:near"\npin = "1.38.2"\npinned_in = "docs/held.txt"\n\n[[watch]]\nname = "image"\nsource = "github:a/b"\npin = "3.2.4"\npinned_in = "docs/held.txt"\n\n[[watch]]\nname = "codex"\nsource = "github:a/b"\npin = "rust-v0.155.0"\npinned_in = "docs/held.txt"\n\n[[watch]]\nname = "proxy"\nsource = "github:a/b"\npin = "v2.11.4"\npinned_in = "docs/held.txt"\n\n[[watch]]\nname = "gone"\nsource = "github:a/b"\npin = "v2.11.5"\npinned_in = "docs/held.txt"\n\n[[watch]]\nname = "pg"\nsource = "github:a/b"\npin = "18.6"\ntag = "REL_{major}_{minor}"\npinned_in = "docs/held.txt"\n' > "$tmp/hostile/docs/upstream.toml"
+printf 'near: 1.38.20\nimage: example/example:v3.2.4-alpine\ncodex = "0.155.0"\nproxy: example/proxy:2.11.4-alpine\ndb: postgres:18.6-trixie\nuses: actions/checkout@v8\ncap: 7\n' > "$tmp/hostile/docs/held.txt"
+printf '[[watch]]\nname = "near"\nsource = "pub:near"\npin = "1.38.2"\npinned_in = "docs/held.txt"\n\n[[watch]]\nname = "image"\nsource = "github:a/b"\npin = "3.2.4"\npinned_in = "docs/held.txt"\n\n[[watch]]\nname = "codex"\nsource = "github:a/b"\npin = "rust-v0.155.0"\npinned_in = "docs/held.txt"\n\n[[watch]]\nname = "proxy"\nsource = "github:a/b"\npin = "v2.11.4"\npinned_in = "docs/held.txt"\n\n[[watch]]\nname = "gone"\nsource = "github:a/b"\npin = "v2.11.5"\npinned_in = "docs/held.txt"\n\n[[watch]]\nname = "pg"\nsource = "github:a/b"\npin = "18.6"\ntag = "REL_{major}_{minor}"\npinned_in = "docs/held.txt"\n\n[[watch]]\nname = "checkout"\nsource = "github:a/b"\npin = "v7"\nmajor = true\npinned_in = "docs/held.txt"\n' > "$tmp/hostile/docs/upstream.toml"
 # PyPI, where uv installs from (spec 021): a release is dated by its first file,
 # one with no files or only yanked files is not a release, and 1.2.0rc1 is a
 # prerelease. From a fixture, with every other address refused.
@@ -1520,6 +1520,8 @@ check "and what is newer than a pin leaves its release candidates out" "[ \"\$(p
 check "a major pin takes its own minors: only a new major is newer" "upy '[r[\"version\"] for r in u.new_majors(\"v7\", [{\"version\": v} for v in (\"v7.0.1\", \"v8\", \"v8.1.0\")])] == [\"v8\", \"v8.1.0\"]'"
 check "a pin that is only the start of a longer version is MOVED" "says '^  near .* MOVED\$' hostile env && says '^  image .* ok\$' hostile env && says '^  codex .* ok\$' hostile env"
 check "a pin written v2.11.4 is held by an image tag of 2.11.4, and v2.11.5 is not" "says '^  proxy .* ok\$' hostile env && says '^  gone .* MOVED\$' hostile env && says '^  pg .* ok\$' hostile env"
+check "but a major pin v7 is not held by a lone 7 once the file says v8" "says '^  checkout .* MOVED\$' hostile env"
+check "a tag pattern no tag fits says so, with the pattern" "says 'looks like tag = .REL_[{]major[}]_[{]minor[}].' \"\$(just _py)\" -c 'import importlib.util as i; s=i.spec_from_file_location(\"u\", \".ai-backbone/upstream.py\"); u=i.module_from_spec(s); s.loader.exec_module(u); u.tagged({\"tag\": \"REL_{major}_{minor}\"}, [{\"version\": \"v18.6\", \"prerelease\": False}])'"
 # A major written alone is current when any release of that major is listed;
 # with no X.0.0 in the window it read UNKNOWN (spec 026).
 check "a major row is answered by any release of its major" "upy 'u.same_major(\"docker-v29\", [{\"version\": v, \"prerelease\": False} for v in (\"api-v1.2.0\", \"docker-v29.4.1\")]) and not u.same_major(\"docker-v29\", [{\"version\": \"docker-v28.5.0\", \"prerelease\": False}])'"
@@ -1697,7 +1699,7 @@ esac
 EOF
 chmod +x "$tmp/gh26/gh"
 touch "$(git rev-parse --git-path ai-backbone.last-check)" "$(git rev-parse --git-path ai-backbone.last-upstream)"
-ss26() { rm -f "$(git rev-parse --git-path ai-backbone.last-ci)"; env -u AI_BACKBONE_OFFLINE https_proxy=$dead http_proxy=$dead HTTPS_PROXY=$dead HTTP_PROXY=$dead no_proxy= NO_PROXY= PATH="$tmp/gh26:$PATH" "$@" just session-start; }
+ss26() { rm -f "$(git rev-parse --git-path ai-backbone.last-ci)"; env -u AI_BACKBONE_OFFLINE AI_BACKBONE="$tmp/none" https_proxy=$dead http_proxy=$dead HTTPS_PROXY=$dead HTTP_PROXY=$dead no_proxy= NO_PROXY= PATH="$tmp/gh26:$PATH" "$@" just session-start; }
 check "session-start names the jobs a red run lost, and the run" "says '^Checks: checks failure on this commit [(]failed: rust, lint[)] -> just ci 42\$' ss26"
 check "and says when gh is not signed in" "says '^Checks: gh is not signed in here' ss26 GH26_OUT=1"
 git remote remove origin
@@ -1831,6 +1833,7 @@ check "check, test, test-fast, lint and build all start cargo through the wait" 
 cap() { bw env GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=ai-backbone.jobs GIT_CONFIG_VALUE_0="$1" GIT_CONFIG_KEY_1=ai-backbone.nice GIT_CONFIG_VALUE_1="$2" "${@:3}"; }
 check "_heavy is nothing until the machine says otherwise" "[ -z \"\$(just _heavy)\" ]"
 check "with a cap and a nice level it prints the prefix for both" "[ \"\$(cap 3 15 just _heavy)\" = 'nice -n 15 env CARGO_BUILD_JOBS=3 RUST_TEST_THREADS=3 CMAKE_BUILD_PARALLEL_LEVEL=3 MAKEFLAGS=-j3' ]"
+check "a MAKEFLAGS already set is left as it is" "! says MAKEFLAGS cap 3 0 env MAKEFLAGS=-j1 just _heavy && says 'CARGO_BUILD_JOBS=3' cap 3 0 env MAKEFLAGS=-j1 just _heavy"
 check "half is half the cores, and nonsense is ignored" "[ \"\$(cap half 99 just _heavy)\" = 'env CARGO_BUILD_JOBS=$half RUST_TEST_THREADS=$half CMAKE_BUILD_PARALLEL_LEVEL=$half MAKEFLAGS=-j$half' ] && [ -z \"\$(cap many x just _heavy)\" ]"
 check "the Rust layer builds under the machine's cap" "says 'fake cargo check --workspace --all-targets jobs=1' cap 1 15 env BUILD_WAIT_MINUTES=0.1 just check"
 check "and a wait that gives up keeps the machine's cap when it is lower than half" "out=\$(cap 1 0 env PS_BUSY=99 BUILD_WAIT_MINUTES=0.02 just check 2>&1); grep -q 'jobs=1\$' <<<\"\$out\" && grep -q 'with your own CARGO_BUILD_JOBS=1' <<<\"\$out\""
@@ -2229,6 +2232,9 @@ pnote beta-co "arrived mid-session" >/dev/null 2>&1
 check "a note that arrived since is shown by the next save, and only once" "printf 'x\\n' > '$pn/beta-co/docs/mid.md'; o=\$(cd '$pn/beta-co' && just save 'docs: mid' 2>&1); grep -q '^=== A NOTE FROM ANOTHER PROJECT ARRIVED (1 new' <<<\"\$o\" && grep -q 'arrived mid-session' <<<\"\$o\" && o2=\$(cd '$pn/beta-co' && just _notes-new 2>&1) && [ -z \"\$o2\" ]"
 pnote beta-co "arrived late" >/dev/null 2>&1
 check "and by session-end" "says 'arrived late' bash -c 'cd \"$pn/beta-co\" && just session-end'"
+perl -ni -e 'print unless /arrived (mid-session|late)/' "$inbox"
+pnote beta-co "after a tidy-up" >/dev/null 2>&1
+check "a note is new even after older lines were deleted above it" "says 'after a tidy-up' bash -c 'cd \"$pn/beta-co\" && just _notes-new'"
 sed -i.bak '/^brain/d' "$pn/beta-co/.gitignore" && rm -f "$pn/beta-co/.gitignore.bak"
 lines=$(wc -l < "$inbox" | tr -d ' ')
 check "and a project that does not keep brain/ out of git gets nothing" "! pnote beta-co x && says 'could be committed' pnote beta-co x && [ \$(wc -l < '$inbox' | tr -d ' ') -eq $lines ]"
@@ -2385,6 +2391,10 @@ out=$(just save "docs: only a" a.txt 2>&1)
 check "save with a path saves that path alone, and names what it left" "[ \"\$(git show --name-only --format= HEAD)\" = a.txt ] && grep -q 'not in this save, still unsaved: 1 file' <<<\"\$out\" && grep -q 'b.txt' <<<\"\$out\""
 check "a path that is not there is refused, and nothing is saved" "! just save 'docs: x' nothere.txt && says 'nothere.txt is not in this project' just save 'docs: x' nothere.txt && [ \"\$(git log -1 --format=%s)\" = 'docs: only a' ]"
 check "without paths a save still takes everything" "just save 'docs: the rest' >/dev/null 2>&1 && [ -z \"\$(git status --porcelain)\" ]"
+mkdir -p docs/sub; printf 'c\n' > docs/sub/c.txt
+check "a path is read from the folder just was typed in" "( cd docs/sub && just save 'docs: c' c.txt >/dev/null 2>&1 ) && [ \"\$(git show --name-only --format= HEAD)\" = docs/sub/c.txt ]"
+git mv a.txt a2.txt >/dev/null
+check "a renamed file is saved by its old and new names" "just save 'docs: rename' a.txt a2.txt >/dev/null 2>&1 && [ -z \"\$(git status --porcelain)\" ] && [ -f a2.txt ]"
 # A done spec whose Acceptance list still has an open box is named; one
 # marked [~] with its reason is not.
 mkdir -p docs/specs
@@ -2412,8 +2422,8 @@ rm -f stack.just
 pj="$tmp/pj"; mkdir -p "$pj/bb/.ai-backbone" "$pj/app/.ai-backbone" "$pj/app/docs"
 cp "$root/.ai-backbone/projects.sh" "$pj/bb/.ai-backbone/"; printf '# version 9.9.9\n' > "$pj/bb/.ai-backbone/core.just"; cp "$pj/bb/.ai-backbone/core.just" "$pj/app/.ai-backbone/"
 git -C "$pj/app" init -q; : > "$pj/app/docs/upstream.toml"
-printf '{"behind": ["uv", "prek"], "moved": [], "released": {}}' > "$pj/app/.git/upstream-cache.json"
-check "just projects names what is newer upstream in each project" "says '^  app +9.9.9 .* 2 newer +.*newer upstream: uv, prek' bash '$pj/bb/.ai-backbone/projects.sh'"
+printf '{"behind": ["flutter sdk", "prek"], "moved": [], "released": {}}' > "$pj/app/.git/upstream-cache.json"
+check "just projects names what is newer upstream in each project" "says '^  app +9.9.9 .* 2 newer +.*newer upstream: flutter sdk, prek' bash '$pj/bb/.ai-backbone/projects.sh'"
 # routine-install on a Mac refuses a project in Desktop, Documents or Downloads,
 # which launchd may not read; routine-status shows how the last run ended.
 dh="$tmp/dhome"; mkdir -p "$dh/Desktop" "$tmp/mac"
@@ -2434,6 +2444,7 @@ check "the workflow it wrote passes ci-check, and builds only after green checks
 check "run again it says the copy is the backbone's" "says 'ok      .github/workflows/image.yml is the backbone' just ci-init image"
 printf '# edited here\n' >> .github/workflows/image.yml
 check "and says when the copy differs, without overwriting it" "says 'differs .github/workflows/image.yml' just ci-init image && grep -q '^# edited here' .github/workflows/image.yml"
+check "and the checks it waits for can still be added after it" "just ci-init generic >/dev/null 2>&1; [ -f .github/workflows/checks.yml ] && grep -q '^name: checks' .github/workflows/checks.yml"
 # After a merge, union can bring a removed backlog line back, or twin an edited one.
 bm="$tmp/bm"; mkdir -p "$bm/docs"; cd "$bm" || exit 1
 git init -q -b cloud; printf 'docs/backlog.md merge=union\n' > .gitattributes; printf "import '%s/.ai-backbone/core.just'\n" "$root" > Justfile

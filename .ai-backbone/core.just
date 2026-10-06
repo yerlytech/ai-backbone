@@ -339,6 +339,9 @@ ci-init lang="":
     mkdir -p .github/workflows
     copied=0
     mine=(.github/workflows/*.yml .github/workflows/*.yaml)
+    # The image workflow `ci-init image` wrote is not a check: it waits for one.
+    for i in "${!mine[@]}"; do [ "${mine[$i]}" != .github/workflows/image.yml ] || unset 'mine[i]'; done
+    mine=("${mine[@]+"${mine[@]}"}")
     if [ ${#mine[@]} -gt 0 ]; then
       # Never a second workflow beside somebody's own: both would run, and the
       # second one is silent about doubling the bill.
@@ -996,8 +999,11 @@ _session-start-body:
         printf '%s' "$at" > "$cistamp"
         echo "Checks: gh is not signed in here, so a red run is seen only in GitHub's e-mail -> gh auth login"
       elif [ -n "$at" ] && [ "$at" != "$(cat "$cistamp" 2>/dev/null || true)" ]; then
-        r=$(GH_PAGER=cat gh run list --commit "$at" --limit 1 --json workflowName,status,conclusion,databaseId \
-              -q '.[] | [.workflowName, .status, .conclusion, .databaseId] | @tsv' 2>/dev/null || true)
+        # The run that matters among this commit's: one that failed or is still
+        # going before a green one, and never one that was skipped (an image
+        # workflow waiting on red checks is skipped, and is the newest).
+        r=$(GH_PAGER=cat gh run list --commit "$at" --limit 10 --json workflowName,status,conclusion,databaseId \
+              -q 'map(select(.conclusion != "skipped")) | ((map(select(.status != "completed" or .conclusion != "success")) | .[0]) // .[0]) | select(. != null) | [.workflowName, .status, .conclusion, .databaseId] | @tsv' 2>/dev/null || true)
         IFS=$'\t' read -r wf st cc id <<< "$r"
         case "${st:-}" in
           completed) printf '%s' "$at" > "$cistamp"
@@ -1314,16 +1320,28 @@ save msg *paths:
     if [ -z "$(just _is-repo)" ]; then echo "No git repo yet. Run: git init"; exit 1; fi
     msg="$1"; shift
     # Everything, or only the paths named (spec 026): an urgent fix saved and
-    # published while other work is half done, or one agent's files while
-    # another session edits the same tree. Named paths are committed with
+    # published while other work is half done. Named paths are committed with
     # `git commit -- <paths>`, which leaves whatever else is staged where it is.
-    paths=("$@")
-    stage() { if [ ${#paths[@]} -gt 0 ]; then git add -A -- "${paths[@]}"; else git add -A; fi; }
+    # Not while another session is writing in the same tree: during the checks
+    # prek sets every other changed file aside and puts it back after, and a
+    # write that lands in between is thrown away (prek 0.5.5, measured). A path
+    # is read from the folder `just` was typed in, as the person meant it.
+    paths=()
+    for p in "$@"; do case "$p" in /*|[A-Za-z]:*) paths+=("$p") ;; *) paths+=("{{invocation_directory()}}/$p") ;; esac; done
+    # Only what is here or git still lists is added: the old name of a file
+    # `git mv` moved is neither, and `git add` refuses it, while the commit
+    # below takes it all the same.
+    stage() {
+      if [ ${#paths[@]} -eq 0 ]; then git add -A; return; fi
+      local p; for p in "${paths[@]}"; do
+        if [ -e "$p" ] || [ -n "$(git ls-files -- "$p" 2>/dev/null)" ]; then git add -A -- "$p"; fi
+      done
+    }
     if [ ${#paths[@]} -gt 0 ]; then
       for p in "${paths[@]}"; do
         if [ ! -e "$p" ] && [ -z "$(git ls-files -- "$p" 2>/dev/null)" ] && [ -z "$(git ls-files --deleted -- "$p" 2>/dev/null)" ] \
            && [ -z "$(git diff --cached --name-only -- "$p" 2>/dev/null)" ]; then
-          echo "Not saved: $p is not in this project, and git has never had it."; exit 1
+          echo "Not saved: ${p#{{invocation_directory()}}/} is not in this project, and git has never had it."; exit 1
         fi
       done
     fi
@@ -3374,24 +3392,24 @@ _backlog-mend:
     fi
 
 # Notes another project left here since they were last shown (spec 026). The
-# inbox is read whole at session-start, which also marks how far it was read; a
+# inbox is read whole at session-start, which also marks what it showed; a
 # note that lands while a session is working was seen by nobody until the next
-# one. `just save` and `just session-end` call this: only the lines added since,
-# that are still open, and the mark moves on. Quiet when there is nothing new.
-# `--mark` moves the mark and prints nothing (session-start, which shows them all).
+# one. `just save` and `just session-end` call this: only the open lines not
+# shown before, and those are marked in turn. Quiet when there is nothing new.
+# `--mark` marks and prints nothing (session-start, which shows them all).
 [positional-arguments]
 _notes-new *mark:
     #!/usr/bin/env bash
     f=brain/notes-from-projects.md
     [ -f "$f" ] || exit 0
+    # The open lines already shown, kept whole: a count of lines went wrong
+    # once somebody deleted the finished ones above a new note.
     seen=$(git rev-parse --git-path ai-backbone.notes-seen 2>/dev/null) || exit 0
-    now=$(wc -l < "$f" | tr -d ' ')
-    was=$(cat "$seen" 2>/dev/null || echo 0); case "$was" in ""|*[!0-9]*) was=0 ;; esac
-    # A file shorter than the mark was rewritten by hand: start from it as it is.
-    [ "$was" -le "$now" ] || was=$now
-    printf '%s' "$now" > "$seen" 2>/dev/null || true
+    open=$(grep '^- \[ \]' "$f" || true)
+    [ -f "$seen" ] || : > "$seen" 2>/dev/null || exit 0
+    new=$(grep -Fxv -f "$seen" <<< "$open" | grep . || true)
+    printf '%s\n' "$open" > "$seen" 2>/dev/null || true
     [ "${1:-}" = --mark ] && exit 0
-    new=$(tail -n +"$((was + 1))" "$f" | grep '^- \[ \]' || true)
     [ -n "$new" ] || exit 0
     echo; echo "=== A NOTE FROM ANOTHER PROJECT ARRIVED ($(grep -c . <<< "$new") new; brain/notes-from-projects.md) ==="
     head -5 <<< "$new" | perl -CS -pe 's/^(.{237}).+/$1.../'
@@ -3425,7 +3443,9 @@ _heavy:
         have="${!v:-}"; case "$have" in ""|*[!0-9]*) have="" ;; esac
         if [ -n "$have" ] && [ "$have" -lt "$j" ]; then vars="$vars $v=$have"; else vars="$vars $v=$j"; fi
       done
-      out="${out:+$out }env$vars MAKEFLAGS=-j$j"
+      # MAKEFLAGS carries other flags as well; one already set is left as it is.
+      [ -n "${MAKEFLAGS:-}" ] || vars="$vars MAKEFLAGS=-j$j"
+      out="${out:+$out }env$vars"
     fi
     printf '%s' "$out"
 

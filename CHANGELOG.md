@@ -20,8 +20,11 @@ open line at once; all 27 are built, and `docs/backlog.md` is empty.
 
 - **`just save "msg" <path>...`** saves only the paths named, with `git
   commit -- <paths>`, and names what it left unsaved: an urgent fix can go out
-  while other work is half done. A path that is not there is refused. Which
-  agent session wrote which file is not told: git does not know it.
+  while other work is half done. A path is read from the folder `just` was
+  typed in; one that is not there is refused. Not while another session is
+  writing in the same tree: during the checks prek sets every other changed
+  file aside and puts it back, and a write in between is lost (prek 0.5.5,
+  measured in review).
 - **Notes reach a session that is already working.** `just save` and `just
   session-end` show a note another project left since the inbox was last
   shown, once; `just session-start` marks what it showed. `just project-note

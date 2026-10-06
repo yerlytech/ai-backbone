@@ -31,18 +31,22 @@ for d in "$root"/../*/ "$root"/../*/*/; do
   # What the project's own weekly check last found newer than its pins, read
   # from the cache it left (spec 026): no network, nothing asked. "-" for a
   # project with no watch list or no check yet.
+  # "-" too when python3 cannot read it (a stand-in python3 on Windows).
   up="-"; behind=""
   cache=$(git -C "$d" rev-parse --git-path upstream-cache.json 2>/dev/null || true)
   case "$cache" in ""|/*) ;; *) cache="$d/$cache" ;; esac
   if [ -f "$d/docs/upstream.toml" ] && [ -n "$cache" ] && [ -f "$cache" ]; then
-    behind=$(python3 -c 'import json, sys; print(" ".join(json.load(open(sys.argv[1])).get("behind", [])))' "$cache" 2>/dev/null || true)
-    if [ -n "$behind" ]; then up="$(wc -w <<< "$behind" | tr -d ' ') newer"; else up="current"; fi
+    read_up=$(python3 -c 'import json, sys; b = json.load(open(sys.argv[1])).get("behind", []); print(str(len(b)) + "\t" + ", ".join(b))' "$cache" 2>/dev/null || true)
+    case "$read_up" in
+      0*) up="current" ;;
+      [1-9]*) up="${read_up%%$'\t'*} newer"; behind="${read_up#*$'\t'}" ;;
+    esac
   fi
   note=""
   [ "$v" != "$mine" ] && note="${note:+$note; }behind, $mine here -> just template-update"
   [ "$unsaved" != 0 ] && [ "$unsaved" != "-" ] && note="${note:+$note; }unsaved work"
   [ "$remote" = none ] && note="${note:+$note; }only on this machine"
-  [ -n "$behind" ] && note="${note:+$note; }newer upstream: ${behind// /, }"
+  [ -n "$behind" ] && note="${note:+$note; }newer upstream: $behind"
   printf "  %-14s %-9s %-8s %-7s %-11s %-9s %s\n" "$name" "$v" "$unsaved" "$remote" "$last" "$up" "$note"
 done
 echo
