@@ -34,7 +34,10 @@ Anything bigger than a small fix gets a spec first. One file, one page, English.
    them off in the file as you go.
 6. Before `done`, walk the **Acceptance** list line by line against what was
    built and show the maintainer a short table: holds / not yet. Anything not
-   yet met becomes a new **Task**. Never call it done on memory.
+   yet met becomes a new **Task**. Tick each line (`- [x]`) as it is checked,
+   so the file itself says the list was walked; `just session-start` names a
+   done spec with a box still open. A line that cannot hold yet is marked
+   `- [~]` and says why on the line. Never call it done on memory.
 7. When every line holds, set `status: done` and save. Then `just release`:
    a spec done is the moment the project gets its next version, read from the
    commits since the last one (a spec's work is a `feat`, so the next minor

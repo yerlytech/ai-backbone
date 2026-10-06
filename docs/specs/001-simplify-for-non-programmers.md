@@ -117,7 +117,8 @@ Major, `1.0.0`, after approval of this page:
       what this is, three steps to start (download, open in your AI tool, say
       one sentence), the four commands, where the rest lives. README of a new
       project is five lines.
-- [ ] (partly) Every message a human might read in `core.just` is checked against
+- [~] (partly; walked 2026-10-06, spec 026: the glossary was never made a
+      check, and the messages are read by people, not tested) Every message a human might read in `core.just` is checked against
       one rule: no word the getting-started glossary does not define.
 - [x] Spec template gains `## Questions`. The spec skill says: ask them one per
       turn, remove each when answered, approval only when the section is empty.

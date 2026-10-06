@@ -35,7 +35,10 @@ goes into the product's own source.
 
 1. **Hand over through files, never through a chat.** A role reads named
    files and writes one. What lives only in a conversation is gone when it
-   ends, and the next role, or the next session, never saw it.
+   ends, and the next role, or the next session, never saw it. The notes of
+   one effort are found together by their name: a research or data note
+   written for an open spec starts with that spec's number
+   (`brain/02-research/2026-10-06-026-ghcr-prices.md`).
 2. **One owner per document.** The spec is the product manager's, the
    marketing context the marketer's, a research note the researcher's. A role
    that wants another's document changed says so and switches to the owner's

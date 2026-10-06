@@ -16,11 +16,13 @@ Fill this in once, at the start of the project.
 | stack | none yet |
 | source_dir | `src/` |
 | tools | claude |
+| managed_by | none |
 
 You answer `project`, `brain_lang` and `chat_lang`. The agent fills `stack` and
 `source_dir` when the time comes. `tools`: the AI tools you use (`claude`, `gemini`,
 `copilot`, `junie`, `codex`, `cursor`), comma-separated. `all` generates copies for
-every tool.
+every tool. `managed_by`: a repository whose decisions, cited by id, outrank this
+file's; a conflict goes there with `just project-note`, never settled here.
 
 ## 1. Contract
 
@@ -71,8 +73,8 @@ Do not read the whole codebase. Use the map.
 
 - `graphify query "question"` to find where something lives.
 - `graphify explain "Symbol"` to understand one thing.
-- `graphify affected "Symbol"` and `just uses Symbol` before you change it: the map draws no calls in some languages (Dart), the word search reads them all. Where the map draws no
-  calls (Dart) it finds nobody: `just uses <word>` lists every line naming it.
+- `graphify affected "Symbol"` and `just uses Symbol` before you change it: where the
+  map draws no calls (Dart) it finds nobody; `just uses <word>` lists every line naming it.
 - Never open `graphify-out/graph.json`. It is machine output, not a document.
 - Refresh the map with `just update-map`.
 
@@ -94,9 +96,7 @@ Do not read the whole codebase. Use the map.
 | `.ai-backbone/CHANGELOG.md` | what each backbone version changed and why. In the backbone itself it sits in the root. |
 
 Rules change in one place: this file. Then run `just sync-rules`.
-The derived copies exist because some editors look for their own filename and stop
-at the first one they find. A short pointer would leave them with three lines instead
-of the whole ruleset, so they get a full copy instead.
+The copies are whole, not pointers: some editors stop at the first file they find.
 
 ## 6. Commands
 

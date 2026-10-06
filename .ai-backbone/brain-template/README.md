@@ -19,3 +19,8 @@ layout below is shaped for.
 
 Put `status:` in the front matter of every note. An abandoned plan that is not
 marked abandoned will be read as current, and the next agent will follow it.
+
+A decision another repository owns (a managing repository that several
+projects follow) is cited here by its id and one line of summary, never copied
+in full. A copied rule drifts: the original changes and the copy goes on being
+followed.

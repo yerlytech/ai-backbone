@@ -184,4 +184,8 @@ a message that names none.
 - The journal is the only memory that survives between sessions. Write it.
   (The backbone's own scheduled agent has no journal; the backbone-dev skill
   says where its memory is.)
+- A managing repository (one that several projects follow) keeps in its own
+  memory only what is about the company or several projects. An entry about
+  one project goes into that project's memory, or every managing session
+  starts loaded with other projects' details.
 - Commit messages are in `code_lang`. The journal is in `brain_lang`. Never mix.

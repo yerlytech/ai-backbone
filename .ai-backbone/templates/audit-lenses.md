@@ -70,6 +70,52 @@ For each pair, say which one the code actually obeys. That is the honest answer
 to which rule is real, and it is usually the older one, because the newer one
 was never enforced anywhere.
 
+## When the product has one
+
+Three lenses that are true of many products and not of all. Keep the ones that
+apply, delete the rest.
+
+### Identity
+
+For a product people sign in to. Does the first visit work without an account,
+or does the product ask for one before it has shown anything? When the app
+makes an account on its own (a guest, an anonymous device id), does deleting the
+account from inside the app delete that one too? Can one account or one user id
+reach across two products, through a shared database, a shared token or an id
+another product will accept? Name the path, or say none exists and how you know.
+
+### One network, several projects
+
+Where projects share one container network that is checked by names only
+(any container that knows the name can call it). Do only the front services sit
+on it? Does a database ever join it? Does every service it reaches check who is
+calling, or does being on the network count as being allowed? Is a header that
+carries the client's address (`X-Forwarded-For`, `X-Real-IP`) trusted only when
+it comes from the front proxy, and set by nothing else?
+
+### Who owns the sign-in
+
+Before an Apple or other third-party sign-in ships in a store. Which legal
+entity owns the developer account the app is published under? Could the apps
+move to another team later? A provider's user ids are scoped to the team, so a
+move gives every user a new id, and the product needs a migration it has never
+written. Decide the owner before the first user signs in.
+
+## An app's first day
+
+Not a lens: a checklist an app is held to from the day it has users, read in
+the same audit. Each line is true, or the reason it is not yet is written down.
+
+- User-facing text lives in translation files, never in code, with the minimum
+  set of languages this project names.
+- Light and dark themes, following the device.
+- Accessibility basics: contrast, text that grows with the system setting,
+  a screen-reader label on every control that has no visible text.
+- Account deletion inside the app, from the day accounts exist.
+- Secrets read from files or the environment, never from the code or the image.
+- A release path that is written down and has been walked once: who builds,
+  who signs, where it goes.
+
 ## This project's own
 
 <!-- One heading per lens. Name the files to read and the question to ask.

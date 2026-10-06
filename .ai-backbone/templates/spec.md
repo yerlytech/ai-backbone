@@ -13,6 +13,10 @@ One paragraph. Plain words. What will exist when this is done.
 
 The problem it solves. Who has it. What happens if we do nothing.
 
+When this connects two products or services: what crosses between them (a
+short-lived ticket, an invite, a key for one link) and what never does
+(accounts, personal data).
+
 ## Not doing
 
 What is deliberately out of scope, so nobody has to guess.
