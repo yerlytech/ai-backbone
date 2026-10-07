@@ -16,8 +16,9 @@ below are the record of every version.
 ## 3.34.2 — 2026-10-07
 
 **The backbone's routine runs every third day, and looks outward every second
-run.** The maintainer asked for a run every third day instead of every day
-(the stored routine's schedule moved with it). The radar was tied to the day of
+run.** The maintainer asked for a run every third day instead of every day;
+the schedule itself is the stored routine's, set on claude.ai (`0 3 */3 * *`),
+and until it moves, a daily run looks outward every fifth or sixth day. The radar was tied to the day of
 the year (divisible by 3), which a run every three days hits every time or
 never, so it is tied to the last radar instead: `just radar-due` says yes when
 that was saved five days ago or more, which is every second run, about every
