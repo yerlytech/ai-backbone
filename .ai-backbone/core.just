@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.34.0
+# .ai-backbone/core.just — the backbone's recipes, version 3.34.1
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -784,7 +784,9 @@ tools-update:
     # Linux), and only uv itself moves that one: a Linux machine ran 0.8.17 for
     # weeks under a pin of 0.12.19, and nothing here upgraded it (spec 026). A uv
     # installed some other way (pip, a package manager) says it cannot update
-    # itself, and its own manager is the one to ask.
+    # itself, and its own manager is the one to ask. Measured doing the job on
+    # 2026-10-07: a sandbox whose uv was 0.11.32, older than the pin, came out
+    # at 0.12.23, and the pin moved with it on the same run.
     if command -v uv >/dev/null 2>&1 && ! { command -v brew >/dev/null 2>&1 && brew list --versions uv >/dev/null 2>&1; }; then
       uv self update 2>&1 | tail -1
     fi
@@ -852,8 +854,8 @@ hooks-install:
     # closed by a proxy and an empty prek cache: the scanner was built, and a
     # later save went through with go.dev still closed and only the old Go on the
     # PATH; and again on prek 0.5.4 in a sandbox with an empty cache
-    # (2026-09-29), where it still asked go.dev for the same Go 1.27.1 and the
-    # way round still built the scanner. The log is this call's own file: the
+    # (2026-09-29) and on 0.5.5 in one (2026-10-07), where it still asked go.dev
+    # for the same Go 1.27.1 and the way round still built the scanner. The log is this call's own file: the
     # shared ~/.cache/prek/prek.log is
     # rewritten by every prek that runs. Never a reason to fail: the hooks are in
     # place either way, and the first save tries again. Not in offline mode, which
@@ -1993,8 +1995,8 @@ update-map:
     # Everything below was measured on graphify 0.9.64 (2026-09-19), in a scratch
     # project holding a Flutter project's three Dart files, and again on 0.9.68
     # (2026-09-26), 0.9.70 (2026-09-28), 0.9.71 (2026-09-29), 0.9.73
-    # (2026-10-01) and 0.9.76 (2026-10-05) in a scratch project of Python files
-    # and one JSON: the
+    # (2026-10-01), 0.9.76 (2026-10-05) and 0.9.79 (2026-10-07) in a scratch
+    # project of Python files and one JSON: the
     # two commands, the folder they write to, the report file, the
     # byte-identical second run, the pruning of a deleted file (7 nodes to 5
     # on the last of them, with no --force) and the moved folder all still
@@ -2007,7 +2009,7 @@ update-map:
     # extraction (#2543)". It is graphify's own bookkeeping about its own cache:
     # the graph that run writes is the same byte for byte, the file count in the
     # summary is unchanged, and a project of code alone never sees the line.
-    # Nothing here answers it; 0.9.76 says it the same way.
+    # Nothing here answers it; 0.9.79 still says it the same way.
     #
     # The ignore list. With the list as it was, most of a first map's nodes came
     # from .ai-backbone/ (upstream.py, setup.sh, routine.sh) and few from the

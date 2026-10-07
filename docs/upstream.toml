@@ -23,7 +23,7 @@ check = "recipe syntax, [group] attributes, whether --list output changed, and w
 [[watch]]
 name = "prek"
 source = "pypi:prek"
-pin = "0.5.4"
+pin = "0.5.5"
 why = "runs the git hooks: lint before a commit, and the secret scanner"
 check = "whether .pre-commit-config.yaml is still read the same way"
 
@@ -38,14 +38,14 @@ check = "new rules that would make an existing project's commit fail"
 [[watch]]
 name = "graphify"
 source = "pypi:graphifyy"
-pin = "0.9.76"
+pin = "0.9.79"
 why = "the code map an agent reads instead of the whole codebase"
 check = "whether the query commands or the output folder changed"
 
 [[watch]]
 name = "uv"
 source = "pypi:uv"
-pin = "0.12.19"
+pin = "0.12.23"
 why = "installs just, prek and graphify, and finds the Python the helpers run on"
 check = "whether `uv tool install`, `uv tool upgrade` and `uv python find` still answer the way setup.sh and _py read them"
 

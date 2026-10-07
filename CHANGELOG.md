@@ -13,6 +13,25 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## 3.34.1 — 2026-10-07
+
+The tools the backbone is built on, moved to their newest releases and the
+suite run on them (spec 021): prek 0.5.4 -> 0.5.5, graphify 0.9.76 -> 0.9.79,
+uv 0.12.19 -> 0.12.23. The secret scanner's pin was already current, so the
+four places that must agree on it are untouched.
+
+None of the three publishes release notes, so each row's question was
+measured rather than read, and the comments that record it now name these
+versions. graphify: the two commands, the output folder, the report file, the
+byte-identical second run, the pruning of a file that left the tree with no
+`--force`, and query, explain and affected all behave as written. prek: the
+config still validates and all its hooks are read, and in a sandbox with
+go.dev closed it still asks for the same Go, so `hooks-install`'s way round
+still earns its place. uv: `tool list`, `tool install`, `tool upgrade` and
+`python find` all answer the way `setup.sh` and `_py` read them — and
+`uv self update` did its job for the first time on a machine where uv had
+fallen behind its own pin, which is what it was added for.
+
 ## 3.34.0 — 2026-10-06
 
 Two notes that arrived while 3.33.0 was built (spec 026).
