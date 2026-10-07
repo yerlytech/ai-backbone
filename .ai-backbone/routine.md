@@ -131,7 +131,7 @@ read it: on a backlog line you leave open, in the CHANGELOG, in a new
 
    Not yours, take the next:
    - A line that an approved, unfinished spec in `docs/specs/` says it closes is
-     somebody's already. Two agents fixed the same line on the same night once,
+     somebody's already. Two agents fixed the same line on the same day once,
      because neither could see the other's plan. A claim lapses: when the
      spec's file has not changed for 14 days (`git log -1 --format=%cs` on it),
      nobody is working on it and its lines are open again. In a shallow
@@ -142,7 +142,7 @@ read it: on a backlog line you leave open, in the CHANGELOG, in a new
    - A line that ends in `blocked: <what would unblock it>`. When you meet a
      line that cannot be done unattended — it waits for a measurement on
      another machine, for a real project of some kind — add that ending
-     instead of reading the line again tomorrow.
+     instead of reading the line again at the next run.
    - A `- [?]` line. It is the maintainer's to answer, never yours to build.
    - A line that would change what the person types, or put a duty on them: do
      not build it. Change its box to `[?]`, keep its date and id, and add one
@@ -174,7 +174,7 @@ read it: on a backlog line you leave open, in the CHANGELOG, in a new
    keep, a message that misleads, an error path that lies. Cosmetic changes
    are not problems. If you find nothing, your run is "nothing to do": go to
    step 10. The marks you made on the way (`blocked:`, `[?]`, a deleted twin)
-   are saved with the log line, or tomorrow's run reads those lines again.
+   are saved with the log line, or the next run reads those lines again.
 7. Make the change. Bigger than a small fix: `just spec <name>` first, fill it,
    set `status: approved` yourself, build, close it as `done`. It fits only if
    it keeps the backbone radically simple: no new dependency, no new duty for
@@ -200,7 +200,7 @@ read it: on a backlog line you leave open, in the CHANGELOG, in a new
     `y` (`git checkout -- .` undoes nothing here: the save has already staged
     it). Then write the log line again, saying which backlog line you tried
     and which check failed, `just save "docs: routine log"`, do step 12, and
-    stop with the failure in your report. Without that line tomorrow's run
+    stop with the failure in your report. Without that line the next run
     takes the same item, blind. A run that changed nothing else saves its log
     line the same way.
 12. `git push origin HEAD:cloud`. If it is refused because `cloud` has moved —
@@ -210,19 +210,21 @@ read it: on a backlog line you leave open, in the CHANGELOG, in a new
     through, `just _backlog-mend` (the line you removed, a note that landed
     after it: union kept both); run `just self-test` again when what came in touched anything outside `docs/`,
     and push once more. If the merge stops, `git merge --abort`, push nothing,
-    and say so in your report: tomorrow's run starts from a fresh checkout and
+    and say so in your report: the next run starts from a fresh checkout and
     does the item again. You never tag and never push `main`: the gate tests
     your push on three machines, carries it to `main` when all three are
     green, and tags the version it finds on line 1 of `core.just`. A red gate
     writes a `gate:` line into `docs/routine-log.md` on `cloud`, and tomorrow's
     run reads it first (step 6).
 
-## Every third day: the radar
+## Every second run: the radar
 
-On every third day of the year (`echo $(( 10#$(date -u +%j) % 3 ))` prints 0;
-the maintainer asked for it on 2026-09-25, spec 021, in place of once a week)
-your one item is to look outward, and it replaces step 6 to 9. Steps 0 to 5 as
-always, then:
+This brief runs every third day (the maintainer's word on 2026-10-07; daily
+before). When `just radar-due` says yes, the last radar was saved five days
+ago or more, which makes every second run a radar run, about every six days
+(the maintainer chose that on the same day; spec 021 had it every third day
+of a daily routine). On a radar run your one item is to look outward, and it
+replaces step 6 to 9. Steps 0 to 5 as always, then:
 
 a. `just radar`. It reads the sources in `docs/radar.toml` for you: the top of
    each file, down to the heading seen last time, headings and filtered lines
@@ -250,7 +252,7 @@ c. `just radar-mark <name>` for every source that answered, whether or not it
 d. Your log line (step 10), then `just radar-save` in place of `just save`. It
    commits the markers and the log line and refuses anything else. If it
    refuses, you changed something a radar run does not change: say so in your
-   report and stop. Then step 12: a radar day has no version, and a push
+   report and stop. Then step 12: a radar run has no version, and a push
    that changes only your own files is carried without the suite.
 
 ## Sandbox quirks seen so far

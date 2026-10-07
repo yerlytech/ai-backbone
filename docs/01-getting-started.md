@@ -306,7 +306,8 @@ Before the backlog, every run looks at the tools the backbone is built on
 item, and the gate tests it on the three machines before it reaches `main`; a
 change to a workflow is left for a session you are in (spec 021).
 
-Every third day its one item is the radar: it looks outward instead of at the
+Every second run (it runs every third day, so about every six days) its one
+item is the radar: it looks outward instead of at the
 backlog. `just radar` reads what Claude Code, OpenSpec, Spec Kit and Gemini CLI
 have published, and whether the AGENTS.md and Agent Skills standards or
 Copilot's page about AGENTS.md have changed. It shows the agent headings and a

@@ -342,7 +342,7 @@ check "README and docs/README lead to it"              "grep -q 'docs/how-it-wor
 # 3.22.0 gave the scheduled agent a Sunday of its own and left the pages that
 # describe that agent as they were. The picture above draws the radar, so the
 # words beside it must exist too.
-check "the docs say what the scheduled agent does every third day" "grep -q 'radar.toml' '$root/docs/01-getting-started.md' && grep -q 'radar.toml' '$root/docs/README.md'"
+check "the docs say what the scheduled agent does on a radar run" "grep -q 'radar.toml' '$root/docs/01-getting-started.md' && grep -q 'radar.toml' '$root/docs/README.md'"
 check "project name kept as typed"                    "grep -q '^| project | Deneme Projesi |' AGENTS.md"
 check "brain_lang and chat_lang set from the argument" "grep -q '^| brain_lang | tr |' AGENTS.md && grep -q '^| chat_lang | tr |' AGENTS.md"
 check "no .env.example before the first secret"       "[ ! -f .env.example ]"
@@ -1205,6 +1205,15 @@ cd "$p" || exit 1
 # it: what these checks hold is how much a stranger can say, and that nothing
 # older than the marker, nothing long and nothing but ASCII gets through.
 echo "== the radar =="
+# The routine runs every third day since 2026-10-07, and every second run looks
+# outward: the last radar five days old or more.
+rq="$tmp/radar-due"; git init -q "$rq"
+due() { just -f "$root/Justfile" -d "$rq" radar-due; }
+check "a history with no radar run is due one" "says '^yes: no radar run' due"
+GIT_COMMITTER_DATE="$(( $(date +%s) - 3 * 86400 )) +0000" git -C "$rq" commit -q --allow-empty -m "docs: radar 2026-01-01" --no-verify
+check "three days after a radar, a run does the ordinary work" "says '^no: the last radar was 3 day' due"
+GIT_COMMITTER_DATE="$(( $(date +%s) - 6 * 86400 + 600 )) +0000" git -C "$rq" commit -q --allow-empty -m "docs: radar 2026-01-02" --no-verify
+check "and a run a few minutes short of six days looks outward" "says '^yes: the last radar was 5 days ago' due"
 rd="$tmp/radar"; mkdir -p "$rd/docs"; py=$(just _py)
 printf '[[source]]\nname = "log"\nurl = "%s/.ai-backbone/fixtures/radar-changelog.md"\nbytes = 4000\nheading = "^## [0-9]"\nfilter = "AGENTS\\\\.md|SKILL\\\\.md"\nseen = "## 9.9.0"\nread = "2026-01-01"\ntouches = "AGENTS.md"\n\n[[source]]\nname = "spec"\nurl = "%s/.ai-backbone/fixtures/radar-spec.txt"\nhash = "0000"\nread = "2026-01-01"\ntouches = "SKILL.md"\n\n[[source]]\nname = "gone"\nurl = "%s/no-such-file"\nhash = "0000"\nread = "2026-01-01"\ntouches = "x"\n' "$(fileurl "$root")" "$(fileurl "$root")" "$(fileurl "$root")" > "$rd/docs/radar.toml"
 radar() { ( cd "$rd" && "$py" "$root/.ai-backbone/radar.py" "$@" ); }

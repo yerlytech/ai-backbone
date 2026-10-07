@@ -30,11 +30,11 @@ flowchart TD
     folder -->|"sends it to cloud"| gate
     gate -->|"carried to main"| hub
     hub --> todo
-    news -->|"every third day: the radar"| todo
+    news -->|"every second run: the radar"| todo
     todo -->|"one item a day"| agent
     agent -->|"pushes to cloud"| gate
     gate -->|"green: carried to main, tagged"| ver
-    gate -->|"red: a line for tomorrow's run"| agent
+    gate -->|"red: a line for the next run"| agent
     ver -->|"next session"| folder
     folder -->|"just template-update"| proj
 
@@ -59,10 +59,10 @@ day, builds it, tests it and pushes it to the branch `cloud`. A gate on GitHub
 tests that push again on a clean Linux, a clean Mac and a clean Windows
 machine, and all three decide (Windows since spec 020). Green is
 carried to `main` and becomes a new version, tagged; red leaves one line that
-the next day's run reads first and fixes. Before the list, each run checks
+the next run reads first and fixes. Before the list, each run checks
 the tools the backbone is built on: when one has a new release, the run moves
 to it, and the gate tests it on the three machines before it reaches `main`.
-Every third day the agent looks outward instead: the radar reads what the
+Every second run the agent looks outward instead: the radar reads what the
 standards and agent tools around the backbone have published and adds what
 matters to the same list, as ideas. The next time an agent opens any
 of your projects, the backbone folder takes the new version from GitHub. The

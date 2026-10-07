@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.34.1
+# .ai-backbone/core.just — the backbone's recipes, version 3.34.2
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.

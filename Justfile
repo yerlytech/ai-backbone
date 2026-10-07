@@ -28,12 +28,26 @@ projects:
     @bash .ai-backbone/projects.sh
 
 # No `projects-update` and no schedule for one since 3.20.0: `just session-start` in a project says when it is behind,
-# and the agent working there updates it when that is safe. The daily job wrote into projects from outside, mid-work.
+# and the agent working there updates it when that is safe. The daily job of that time wrote into projects from outside, mid-work.
 
 # ─────────────────────────── the radar ───────────────────────────
-# Every third day the scheduled agent looks outward (routine.md, the radar
+# Every second run the scheduled agent looks outward (routine.md, the radar
 # section; spec 012, spec 021). What it reads was written by strangers and it can push to
 # main, so the reading is done by code and the saving is fenced.
+
+# Is this run a radar run? Yes when the last radar was saved five days ago or more
+# (or never). The routine runs every third day since 2026-10-07, at the
+# maintainer's word: with five days, every second run looks outward, about every
+# six days, and a run a few minutes early is still counted. A day of the year
+# divisible by 3, the rule before, falls on every run or on none once the runs
+# are three days apart.
+radar-due:
+    #!/usr/bin/env bash
+    last=$(git log -1 --format=%ct --grep='^docs: radar ' HEAD 2>/dev/null || true)
+    if [ -z "$last" ]; then echo "yes: no radar run in this history"; exit 0; fi
+    days=$(( ( $(date +%s) - last ) / 86400 ))
+    if [ $(( $(date +%s) - last )) -ge $(( 5 * 86400 )) ]; then echo "yes: the last radar was $days days ago"
+    else echo "no: the last radar was $days day(s) ago; the next run after five days looks outward"; fi
 
 # What the sources in docs/radar.toml have published since they were last read: just radar · just radar claude-code · just radar claude-code "## 2.1.277"
 [positional-arguments]

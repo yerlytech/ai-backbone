@@ -13,6 +13,17 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## 3.34.2 — 2026-10-07
+
+**The backbone's routine runs every third day, and looks outward every second
+run.** The maintainer asked for a run every third day instead of every day
+(the stored routine's schedule moved with it). The radar was tied to the day of
+the year (divisible by 3), which a run every three days hits every time or
+never, so it is tied to the last radar instead: `just radar-due` says yes when
+that was saved five days ago or more, which is every second run, about every
+six days, the maintainer's choice on the same day. The brief, the docs and the
+pictures say "the next run" where they said tomorrow.
+
 ## 3.34.1 — 2026-10-07
 
 The tools the backbone is built on, moved to their newest releases and the
