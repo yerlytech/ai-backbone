@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.34.2
+# .ai-backbone/core.just — the backbone's recipes, version 3.34.3
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -1995,10 +1995,10 @@ update-map:
     # Everything below was measured on graphify 0.9.64 (2026-09-19), in a scratch
     # project holding a Flutter project's three Dart files, and again on 0.9.68
     # (2026-09-26), 0.9.70 (2026-09-28), 0.9.71 (2026-09-29), 0.9.73
-    # (2026-10-01), 0.9.76 (2026-10-05) and 0.9.79 (2026-10-07) in a scratch
-    # project of Python files and one JSON: the
+    # (2026-10-01), 0.9.76 (2026-10-05), 0.9.79 (2026-10-07) and 0.9.80
+    # (2026-10-08) in a scratch project of Python files and one JSON: the
     # two commands, the folder they write to, the report file, the
-    # byte-identical second run, the pruning of a deleted file (7 nodes to 5
+    # byte-identical second run, the pruning of a deleted file (6 nodes to 3
     # on the last of them, with no --force) and the moved folder all still
     # behave as written here, and query, explain and affected — what AGENTS.md
     # section 4 sends an agent to — all still answer. Measure again before
@@ -2009,7 +2009,7 @@ update-map:
     # extraction (#2543)". It is graphify's own bookkeeping about its own cache:
     # the graph that run writes is the same byte for byte, the file count in the
     # summary is unchanged, and a project of code alone never sees the line.
-    # Nothing here answers it; 0.9.79 still says it the same way.
+    # Nothing here answers it; 0.9.80 still says it the same way.
     #
     # The ignore list. With the list as it was, most of a first map's nodes came
     # from .ai-backbone/ (upstream.py, setup.sh, routine.sh) and few from the

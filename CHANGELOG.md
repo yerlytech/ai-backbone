@@ -13,6 +13,21 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## 3.34.3 — 2026-10-08
+
+**graphify 0.9.79 -> 0.9.80, with the suite run on it** (spec 021). The
+release publishes no notes, so the row's question — whether the query
+commands or the output folder changed — was measured rather than remembered:
+the two commands, the output folder, the report file, a byte-identical second
+run, the pruning of a deleted file with no `--force`, a project folder that
+moved, and query, explain and affected all behave as written. The comment in
+`update-map` that records those measurements now names this version and the
+day.
+
+The secret scanner's pin was already current, so the four places that must
+agree on it are untouched. `uv self update` brought this machine's uv, older
+than its own pin, back up to it, so that pin did not move.
+
 ## 3.34.2 — 2026-10-07
 
 **The backbone's routine runs every third day, and looks outward every second
