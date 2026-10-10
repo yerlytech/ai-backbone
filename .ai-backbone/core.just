@@ -1386,10 +1386,37 @@ save msg *paths:
     fi
     if [ ${#paths[@]} -gt 0 ]; then git status --short -- "${paths[@]}"; else git status --short; fi
     commit() { if [ ${#paths[@]} -gt 0 ]; then $(just _heavy) git commit -q -m "$msg" -- "${paths[@]}"; else $(just _heavy) git commit -q -m "$msg"; fi; }
-    # The checks run inside the commit; the first one ever also downloads the
-    # secret scanner, so say something while it works. Their output is shown
-    # only when they fail. A check that fixes files (final newline, trailing
-    # spaces) fails once on purpose, so stage its fixes and try a second time.
+    # Where the checks run (spec 027). A whole save runs them itself, before the
+    # commit, in the order the project wrote them, and stops at the first that
+    # fails (prek run --fail-fast, measured on prek 0.5.5): inside the commit
+    # every check ran even after one had failed, and a Turkish word was reported
+    # only after a ten-minute suite listed below it, twice in one day. Then the
+    # message checks, then the commit, which does not run them a second time.
+    # A save of named paths, and a project whose hooks are not prek's, commit as
+    # before and let git run what it has.
+    hookfile() { local f; f=$(git rev-parse --git-path "hooks/$1" 2>/dev/null) && grep -qs prek "$f"; }
+    self=""
+    if [ ${#paths[@]} -eq 0 ] && command -v prek >/dev/null 2>&1 && [ -f .pre-commit-config.yaml ] && hookfile pre-commit; then self=yes; fi
+    msghook=""; if [ -n "$self" ] && hookfile commit-msg; then msghook=yes; fi
+    # What every run said, kept for the last saves: a save that passed used to
+    # leave no trace of which checks ran, and prek keeps only its last run's log.
+    log=$(git rev-parse --git-path ai-backbone-checks.log)
+    keep() { { printf '== %s  %s  (%s)\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$msg" "$1"; cat "$out"; } >> "$log" 2>/dev/null || true; }
+    # After a save, one line: how many checks passed, and the ones that had
+    # nothing to check, by name, so a check that never ran is seen to not run.
+    tally() {
+      awk '/\.\.\.+.*(Passed|Skipped)$/ {
+             name = $0; sub(/\.\.\.+.*$/, "", name)
+             if (!(name in st)) order[++n] = name
+             if ($0 ~ /Passed$/) st[name] = "p"; else if (st[name] != "p") st[name] = "s" }
+           END { if (!n) exit
+                 for (i = 1; i <= n; i++) if (st[order[i]] == "p") p++; else skip = skip (skip ? ", " : "") order[i]
+                 printf "  checks: %d passed", p
+                 if (skip != "") printf "; nothing to check for %s", skip
+                 printf "\n" }' "$@" 2>/dev/null || true
+    }
+    # The checks; the first one ever also downloads the secret scanner, so say
+    # something while it works. Their output is shown only when they fail.
     just _msg checking
     # A build already running elsewhere is waited for here, where the person
     # can see the line that says so, and not inside the checks, whose output is
@@ -1399,40 +1426,70 @@ save msg *paths:
     cap=$(just _build-wait || true)
     [ -z "$cap" ] || export "$cap"
     export BUILD_WAIT_MINUTES=0
-    out=$(mktemp)
-    if ! commit >"$out" 2>&1; then
-      stage
-      if ! commit >"$out" 2>&1; then
-        grep -vE "(Passed|Skipped)$|error: recipe" "$out" || true
-        # One refusal gets words of its own: a file over the size limit. "Fix what
-        # the check above says" gives somebody who is no programmer no way out,
-        # and because a save stages everything, that one file then stops every
-        # save. The hook's own line is read: "  path (5200 KB) exceeds 5000 KB"
-        # from prek 0.5.3 (measured), with a full stop from pre-commit. So the
-        # limit named is the one this project's own .pre-commit-config.yaml sets.
-        # The limit itself is not raised here: nobody has measured a real asset.
-        big=$(sed -nE 's/^[[:space:]]*(.+ \([0-9]+ KB\)) exceeds [0-9]+ KB\.?[[:space:]]*$/\1/p' "$out")
-        limit=$(sed -nE 's/^.+ \([0-9]+ KB\) exceeds ([0-9]+) KB\.?[[:space:]]*$/\1/p' "$out" | awk 'NR==1')
-        rm -f "$out"; echo
-        if [ -z "$big" ]; then just _msg not-saved; exit 1; fi
-        # too-big is a printf format with one %s, the limit.
-        printf "$(just _msg too-big)\n" "$limit"
-        # Each file is also taken back out of what is staged. The refused save put
-        # it there, and git goes on tracking a staged file after it is ignored: the
-        # agent added it to .gitignore, saved again, and was refused again for the
-        # same file (measured). The hook names only files this save would add. One
-        # path at a time, never the whole index: `git reset` with no path also ends
-        # a merge that is in progress (measured on git 2.55.0).
-        while IFS= read -r line; do
-          printf '  %s\n' "$line"
-          git reset -q -- "${line% (*}" 2>/dev/null || true
-        done <<<"$big"
-        just _msg too-big-next
-        exit 1
+    out=$(mktemp); msgf=$(mktemp); printf '%s\n' "$msg" > "$msgf"
+    rc=0
+    if [ -n "$self" ]; then
+      # A check that fixes files (final newline, trailing spaces) fails on
+      # purpose, and with --fail-fast the next fixer is reached only on the next
+      # run: each run's fixes are staged and the checks run again, six at most.
+      tries=0
+      while :; do
+        tries=$((tries + 1))
+        if $(just _heavy) prek run --fail-fast --stage pre-commit >"$out" 2>&1; then keep "checks, run $tries"; break; fi
+        rc=1; keep "checks, run $tries"
+        if [ "$tries" -lt 6 ] && grep -q 'files were modified by this hook' "$out"; then stage; rc=0; continue; fi
+        break
+      done
+      cp "$out" "$out.pre"; [ "$rc" -ne 0 ] || : > "$out"
+      if [ "$rc" -eq 0 ] && [ -n "$msghook" ]; then
+        $(just _heavy) prek run --stage commit-msg --commit-msg-filename "$msgf" >"$out" 2>&1 || rc=1
+        keep "message checks"
       fi
+      if [ "$rc" -eq 0 ] && ! git commit -q --no-verify -m "$msg" >"$out.c" 2>&1; then rc=1; mv "$out.c" "$out"; keep "commit"; fi
+      rm -f "$out.c"
+    elif ! commit >"$out" 2>&1; then
+      keep "commit"
+      stage
+      if ! commit >"$out" 2>&1; then rc=1; fi
+      keep "commit, again"; : > "$out.pre"
+    else
+      keep "commit"; : > "$out.pre"
     fi
-    rm -f "$out"
+    if [ "$rc" -ne 0 ]; then
+      rm -f "$msgf" "$out.pre"
+      grep -vE "(Passed|Skipped)$|error: recipe" "$out" || true
+      # One refusal gets words of its own: a file over the size limit. "Fix what
+      # the check above says" gives somebody who is no programmer no way out,
+      # and because a save stages everything, that one file then stops every
+      # save. The hook's own line is read: "  path (5200 KB) exceeds 5000 KB"
+      # from prek 0.5.3 (measured), with a full stop from pre-commit. So the
+      # limit named is the one this project's own .pre-commit-config.yaml sets.
+      # The limit itself is not raised here: nobody has measured a real asset.
+      big=$(sed -nE 's/^[[:space:]]*(.+ \([0-9]+ KB\)) exceeds [0-9]+ KB\.?[[:space:]]*$/\1/p' "$out")
+      limit=$(sed -nE 's/^.+ \([0-9]+ KB\) exceeds ([0-9]+) KB\.?[[:space:]]*$/\1/p' "$out" | awk 'NR==1')
+      rm -f "$out"; echo
+      if [ -z "$big" ]; then just _msg not-saved; exit 1; fi
+      # too-big is a printf format with one %s, the limit.
+      printf "$(just _msg too-big)\n" "$limit"
+      # Each file is also taken back out of what is staged. The refused save put
+      # it there, and git goes on tracking a staged file after it is ignored: the
+      # agent added it to .gitignore, saved again, and was refused again for the
+      # same file (measured). The hook names only files this save would add. One
+      # path at a time, never the whole index: `git reset` with no path also ends
+      # a merge that is in progress (measured on git 2.55.0).
+      while IFS= read -r line; do
+        printf '  %s\n' "$line"
+        git reset -q -- "${line% (*}" 2>/dev/null || true
+      done <<<"$big"
+      just _msg too-big-next
+      exit 1
+    fi
+    summary=$(tally "$out.pre" "$out")
+    rm -f "$out" "$out.pre" "$msgf"
+    # The log keeps the last few thousand lines: a few saves of a big project.
+    if [ -f "$log" ] && [ "$(wc -l < "$log")" -gt 4000 ]; then tail -n 3000 "$log" > "$log.t" && mv "$log.t" "$log"; fi
     just _msg saved
+    [ -z "$summary" ] || printf '%s\n' "$summary"
     # What a save of named paths left, so nobody believes it all went.
     if [ ${#paths[@]} -gt 0 ]; then
       left=$(git status --short --untracked-files=all 2>/dev/null || true)

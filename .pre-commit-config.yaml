@@ -6,6 +6,10 @@
 # The backbone copies this file once (just new-project, just adopt); after
 # that it is yours. Add your linter and formatter below. `just tools-update`
 # bumps the gitleaks version.
+#
+# `just save` runs these in the order written and stops at the first that
+# fails, so a cheap check above a slow one spares the wait: a test suite of
+# your own goes last.
 
 # .archive/ holds retired work on purpose: git bundles, tarballs, old documents.
 # It is binary, it is large, and it is written exactly once. No hook may read or

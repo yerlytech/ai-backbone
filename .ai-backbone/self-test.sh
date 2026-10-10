@@ -2516,6 +2516,51 @@ check "the template names the Hugging Face source" "grep -q 'hf:owner/name' '$ro
 check "a new project ignores Claude Code's agent worktrees" "( cd '$tmp/plain' && git check-ignore -q .claude/worktrees/agent-1/file )"
 check "the session skill says what to do when the context fills up" "grep -q '^## When the context fills up' '$root/.agents/skills/session/SKILL.md' && grep -q 'new chat' '$root/.agents/skills/session/SKILL.md' && grep -q 'Do not compact on your own' '$root/.agents/skills/session/SKILL.md'"
 
+# A save runs its checks itself, in the order written, and stops at the first
+# that fails: a slow suite below a cheap check that failed never starts.
+# Fixers fail on purpose, so their runs repeat until nothing more changes.
+if ( cd "$root" && just new-project "$tmp/s27" ) >/dev/null 2>&1; then ok "a project for the save checks"; else bad "a project for the save checks"; fi
+cd "$tmp/s27" || exit 1
+cat >> .pre-commit-config.yaml <<EOF
+
+  - repo: local
+    hooks:
+      - id: word
+        name: no forbidden word
+        entry: bash -c 'if grep -l FORBIDDEN "\$@"; then exit 1; fi' --
+        language: system
+        files: '\.txt\$'
+      - id: slow
+        name: slow suite
+        entry: bash -c 'touch "$tmp/s27-slow"'
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+EOF
+git add -A >/dev/null 2>&1; git commit -qm "chore: the two checks" --no-verify
+s27log=$(git rev-parse --git-path ai-backbone-checks.log)
+if [ -n "$(command -v prek)" ] && grep -qs prek "$(git rev-parse --git-path hooks/pre-commit)"; then
+  printf 'a  \nFORBIDDEN' > a.txt; rm -f "$tmp/s27-slow"
+  out=$(just save "add a" 2>&1); rc=$?
+  check "a save whose cheap check fails is refused, and the slow one below it never starts" "[ $rc -ne 0 ] && grep -q 'no forbidden word\.*Failed' <<<\"\$out\" && [ ! -e '$tmp/s27-slow' ] && [ \"\$(git log -1 --format=%s)\" = 'chore: the two checks' ]"
+  check "both fixers above it ran, one run each" "[ \"\$(head -1 a.txt)\" = a ] && [ \"\$(tail -c 1 a.txt | od -An -c | tr -d ' ')\" = '\n' ] && grep -q '(checks, run 3)' '$s27log'"
+  printf 'a\nfine\n' > a.txt; printf 'b  \nb' > b.txt
+  out=$(just save "add a and b" 2>&1); rc=$?
+  check "two fixers in a row are fixed and saved in one save, and the slow check ran" "[ $rc -eq 0 ] && [ \"\$(git log -1 --format=%s)\" = 'chore: add a and b' ] && [ -z \"\$(git status --porcelain)\" ] && [ -e '$tmp/s27-slow' ]"
+  check "a save says in one line how many checks passed and which had nothing to check" "grep -qE '^  checks: [0-9]+ passed; nothing to check for .*check yaml' <<<\"\$out\" && [ \$(grep -c 'checks:' <<<\"\$out\") -eq 1 ]"
+  check "and the log keeps every run of it, the message checks too" "grep -q 'chore: add a and b  (message checks)' '$s27log' && grep -q 'slow suite\.*Passed' '$s27log'"
+  echo x >> b.txt
+  check "the message checks still refuse a Turkish message" "! just save 'özellik: türkçe' >/dev/null 2>&1 && [ \"\$(git log -1 --format=%s)\" = 'chore: add a and b' ]"
+  mv "$(git rev-parse --git-path hooks/pre-commit)" "$tmp/s27-hook"; mv "$(git rev-parse --git-path hooks/commit-msg)" "$tmp/s27-msg"; rm -f "$tmp/s27-slow"
+  out=$(just save "without hooks" 2>&1); rc=$?
+  check "a project whose hooks are not installed saves as before, with no checks line" "[ $rc -eq 0 ] && [ \"\$(git log -1 --format=%s)\" = 'chore: without hooks' ] && ! grep -q 'checks:' <<<\"\$out\" && [ ! -e '$tmp/s27-slow' ]"
+  mv "$tmp/s27-hook" "$(git rev-parse --git-path hooks/pre-commit)"; mv "$tmp/s27-msg" "$(git rev-parse --git-path hooks/commit-msg)"
+else
+  bad "the save checks need prek and its hooks in the new project"
+fi
+check "the seed says the checks run in the order written, a slow one last" "grep -q 'stops at the first that' '$root/.ai-backbone/seed/pre-commit-config.yaml' && grep -q 'goes last' '$root/.ai-backbone/seed/pre-commit-config.yaml'"
+cd "$tmp" || exit 1
+
 echo
 echo "$pass ok, $fail failed"
 [ "$fail" -eq 0 ]
