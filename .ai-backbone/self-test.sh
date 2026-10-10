@@ -596,6 +596,7 @@ printf '{\n\t// See https://go.microsoft.com/fwlink/?LinkId=827846 to learn abou
 check "a save is not refused for the file VS Code writes, comments and all" "just save 'chore: editor recommendations' && says '^chore: editor recommendations' git log -1 --format=%s"
 git reset -q --hard
 check "the second-day lens asks about any toolchain, with Rust and Flutter as its examples" "grep -q 'Dockerfile' .ai-backbone/templates/audit-lenses.md && grep -q 'pubspec.yaml' .ai-backbone/templates/audit-lenses.md"
+check "the audit skill gives every finding a verdict, anchors severity, and keeps a flag apart" "grep -q '^## Verdicts' .agents/skills/audit/SKILL.md && grep -q 'Needs validation' .agents/skills/audit/SKILL.md && grep -q 'The severity never exceeds the impact shown' .agents/skills/audit/SKILL.md && grep -q '^## A flag is not a finding' .agents/skills/audit/SKILL.md && grep -q 'security-audit-skill/blob/c1c8a8c/' .agents/skills/audit/SKILL.md"
 echo x > stray.txt
 check "doctor names a file that does not belong in the root" "says 'do not belong: stray.txt' just doctor"
 # The three ways out of that warning, and then the same real stray again with all

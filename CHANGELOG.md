@@ -13,6 +13,36 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## 3.35.1 — 2026-10-11
+
+**An audit's findings carry a verdict, a severity with an anchor, and no
+flags.** Three rules in the `audit` skill, adapted in our own words from
+Cloudflare's security-audit-skill (MIT, commit c1c8a8c), at the maintainer's
+choice of what to take and what to leave.
+
+- **Three verdicts.** Confirmed: the whole path is in the code and the outcome
+  was made to happen. Needs validation: the path is real but a deciding fact
+  (a deployment setting, a proxy, the provider, the browser, a secret) is not
+  in the repository; the fact is named with the safe check that settles it,
+  and it gets no severity. Refuted: counted, as before. It replaces "a finding
+  the agent could not reproduce is reported as such, in one line", which sent
+  a real path with one unknown fact and a guess to the same place.
+- **Severity anchors**, for confirmed findings only, critical to
+  informational, each tied to an outcome. The severity never exceeds the
+  impact shown, and high or medium is one question: was an explicit control
+  bypassed completely, on an action with a real consequence, or only weakened?
+- **A flag is not a finding.** A missing header, cookie flag or rate limit
+  names no one affected; with another layer already stopping the attack it is
+  a hardening note, and those reach the maintainer as a list of their own.
+- **Checklists for a security lens**, optional: the skill's per-boundary
+  files, read at the pinned commit, chosen by each file's "When to use this
+  file". Read, never installed.
+
+Left out on purpose: the six phases, the coverage ledger and the critic waves
+(20 to 30 agents a run), and a fresh verifier per candidate, which the
+2026-09-21 measurement already priced at twice the cost for the same real
+findings.
+
 ## 3.35.0 — 2026-10-10
 
 **The backlog of 2026-10-10, in one batch** (spec 027). The maintainer asked
