@@ -2704,7 +2704,7 @@ else
   check "where cargo's locks cannot be read (no fcntl), nothing is removed" "[ -e '$tt/target/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && grep -q 'cannot be read on this system' <<<\"\$out\""
 fi
 check "the cap reads GB as written, 0 or off as off, and nothing else" "\"\$py\" -c 'import importlib.util as i, sys; s = i.spec_from_file_location(\"b\", \"$rootw/.ai-backbone/buildtrim.py\"); b = i.module_from_spec(s); s.loader.exec_module(b); sys.exit(0 if [b.parse_cap(x) for x in (\"60\", \"30GB\", \"30 gb\", \"1.5\", \"0\", \"0 GB\", \"00\", \"off\", \"x\", \"-1\")] == [60, 30, 30, 1.5, 0, 0, 0, 0, None, None] else 1)'"
-check "a cap that says neither is said, and 60 is used" "says 'build-cap .x. is not a number of GB, so 60 is used' trimpy '$t4' x --now"
+check "a cap that says neither is said, and 60 is used" "says 'build-cap .x. is not a number of GB, so 60 is used; .*under the cap of 60.0 GB' trimpy '$tt/target' x --now"
 mkdir -p "$tmp/notcargo/debug/deps"; printf 'x' > "$tmp/notcargo/debug/deps/libx-aaaaaaaaaaaaaaaa.rlib"
 check "a folder without cargo's marks is never touched" "says 'is not a folder cargo made' trimpy '$tmp/notcargo' '$(kb 1)' --now && [ -e '$tmp/notcargo/debug/deps/libx-aaaaaaaaaaaaaaaa.rlib' ]"
 # The recipes, in the Rust layer's project: the folder comes from the layer.

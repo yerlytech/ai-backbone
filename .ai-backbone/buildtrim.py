@@ -300,8 +300,15 @@ def main():
         if now:
             print(f"{args[0]} is not a folder cargo made (no CACHEDIR.TAG and .rustc_info.json): left alone.")
         return 0
+    note = ""
+    if cap is None:
+        note, cap = f"build-cap {args[1]!r} is not a number of GB, so 60 is used; ", 60.0
     if fcntl is None:
-        say("cargo's locks cannot be read on this system: nothing removed", done=True)
+        # Under the cap that is the whole answer; over it, nothing can go here.
+        total, _ = usage(root)
+        say(note + (f"{gb(total)}, under the cap of {gb(cap * GB)}: nothing removed" if total <= cap * GB
+                    else f"{gb(total)} over the cap of {gb(cap * GB)}; cargo's locks cannot be read on this system: nothing removed"),
+            done=True)
         return 0
     # One run at a time: a second one, started by another build, leaves.
     try:
@@ -311,9 +318,6 @@ def main():
         if now:
             print("Another trim of this folder is running: nothing more to do.")
         return 0
-    note = ""
-    if cap is None:
-        note, cap = f"build-cap {args[1]!r} is not a number of GB, so 60 is used; ", 60.0
     waited, state = 0, building()
     while "--wait" in flags and state and waited < 3600:
         time.sleep(30)
