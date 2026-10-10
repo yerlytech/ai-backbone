@@ -3363,9 +3363,11 @@ _examples src kind:
 # recipe prints nothing on stdout either, so the line still builds.
 #
 # Nothing running: back at once, nothing said. Something running: one line,
-# a look every five seconds, and one line when it goes on. After
-# BUILD_WAIT_MINUTES (default 20) it goes on anyway, with half the machine's
-# cores, because memory at link time is what two builds at once run out of.
+# a look every five seconds, and one line when it goes on. Builds that wait
+# queue up and go one at a time, oldest first (below). After
+# BUILD_WAIT_MINUTES (default 20) at the front of the queue it goes on anyway,
+# with half the machine's cores, because memory at link time is what two
+# builds at once run out of.
 # BUILD_WAIT_MINUTES=0 switches it off: a CI runner that builds alone, an agent
 # that has already looked.
 #
@@ -3406,18 +3408,73 @@ _build-wait:
           sub(/[ \t]+$/, "", line); sub(/.*\//, "", line); if (line in want) { found = 1; exit } }
         END { exit !found }' <<< "$procs"
     }
-    running || exit 0
+    # The queue (spec 027). Looking for a running compiler alone let every
+    # waiter see the same build end, or the same limit pass, and go at once:
+    # three saves waited twenty minutes each, then compiled together. So each
+    # build takes a ticket, a file named by the second it arrived, and only the
+    # oldest goes. A ticket that went holds the turn until its holder ends: the
+    # recipe that asked, whose build follows this one, found as the nearest
+    # process above whose parent is `just` (a caller that knows better names it
+    # in BUILD_WAIT_HOLDER). A ticket whose holder is gone is thrown away, one
+    # whose holder is this caller or above it is this build's own, and one that
+    # went longer ago than the limit no longer holds anybody. Where ps cannot
+    # list parents (Git Bash), the holder is this script, gone when it returns:
+    # waiters are still served in order, and a build that went holds nothing.
+    q="${AI_BACKBONE_BUILD_QUEUE:-${XDG_CACHE_HOME:-$HOME/.cache}/ai-backbone/build-queue}"
+    mkdir -p "$q" 2>/dev/null || q=""
+    chain=$(ps -A -o pid= -o ppid= -o comm= 2>/dev/null | awk -v me=$$ '
+      { pp[$1] = $2; c = $0; sub(/^[ \t]*[0-9]+[ \t]+[0-9]+[ \t]*/, "", c); sub(/.*\//, "", c); cm[$1] = c }
+      END { p = me; n = 0; while ((p in pp) && p > 1 && n < 64) { print p, cm[p]; p = pp[p]; n++ } }' || true)
+    ours=" $(awk '{ printf "%s ", $1 }' <<< "$chain")"
+    holder="${BUILD_WAIT_HOLDER:-}"
+    case "$holder" in ""|*[!0-9]*) holder=$(awk '{ pid[NR] = $1; c[NR] = $2 }
+      END { for (i = 2; i <= NR; i++) if (c[i] != "just" && c[i + 1] == "just") { print pid[i]; exit }
+            for (i = 2; i <= NR; i++) if (c[i] != "just") { print pid[i]; exit } }' <<< "$chain") ;; esac
+    case "$holder" in ""|*[!0-9]*) holder=$$ ;; esac
+    me=""
+    if [ -n "$q" ]; then
+      me="$q/t-$(printf '%010d-%08d' "$(date +%s)" "$$")"
+      printf '%s\n' "$holder" > "$q/.w-$$" && mv "$q/.w-$$" "$me" || me=""
+    fi
+    trap '[ -z "$me" ] || rm -f "$me"' INT TERM HUP
+    # Going: the ticket says when, and stays until its holder ends.
+    go() { if [ -n "$me" ]; then trap - INT TERM HUP; printf '%s %s\n' "$holder" "$(date +%s)" > "$q/.w-$$" && mv "$q/.w-$$" "$me"; fi; }
+    ahead() {
+      local t h w n=0 now; now=$(date +%s)
+      [ -n "$me" ] || { echo 0; return; }
+      for t in "$q"/t-*; do
+        [ -f "$t" ] && [ "$t" != "$me" ] || continue
+        [[ "$t" < "$me" ]] || continue
+        h=""; w=""; read -r h w < "$t" 2>/dev/null || true
+        case "$h" in ""|*[!0-9]*) rm -f "$t"; continue ;; esac
+        if ! kill -0 "$h" 2>/dev/null; then rm -f "$t"; continue; fi
+        case "$ours" in *" $h "*) continue ;; esac
+        case "$w" in ""|*[!0-9]*) ;; *) [ $((now - w)) -lt "$limit" ] || continue ;; esac
+        n=$((n + 1))
+      done
+      echo "$n"
+    }
     span() { if [ $(($1 % 60)) -eq 0 ]; then n=$(($1 / 60)) u=minute; else n=$1 u=second; fi
              if [ "$n" -eq 1 ]; then echo "1 $u"; else echo "$n ${u}s"; fi; }
-    echo "Another build is running on this machine ($(echo $names | sed 's/ /, /g')). This one waits for it to finish, up to $(span "$limit") (BUILD_WAIT_MINUTES; 0 switches this off)." >&2
     poll=5; [ "$limit" -ge "$poll" ] || poll=$limit
+    first=$(ahead)
+    if [ "$first" -gt 0 ]; then
+      echo "$first other build(s) on this machine came first. This one waits its turn (BUILD_WAIT_MINUTES; 0 switches this off)." >&2
+      while [ "$(ahead)" -gt 0 ]; do sleep "$poll"; done
+      running; r=$?
+      if [ "$r" -ne 0 ]; then echo "Its turn: going on." >&2; go; exit 0; fi
+    else
+      running || { go; exit 0; }
+    fi
+    echo "Another build is running on this machine ($(echo $names | sed 's/ /, /g')). This one waits for it to finish, up to $(span "$limit") (BUILD_WAIT_MINUTES; 0 switches this off)." >&2
     waited=0
     while [ "$waited" -lt "$limit" ]; do
       sleep "$poll"; waited=$((waited + poll))
       running; r=$?
-      if [ "$r" -eq 1 ]; then echo "The other build has finished. Going on." >&2; exit 0; fi
-      if [ "$r" -eq 2 ]; then echo "Going on: the process list can no longer be read." >&2; exit 0; fi
+      if [ "$r" -eq 1 ]; then echo "The other build has finished. Going on." >&2; go; exit 0; fi
+      if [ "$r" -eq 2 ]; then echo "Going on: the process list can no longer be read." >&2; go; exit 0; fi
     done
+    go
     cores=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || echo 2)
     case "$cores" in ""|*[!0-9]*) cores=2 ;; esac
     half=$((cores / 2)); [ "$half" -ge 1 ] || half=1

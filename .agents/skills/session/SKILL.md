@@ -22,8 +22,9 @@ build, lint over a workspace), look for a build already running and wait for it
 to end rather than starting a second one beside it. Two builds that share a
 folder wait on one lock anyway, and two at once can run the machine out of
 memory when they link. `just _build-wait` looks for the compilers the language
-layer names and waits; the Rust layer's heavy recipes already call it, and
-`BUILD_WAIT_MINUTES=0` switches it off.
+layer names and waits, and builds that wait go one at a time, oldest first;
+the Rust layer's heavy recipes already call it, and `BUILD_WAIT_MINUTES=0`
+switches it off.
 
 ## What you know ends on a date
 

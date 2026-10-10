@@ -59,6 +59,10 @@ printf '[ai-backbone]\n\tjobs =\n\tnice =\n' >> "$GIT_CONFIG_GLOBAL"
 unset CARGO_TARGET_DIR CARGO_BUILD_TARGET_DIR CARGO_BUILD_JOBS CARGO_PROFILE_DEV_DEBUG BUILD_OUTPUT_WARN_GB
 unset RUST_TEST_THREADS CMAKE_BUILD_PARALLEL_LEVEL MAKEFLAGS
 export BUILD_WAIT_MINUTES=0
+# Nor this machine's build queue (spec 027): a real build waiting on this Mac
+# would hold the suite's, and the suite's tickets would hold it.
+export AI_BACKBONE_BUILD_QUEUE="$tmp/build-queue"
+REAL_PS=$(command -v ps || echo /bin/ps); export REAL_PS
 pass=0; fail=0
 ok()    { pass=$((pass+1)); printf "  ok    %s\n" "$1"; }
 bad()   { fail=$((fail+1)); printf "  FAIL  %s\n" "$1"; }
@@ -1769,6 +1773,9 @@ echo "== build output (spec 015) =="
 bo="$tmp/bo"; mkdir -p "$bo/bin" "$bo/du" "$bo/shared"
 cat > "$bo/bin/ps" <<'EOF'
 #!/bin/sh
+# Asked who is whose parent (the build queue, spec 027), the real ps answers,
+# and the call is not counted: the counts below are looks for a build.
+case "$*" in *ppid=*) exec "$REAL_PS" "$@" ;; esac
 n=$(( $(cat "$PS_COUNT" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$PS_COUNT"
 case "${PS_FAIL:-}" in 1) echo "ps: cannot list processes" >&2; exit 1 ;; empty) exit 0 ;; esac
 # Asked for states too (-o stat=), each line starts with one: S, or T for a
@@ -2559,6 +2566,39 @@ else
   bad "the save checks need prek and its hooks in the new project"
 fi
 check "the seed says the checks run in the order written, a slow one last" "grep -q 'stops at the first that' '$root/.ai-backbone/seed/pre-commit-config.yaml' && grep -q 'goes last' '$root/.ai-backbone/seed/pre-commit-config.yaml'"
+cd "$tmp" || exit 1
+
+# The build queue. Each waiting build takes a ticket and only the oldest goes;
+# one that went holds the turn until its holder ends. Holders here are sleeps
+# the suite ends by hand, named through BUILD_WAIT_HOLDER; nothing compiles.
+cd "$bo/proj" || exit 1
+bq="$AI_BACKBONE_BUILD_QUEUE"; rm -rf "$bq"; : > "$tmp/q-order"
+sleep 120 & h1=$!; sleep 120 & h2=$!; sleep 120 & h3=$!
+waiter() { ( bw env BUILD_WAIT_HOLDER="$2" BUILD_WAIT_MINUTES=2 just _build-wait >/dev/null 2>"$tmp/q-err$1"; echo "$1" >> "$tmp/q-order" ) & }
+waiter 1 "$h1"; sleep 2; waiter 2 "$h2"; sleep 2; waiter 3 "$h3"; sleep 3
+check "three waiting builds: the first goes at once, the other two wait their turn" "[ \"\$(tr '\n' ' ' < '$tmp/q-order')\" = '1 ' ] && grep -q '^2 other build(s) on this machine came first' '$tmp/q-err3'"
+{ kill "$h1"; wait "$h1"; } 2>/dev/null; sleep 7
+check "when the first one's holder ends, the second goes and the third still waits" "[ \"\$(tr '\n' ' ' < '$tmp/q-order')\" = '1 2 ' ]"
+{ kill "$h2"; wait "$h2"; } 2>/dev/null; sleep 7
+check "and then the third: one at a time, oldest first" "[ \"\$(tr '\n' ' ' < '$tmp/q-order')\" = '1 2 3 ' ] && grep -q '^Its turn: going on' '$tmp/q-err3'"
+{ kill "$h3"; wait "$h3"; } 2>/dev/null; wait 2>/dev/null
+sleep 0 & gone=$!; wait "$gone" 2>/dev/null
+printf '%s\n' "$gone" > "$bq/t-0000000001-00000001"
+s=$SECONDS; bw env BUILD_WAIT_MINUTES=2 just _build-wait >/dev/null 2>&1; took=$((SECONDS - s))
+check "a ticket whose holder is gone holds nobody, and is thrown away" "[ $took -lt 4 ] && [ ! -e '$bq/t-0000000001-00000001' ]"
+sleep 120 & hs=$!
+printf '%s %s\n' "$hs" "$(( $(date +%s) - 300 ))" > "$bq/t-0000000002-00000002"
+s=$SECONDS; bw env BUILD_WAIT_MINUTES=2 just _build-wait >/dev/null 2>&1; took=$((SECONDS - s))
+check "a build that went longer ago than the limit holds nobody" "[ $took -lt 4 ]"
+{ kill "$hs"; wait "$hs"; } 2>/dev/null; wait 2>/dev/null; rm -f "$bq"/t-*
+# Where ps lists parents, a ticket whose holder is this caller, or above it, is
+# this build's own (a recipe that waits and then calls another that waits).
+if "$REAL_PS" -A -o pid= -o ppid= >/dev/null 2>&1; then
+  printf '%s %s\n' "$$" "$(date +%s)" > "$bq/t-0000000003-00000003"
+  s=$SECONDS; bw env BUILD_WAIT_MINUTES=2 just _build-wait >/dev/null 2>&1; took=$((SECONDS - s))
+  check "a build of this caller's own, above it, does not hold it" "[ $took -lt 4 ]"
+  rm -f "$bq"/t-*
+fi
 cd "$tmp" || exit 1
 
 echo
