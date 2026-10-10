@@ -13,6 +13,25 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## 3.34.5 — 2026-10-10
+
+**graphify 0.9.82 -> 0.9.84 and uv 0.12.24 -> 0.13.0, with the suite run on
+both** (spec 021). uv's is a minor bump, and neither release publishes notes,
+so each row's question was measured rather than remembered. graphify: the two
+commands, the output folder, the report file, a byte-identical second run, the
+pruning of a deleted file with no `--force`, a project folder that moved and a
+function added after the move, and query, explain and affected all behave as
+written; the cached-file re-queue line is still said the same way. uv: `uv
+tool list` still names `rust-just` the way `tools-update` greps for it, `uv
+tool install` on a tool already there answers 0, and `uv tool upgrade`, `uv
+tool update-shell`, the `uv tool dir` that `upstream.py` reads and the `uv
+python find` of `_py` all answer as those files read them. The comments that
+record both measurements now name the versions and the day, and the uv one
+names `uv tool dir` as well.
+
+The secret scanner's pin did not move, so the four places that must agree on
+it are untouched.
+
 ## 3.34.4 — 2026-10-09
 
 **graphify 0.9.80 -> 0.9.82 and uv 0.12.23 -> 0.12.24, with the suite run on

@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.34.4
+# .ai-backbone/core.just — the backbone's recipes, version 3.34.5
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -785,12 +785,14 @@ tools-update:
     # weeks under a pin of 0.12.19, and nothing here upgraded it (spec 026). A uv
     # installed some other way (pip, a package manager) says it cannot update
     # itself, and its own manager is the one to ask. Measured doing the job on
-    # 2026-10-07 and again on 2026-10-09: a sandbox whose uv was 0.11.32, older
-    # than the pin, came out at the newest release (0.12.23, then 0.12.24), and
-    # the pin moved with it on the same run. On 0.12.24, read in that sandbox,
-    # `uv tool list`, `uv tool install` on a tool already there, `uv tool
-    # upgrade`, `uv tool update-shell` and the `uv python find` of `_py` all
-    # still answer the way setup.sh and _py read them.
+    # 2026-10-07, 2026-10-09 and 2026-10-10: a sandbox whose uv was 0.11.32,
+    # older than the pin, came out at the newest release (0.12.23, then
+    # 0.12.24, then 0.13.0, a minor bump that publishes no notes), and the pin
+    # moved with it on the same run. On 0.13.0, read in that sandbox,
+    # `uv tool list`, `uv tool dir` (upstream.py reads that one), `uv tool
+    # install` on a tool already there, `uv tool upgrade`, `uv tool
+    # update-shell` and the `uv python find` of `_py` all still answer the way
+    # setup.sh, upstream.py and _py read them.
     if command -v uv >/dev/null 2>&1 && ! { command -v brew >/dev/null 2>&1 && brew list --versions uv >/dev/null 2>&1; }; then
       uv self update 2>&1 | tail -1
     fi
@@ -2000,10 +2002,10 @@ update-map:
     # project holding a Flutter project's three Dart files, and again on 0.9.68
     # (2026-09-26), 0.9.70 (2026-09-28), 0.9.71 (2026-09-29), 0.9.73
     # (2026-10-01), 0.9.76 (2026-10-05), 0.9.79 (2026-10-07), 0.9.80
-    # (2026-10-08) and 0.9.82 (2026-10-09) in a scratch project of Python files
-    # and one JSON: the
+    # (2026-10-08), 0.9.82 (2026-10-09) and 0.9.84 (2026-10-10) in a scratch
+    # project of Python files and one JSON: the
     # two commands, the folder they write to, the report file, the
-    # byte-identical second run, the pruning of a deleted file (6 nodes to 4
+    # byte-identical second run, the pruning of a deleted file (5 nodes to 3
     # on the last of them, with no --force) and the moved folder all still
     # behave as written here, and query, explain and affected — what AGENTS.md
     # section 4 sends an agent to — all still answer. Measure again before
@@ -2014,7 +2016,7 @@ update-map:
     # extraction (#2543)". It is graphify's own bookkeeping about its own cache:
     # the graph that run writes is the same byte for byte, the file count in the
     # summary is unchanged, and a project of code alone never sees the line.
-    # Nothing here answers it; 0.9.82 still says it the same way.
+    # Nothing here answers it; 0.9.84 still says it the same way.
     #
     # The ignore list. With the list as it was, most of a first map's nodes came
     # from .ai-backbone/ (upstream.py, setup.sh, routine.sh) and few from the
