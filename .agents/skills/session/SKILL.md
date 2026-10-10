@@ -140,6 +140,26 @@ the record of what this project promised to keep working.
 6. When step 1 said `brain/ copied`, run `just session-end` once more: the copy
    is taken when the command runs, and the entry was still empty then.
 
+## When the context fills up
+
+A conversation has a limit, and what the context holds near it is what a
+summary loses first. After each task, look at how full it is (Claude Code
+shows it: `/context`; another tool has its own meter). At about 70%, or when
+the tool says the conversation will soon be summarized:
+
+1. Finish the task in hand, or stop at its last safe point. Start no new one.
+2. Write the handover into today's journal: what is done, what is half done
+   and where it stands, the next step, and what this session learned that the
+   code does not say.
+3. Run `just save`, then `just session-end`.
+4. Tell the maintainer in one line, in their language, that the work is saved
+   and the next step belongs in a new chat, which starts from the journal.
+   Then stop.
+
+Do not compact on your own (`/compact`): a summary keeps what it guesses
+matters, the journal keeps what you chose. If the tool compacts anyway, read
+the day's journal before going on.
+
 ## Before many agents
 
 Every subagent draws on the same weekly limit as the session, and nobody can

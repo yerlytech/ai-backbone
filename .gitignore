@@ -50,6 +50,9 @@ graphify-out/*
 
 # ── Agent local state ────────────────────────────────────────
 .claude/settings.local.json
+# Claude Code's agents work in their own checkouts here; each is a repository
+# of its own, and a save (git add -A) would commit it as an embedded one.
+.claude/worktrees/
 CLAUDE.local.md
 .gemini/
 .aider*

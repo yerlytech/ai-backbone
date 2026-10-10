@@ -94,6 +94,7 @@ docs/routine-log.md
 .ai-backbone/fixtures/gh-annotations-not-started.json
 .ai-backbone/fixtures/flutter-releases.json
 .ai-backbone/fixtures/pypi-releases.json
+.ai-backbone/fixtures/hf-commits.json
 docs/01-getting-started.md
 docs/how-it-works.md
 docs/adr/0001-why-this-shape.md

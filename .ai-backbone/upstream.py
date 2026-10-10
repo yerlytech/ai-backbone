@@ -261,6 +261,46 @@ def from_flutter(channel):
     return list(rows.values())
 
 
+def from_hf(repo):
+    """Hugging Face, for a model a project pins by its revision: the commit it
+    downloads. A model has commits, not versions, so the commits are the
+    releases, newest first, and a pin is followed by the ones above it
+    (spec 027). Measured on 2026-10-10: api/models/<owner>/<name>/commits/main
+    lists them newest first with id, title and date; an unknown model is 401.
+    The version shown is the commit's first twelve characters; the whole id is
+    kept for matching a pin written longer."""
+    data = fetch_json(f"https://huggingface.co/api/models/{repo}/commits/main")
+    if not isinstance(data, list):
+        raise ValueError(f"{repo}: Hugging Face answered something that is not a list of commits")
+    return [
+        {"version": (c.get("id") or "")[:12], "commit": c.get("id") or "",
+         "at": (c.get("date") or "")[:10], "title": c.get("title") or "",
+         "notes": "\n\n".join(t for t in (c.get("title") or "", (c.get("message") or "").strip()) if t),
+         "url": f"https://huggingface.co/{repo}/commit/{c.get('id', '')}", "prerelease": False}
+        for c in data if isinstance(c, dict)
+    ]
+
+
+def by_commit(entry):
+    """Whether a row's versions are commits (hf:), so its pin is a commit id
+    and is matched by its first characters, not compared as a number."""
+    return entry.get("source", "").partition(":")[0] == "hf"
+
+
+def commits_after(entry, releases):
+    """For a row pinned by commit: the commits listed above the pinned one, the
+    pinned one's date, and why there is no answer when it is not listed. A pin
+    is the id or its first seven characters or more, as a revision is written."""
+    pin = str(entry.get("pin", "")).strip().lower()
+    for i, release in enumerate(releases):
+        if len(pin) >= 7 and release.get("commit", release["version"]).lower().startswith(pin):
+            return releases[:i], release["at"], ""
+    if not releases:
+        return [], "", "lists no commits"
+    return [], "", (f"lists no commit {pin} among its last {len(releases)}; the newest is"
+                    f" {releases[0]['version']}: a pin is a commit id, seven characters or more")
+
+
 def shown(path):
     """A path as the person's shell writes it: with / on Windows too, where Python
     writes C:\\...\\x and Git Bash, the shell the recipes run in, reads C:/.../x
@@ -470,13 +510,21 @@ def where(entry):
         out.append(("docs", f"https://docs.rs/{rest}/{bare}"))
     elif kind == "pub" and bare:
         out.append(("docs", f"https://pub.dev/documentation/{rest}/{bare}/"))
+    elif kind == "hf" and pin:
+        out.append(("docs", f"https://huggingface.co/{rest}/tree/{pin}"))
     if entry.get("pinned_in"):
         if pin_is_real(entry):
             out.append(("pinned in", entry["pinned_in"]))
         else:
             out.append(("listed in", f"{entry['pinned_in']}   (does not hold {pin or 'a pin'})"))
     folders = []
-    if bare:
+    if kind == "hf" and pin:
+        # Where the Hugging Face libraries keep a downloaded revision.
+        hub = Path(os.environ.get("HF_HUB_CACHE")
+                   or Path(os.environ.get("HF_HOME") or Path.home() / ".cache" / "huggingface") / "hub")
+        folders += sorted(glob.glob(str(hub / f"models--{rest.replace('/', '--')}" / "snapshots"
+                                        / (glob.escape(pin) + "*"))))
+    elif bare:
         cargo = Path(os.environ.get("CARGO_HOME") or Path.home() / ".cargo")
         crate = rest if kind == "crates" else name
         folders += sorted(glob.glob(str(cargo / "registry" / "src" / "*" / glob.escape(f"{crate}-{bare}"))))
@@ -492,7 +540,8 @@ def where(entry):
         tools = said(["uv", "tool", "dir"])
         if tools and Path(tools, name).is_dir():
             folders.append(str(Path(tools, name)))
-    exe = shutil_which("flutter" if kind == "flutter" else name)
+    # A model is no program: a binary that shares its name says nothing about it.
+    exe = None if kind == "hf" else shutil_which("flutter" if kind == "flutter" else name)
     repo = {"github": rest, "flutter": "flutter/flutter"}.get(kind)
     sdk = checkout(exe, repo) if exe and repo else ""
     if sdk:
@@ -580,6 +629,9 @@ def pin_is_real(entry):
     if not pin or not path.is_file():
         return False
     text = path.read_text(errors="ignore")
+    # A commit id is held by the id, or by a longer one it begins: hex on both sides.
+    if by_commit(entry):
+        return bool(re.search(rf"(?<![0-9a-f]){re.escape(pin.lower())}", text.lower()))
     label = shape(pin)[0]
     forms = {pin, pin[len(label):].lstrip("vV")} if label else {pin}
     # Only a version with a dot: the bare 7 of a major pin (v7) would be held by
@@ -590,7 +642,7 @@ def pin_is_real(entry):
 
 
 SOURCES = {"github": from_github, "crates": from_crates, "npm": from_npm, "pub": from_pub,
-           "pypi": from_pypi, "flutter": from_flutter}
+           "pypi": from_pypi, "flutter": from_flutter, "hf": from_hf}
 
 
 def look(entry):
@@ -600,7 +652,7 @@ def look(entry):
     kind, _, rest = source.partition(":")
     if kind not in SOURCES or not rest:
         raise ValueError(f"unknown source `{source}` — use github:owner/repo, crates:name, npm:name,"
-                         " pub:name, pypi:name or flutter:stable")
+                         " pub:name, pypi:name, flutter:stable or hf:owner/name")
     if OFFLINE:
         raise Unreachable("offline: AI_BACKBONE_OFFLINE is set")
     return SOURCES[kind](rest)
@@ -722,7 +774,7 @@ def main():
             # column the summary below reads from with it. What a proxy answers
             # can be a page long; what this script says is one line. The pin is
             # checked all the same: that needs the file, not the network.
-            whynot[name] = " ".join(str(err).split())[:120]
+            whynot[name] = " ".join(str(err).split())[:160]
             # A refusal (404, 403) is an answer: the network works. Only silence counts.
             if isinstance(err, subprocess.TimeoutExpired) or (
                     isinstance(err, OSError) and not isinstance(err, urllib.error.HTTPError)):
@@ -730,6 +782,18 @@ def main():
             rows.append((name, entry.get("pin", "?"), known or "?", "?", "unreachable", pin_is_real(entry)))
             continue
         silent = 0
+        if by_commit(entry):
+            ahead, at, silence = commits_after(entry, releases)
+            at = at or known or "?"
+            if silence:
+                whynot[name] = silence
+                unlisted.add(name)
+                rows.append((name, entry.get("pin", "?"), at, "?", "unknown", pin_is_real(entry)))
+                continue
+            found[name] = {"entry": entry, "ahead": ahead}
+            rows.append((name, entry.get("pin", "?"), at, ahead[0]["version"] if ahead else "—",
+                         f"{len(ahead)} newer" if ahead else "current", pin_is_real(entry)))
+            continue
         at = released_at(entry, releases, known) or "?"
         if not releases:
             rows.append((name, entry.get("pin", "?"), at, "nothing published", "unknown", pin_is_real(entry)))

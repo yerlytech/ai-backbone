@@ -43,13 +43,21 @@ gitbin=$(dirname "$(command -v git)")
 # which kept the upstream checks there over a minute each (spec 020).
 dead=http://127.0.0.1:9; if command -v cygpath >/dev/null 2>&1; then dead=http://0.0.0.0:9; fi
 printf '[include]\n\tpath = %s\n\tpath = %s\n' "$(winpath "$HOME/.gitconfig")" "$(winpath "${XDG_CONFIG_HOME:-$HOME/.config}/git/config")" > "$GIT_CONFIG_GLOBAL"
+# The include also brings this machine's own caps for heavy work (spec 026), and
+# a Mac that set them saw _heavy's checks fail. Read after the include, the empty
+# values win; a check that wants a cap gives it itself.
+printf '[ai-backbone]\n\tjobs =\n\tnice =\n' >> "$GIT_CONFIG_GLOBAL"
 # Nor this machine's builds (spec 015). A doctor run in a throwaway project with
 # the Rust layer measures the build folder, and on a machine whose shell sets
 # CARGO_TARGET_DIR that is every project's real one, hundreds of gigabytes. And
 # a heavy recipe waits for a build already running, which on a machine where
 # somebody is working is real: the suite would wait with them. The spec 015
 # section sets each of these itself, with a fake ps.
+# Nor the caps a save hands its checks, this suite among them, on a machine
+# that set ai-backbone.jobs (spec 026): an inherited MAKEFLAGS is one _heavy
+# leaves alone, and its checks read a different line.
 unset CARGO_TARGET_DIR CARGO_BUILD_TARGET_DIR CARGO_BUILD_JOBS CARGO_PROFILE_DEV_DEBUG BUILD_OUTPUT_WARN_GB
+unset RUST_TEST_THREADS CMAKE_BUILD_PARALLEL_LEVEL MAKEFLAGS
 export BUILD_WAIT_MINUTES=0
 pass=0; fail=0
 ok()    { pass=$((pass+1)); printf "  ok    %s\n" "$1"; }
@@ -1510,7 +1518,7 @@ fl() { ( cd "$tmp/hostile" && cp "$tmp/flutter.toml" docs/upstream.toml && "$py"
 check "flutter:stable reads Flutter's own list, one row per version" "says '^  flutter +3\\.44\\.0 +2026-05-18 +3\\.47\\.5 +2 newer' fl"
 check "a version built more than once is dated by its first day" "says '^  rebuilt +3\\.13\\.3 +2023-09-08 +3\\.47\\.5 +3 newer' fl"
 check "on the beta channel a beta is the release"          "says '^  beta +3\\.48\\.0-0\\.4\\.pre +2026-09-03 +3\\.48\\.0-0\\.5\\.pre +1 newer' fl"
-check "a channel that is not there is said, with the ones that are" "says '^  typo: .*stabel.* beta, stable' fl && says '^  kind: unknown source .* or flutter:stable' fl"
+check "a channel that is not there is said, with the ones that are" "says '^  typo: .*stabel.* beta, stable' fl && says '^  kind: unknown source .* flutter:stable or hf:owner/name' fl"
 check "the template names Flutter's own source"           "grep -q 'flutter:stable' '$root/.ai-backbone/templates/upstream.toml'"
 # pin_is_real asked whether the file held the pin anywhere in its text, so a file
 # that had moved on to 1.38.20 still "held" 1.38.2 and MOVED was never said. And
@@ -2489,6 +2497,24 @@ out=$(just _backlog-mend 2>&1)
 check "_backlog-mend takes out both, keeps the note and the edit, and commits only that" "! grep -q n-cccccc docs/backlog.md && [ \$(grep -c n-bbbbbb docs/backlog.md) -eq 1 ] && grep -q 'second blocked: x' docs/backlog.md && grep -q n-dddddd docs/backlog.md && [ \"\$(git log -1 --format=%s)\" = 'docs: backlog mended after a merge' ] && grep -q 'brought back or doubled 2 line' <<<\"\$out\""
 check "and says nothing when there is nothing to mend" "[ -z \"\$(just _backlog-mend 2>&1)\" ]"
 cd "$tmp" || exit 1
+
+# ── spec 027: the backlog of 2026-10-10 ──
+echo "== the backlog of 2026-10-10 (spec 027) =="
+# A Hugging Face model pinned by its commit: the commits above the pin are newer.
+# From a fixture, with every other address refused, the whole script running.
+hf="$tmp/hf"; mkdir -p "$hf/docs" "$hf/.git"
+printf 'model: d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3\nold: b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1\n' > "$hf/docs/pins.txt"
+printf '[[watch]]\nname = "model"\nsource = "hf:org/model"\npin = "b2c3d4e"\npinned_in = "docs/pins.txt"\n\n[[watch]]\nname = "newest"\nsource = "hf:org/model"\npin = "d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3"\npinned_in = "docs/pins.txt"\n\n[[watch]]\nname = "lost"\nsource = "hf:org/model"\npin = "0000000"\n\n[[watch]]\nname = "moved"\nsource = "hf:org/model"\npin = "a1b2c3d"\npinned_in = "docs/pins.txt"\n' > "$hf/docs/upstream.toml"
+hfu() { ( cd "$hf" && "$py" -c "import importlib.util as i, json, sys; s=i.spec_from_file_location('u', '$rootw/.ai-backbone/upstream.py'); u=i.module_from_spec(s); s.loader.exec_module(u); u.OFFLINE=False; u.fetch_json=lambda url, headers=None: json.load(open('$rootw/.ai-backbone/fixtures/hf-commits.json')) if url == 'https://huggingface.co/api/models/org/model/commits/main' else sys.exit('asked ' + url); sys.exit(u.main())" "$@" ); }
+check "hf: a pin two commits behind is 2 newer, dated by its own commit, held by the file" "says '^  model +b2c3d4e +2026-07-01 +d4e5f6a7b8c9 +2 newer +ok\$' hfu"
+check "a pin at the newest commit, written in full, is current" "says '^  newest +d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3 +2026-09-30 +— +current +ok\$' hfu"
+check "a commit the model does not list is no answer, and says why" "says '^  lost: lists no commit 0000000 among its last 4; the newest is d4e5f6a7b8c9' hfu"
+check "a commit the pin file no longer holds is MOVED" "says '^  moved .* MOVED\$' hfu"
+check "and one model read prints the newer commits with their titles" "says '^-- d4e5f6a7b8c9  2026-09-30  https://huggingface.co/org/model/commit/d4e5' hfu model && says '^Fix the chat template' hfu model"
+check "the template names the Hugging Face source" "grep -q 'hf:owner/name' '$root/.ai-backbone/templates/upstream.toml'"
+# Claude Code's agent checkouts are repositories of their own; a save must not take them.
+check "a new project ignores Claude Code's agent worktrees" "( cd '$tmp/plain' && git check-ignore -q .claude/worktrees/agent-1/file )"
+check "the session skill says what to do when the context fills up" "grep -q '^## When the context fills up' '$root/.agents/skills/session/SKILL.md' && grep -q 'new chat' '$root/.agents/skills/session/SKILL.md' && grep -q 'Do not compact on your own' '$root/.agents/skills/session/SKILL.md'"
 
 echo
 echo "$pass ok, $fail failed"
