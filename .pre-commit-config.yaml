@@ -97,7 +97,7 @@ repos:
         entry: just self-test
         language: system
         pass_filenames: false
-        files: '^(\.ai-backbone/(core\.just|manifest\.txt|self-test\.sh|routine\.sh|routine\.md|radar\.py|upstream\.py|budget\.py|agent-cap\.sh|seed/.*|templates/.*|examples/.*|fixtures/.*)|\.gitignore|\.gitattributes|\.pre-commit-config\.yaml)$'
+        files: '^(\.ai-backbone/(core\.just|manifest\.txt|self-test\.sh|routine\.sh|routine\.md|radar\.py|upstream\.py|budget\.py|buildtrim\.py|agent-cap\.sh|seed/.*|templates/.*|examples/.*|fixtures/.*)|\.gitignore|\.gitattributes|\.pre-commit-config\.yaml)$'
 
   # The lessons in .github/workflows/ cost a day of red builds once. A
   # file that has dropped one says so here, on the commit, instead of on

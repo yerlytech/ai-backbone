@@ -45,8 +45,9 @@ dead=http://127.0.0.1:9; if command -v cygpath >/dev/null 2>&1; then dead=http:/
 printf '[include]\n\tpath = %s\n\tpath = %s\n' "$(winpath "$HOME/.gitconfig")" "$(winpath "${XDG_CONFIG_HOME:-$HOME/.config}/git/config")" > "$GIT_CONFIG_GLOBAL"
 # The include also brings this machine's own caps for heavy work (spec 026), and
 # a Mac that set them saw _heavy's checks fail. Read after the include, the empty
-# values win; a check that wants a cap gives it itself.
-printf '[ai-backbone]\n\tjobs =\n\tnice =\n' >> "$GIT_CONFIG_GLOBAL"
+# values win; a check that wants a cap gives it itself. Trimming build output
+# (spec 027) is off for the same reason, and the checks of it turn it on.
+printf '[ai-backbone]\n\tjobs =\n\tnice =\n\tbuild-cap = off\n' >> "$GIT_CONFIG_GLOBAL"
 # Nor this machine's builds (spec 015). A doctor run in a throwaway project with
 # the Rust layer measures the build folder, and on a machine whose shell sets
 # CARGO_TARGET_DIR that is every project's real one, hundreds of gigabytes. And
@@ -230,7 +231,9 @@ n=$(git ls-files | wc -l | tr -d ' ')
 # 59 since 3.32.0: the team (spec 025), four role skills and the marketer's four
 # references, each with its copy for Claude Code; the maintainer raised it on
 # 2026-10-01 in an attended session, choosing separate references over one file.
-check "tracked files at most 59 (got $n)"             "[ $n -le 59 ]"
+# 60 since spec 027: buildtrim.py, which keeps a Rust build folder under its cap;
+# the maintainer approved the spec that names it on 2026-10-10, attended.
+check "tracked files at most 60 (got $n)"             "[ $n -le 60 ]"
 # Two more ceilings, set at what a new project measured on 2026-09-19 (spec 012).
 # An agent nobody watches works on this backbone every day and builds ideas it
 # read about; every one of them is small and sensible, and a hundred of them are
@@ -244,8 +247,11 @@ check "tracked files at most 59 (got $n)"             "[ $n -le 59 ]"
 # asked for and chose the timing of in an attended session the same day.
 r=$(just --summary 2>/dev/null | wc -w | tr -d ' ')
 # 40 since 3.29.0: `just project-note` (spec 022), which the maintainer asked
-# for by name in the batch of 2026-09-28, in an attended session.
-check "recipes a new project shows at most 40 (got $r)" "[ $r -le 40 ]"
+# for by name in the batch of 2026-09-28, in an attended session. 41 since spec
+# 027: `just trim-build`, named in the spec the maintainer approved on 2026-10-10
+# in an attended session; in the core, so that the disk warning every project
+# can show points at a recipe every project has.
+check "recipes a new project shows at most 41 (got $r)" "[ $r -le 41 ]"
 b=$(wc -c < AGENTS.md | tr -d ' ')
 check "AGENTS.md at most 7000 bytes (got $b)"         "[ $b -le 7000 ]"
 # What a Claude Code session loads, not one file (spec 022): since 2.1.281 its
@@ -2599,6 +2605,91 @@ if "$REAL_PS" -A -o pid= -o ppid= >/dev/null 2>&1; then
   check "a build of this caller's own, above it, does not hold it" "[ $took -lt 4 ]"
   rm -f "$bq"/t-*
 fi
+cd "$tmp" || exit 1
+
+# Build trimming. A fake cargo folder, its pieces dated by hand: random bytes,
+# never zeros, which a file system that compresses keeps in no space at all.
+# The cap is given in GB, so a few hundred KB is a small fraction of one.
+mkcargo() {
+  "$py" - "$1" <<'PY'
+import os, sys, time
+root = sys.argv[1]
+day = 86400
+def put(rel, kb, age):
+    path = os.path.join(root, rel)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as f:
+        f.write(os.urandom(kb * 1024))
+    t = time.time() - age
+    os.utime(path, (t, t))
+for name in ("CACHEDIR.TAG", ".rustc_info.json"):
+    put(name, 0, 0)
+for prof in ("debug", "release"):
+    for lock in (".cargo-lock", ".cargo-build-lock", ".cargo-artifact-lock"):
+        put(f"{prof}/{lock}", 0, 0)
+put("debug/app", 40, 50 * day)
+put("debug/deps/libold-aaaaaaaaaaaaaaaa.rlib", 40, 30 * day)
+put("debug/deps/old-aaaaaaaaaaaaaaaa.d", 1, 30 * day)
+put("debug/.fingerprint/old-aaaaaaaaaaaaaaaa/lib-old", 1, 30 * day)
+put("debug/incremental/old-2axyao3nv6b3e/s-1/query-cache.bin", 40, 20 * day)
+put("debug/deps/libmid-bbbbbbbbbbbbbbbb.rlib", 40, 10 * day)
+put("debug/deps/libnew-cccccccccccccccc.rlib", 40, 3600)
+put("release/deps/librel-dddddddddddddddd.rlib", 40, 40 * day)
+# A folder's own date counts too, as cargo leaves it: the day it was written.
+for rel, age in (("debug/.fingerprint/old-aaaaaaaaaaaaaaaa", 30), ("debug/incremental/old-2axyao3nv6b3e/s-1", 20),
+                 ("debug/incremental/old-2axyao3nv6b3e", 20)):
+    t = time.time() - age * day
+    os.utime(os.path.join(root, rel), (t, t))
+PY
+}
+trimpy() { "$py" "$root/.ai-backbone/buildtrim.py" "$@"; }
+kb() { "$py" -c "print(round($1 / 1048576, 9))"; }
+tt="$tmp/tt"; mkcargo "$tt/target"
+if "$py" -c 'import fcntl' 2>/dev/null; then
+  # A build running in release: its lock held by another process.
+  "$py" -c "import fcntl, os, sys, time; fd = os.open('$tt/target/release/.cargo-build-lock', os.O_RDWR); fcntl.flock(fd, fcntl.LOCK_EX); open('$tt/locked', 'w').close(); time.sleep(60)" & lk=$!
+  i=0; until [ -e "$tt/locked" ] || [ "$i" -ge 50 ]; do sleep 0.1; i=$((i + 1)); done
+  out=$(trimpy "$tt/target" "$(kb 100)" --now 2>&1)
+  { kill "$lk"; wait "$lk"; } 2>/dev/null
+  check "over its cap, a cargo folder loses its old pieces, whole units at a time" "[ ! -e '$tt/target/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && [ ! -e '$tt/target/debug/deps/old-aaaaaaaaaaaaaaaa.d' ] && [ ! -d '$tt/target/debug/.fingerprint/old-aaaaaaaaaaaaaaaa' ] && [ ! -d '$tt/target/debug/incremental/old-2axyao3nv6b3e' ] && [ ! -e '$tt/target/debug/deps/libmid-bbbbbbbbbbbbbbbb.rlib' ]"
+  check "and keeps a piece younger than 6 hours, the program itself, and a profile whose build is running" "[ -e '$tt/target/debug/deps/libnew-cccccccccccccccc.rlib' ] && [ -e '$tt/target/debug/app' ] && [ -e '$tt/target/release/deps/librel-dddddddddddddddd.rlib' ] && grep -q 'removed .* in 3 pieces' <<<\"\$out\" && grep -q 'a build was running in release, left alone' <<<\"\$out\""
+  check "the run is one line in the folder's log" "[ \$(wc -l < '$tt/target/ai-backbone-trim.log') -eq 1 ] && grep -q 'over the cap' '$tt/target/ai-backbone-trim.log'"
+  # Down to 75% of the cap, oldest first, and no further.
+  t4="$tmp/t4/target"; mkdir -p "$t4/debug/deps"; : > "$t4/CACHEDIR.TAG"; : > "$t4/.rustc_info.json"
+  for x in a:40 b:30 c:20 d:10; do n=${x%%:*}; age=${x#*:}
+    "$py" -c "import os, time; p = '$t4/debug/deps/lib$n-$(printf "$n%.0s" 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16).rlib'; open(p, 'wb').write(os.urandom(200 * 1024)); t = time.time() - $age * 86400; os.utime(p, (t, t))"; done
+  trimpy "$t4" "$(kb 760)" >/dev/null 2>&1
+  check "it stops at 75% of the cap, the oldest gone first" "[ ! -e '$t4/debug/deps/liba-aaaaaaaaaaaaaaaa.rlib' ] && [ ! -e '$t4/debug/deps/libb-bbbbbbbbbbbbbbbb.rlib' ] && [ -e '$t4/debug/deps/libc-cccccccccccccccc.rlib' ] && [ -e '$t4/debug/deps/libd-dddddddddddddddd.rlib' ]"
+  check "under its cap it removes nothing and says so" "says 'under the cap of .*: nothing removed' trimpy '$t4' 1 --now && [ -e '$t4/debug/deps/libc-cccccccccccccccc.rlib' ]"
+  check "with less than 15% of the disk free the cap is halved" "\"\$py\" -c 'import importlib.util as i, collections, sys; s = i.spec_from_file_location(\"b\", \"$rootw/.ai-backbone/buildtrim.py\"); b = i.module_from_spec(s); s.loader.exec_module(b); D = collections.namedtuple(\"D\", \"total used free\"); b.shutil.disk_usage = lambda p: D(100, 90, 10); line = b.trim(b.Path(\"$t4\"), 1024 ** 3); sys.exit(0 if \"halved: 10% of the disk is free\" in line else 1)'"
+else
+  out=$(trimpy "$tt/target" "$(kb 100)" --now 2>&1)
+  check "where cargo's locks cannot be read (no fcntl), nothing is removed" "[ -e '$tt/target/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && grep -q 'left alone' <<<\"\$out\""
+fi
+mkdir -p "$tmp/notcargo/debug/deps"; printf 'x' > "$tmp/notcargo/debug/deps/libx-aaaaaaaaaaaaaaaa.rlib"
+check "a folder without cargo's marks is never touched" "says 'is not a folder cargo made' trimpy '$tmp/notcargo' 0 --now && [ -e '$tmp/notcargo/debug/deps/libx-aaaaaaaaaaaaaaaa.rlib' ]"
+# The recipes, in the Rust layer's project: the folder comes from the layer.
+cd "$bo/proj" || exit 1
+mkcargo "$tmp/tr/target"
+# The suite turns trimming off for itself; these turn it on, outside CI.
+tcap() { local c=$1; shift; bw env -u CI GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=ai-backbone.build-cap GIT_CONFIG_VALUE_0="$c" CARGO_META_TARGET="$tmp/tr/target" "$@"; }
+check "just trim-build runs now and says what it did" "says '^[0-9-]+ [0-9:]+  .*under the cap of 60.0 GB' tcap 60 just trim-build"
+check "and off turns it off" "says 'Trimming is off here' tcap off just trim-build"
+check "a folder that is not cargo's is left alone by the recipe too" "says 'is not a folder cargo made' tcap 60 env -u CARGO_META_TARGET just trim-build"
+rm -f "$tmp/tr/target/ai-backbone-trim.log"
+tcap 60 env BUILD_WAIT_MINUTES=1 just _build-wait >/dev/null 2>&1
+i=0; until [ -s "$tmp/tr/target/ai-backbone-trim.log" ] || [ "$i" -ge 100 ]; do sleep 0.1; i=$((i + 1)); done
+check "every build that waits starts a trim in the background" "grep -q 'under the cap' '$tmp/tr/target/ai-backbone-trim.log'"
+tcap 60 env BUILD_WAIT_MINUTES=1 just _build-wait >/dev/null 2>&1; sleep 2
+check "at most once an hour" "[ \$(wc -l < '$tmp/tr/target/ai-backbone-trim.log') -eq 1 ]"
+rm -f "$tmp/tr/target/ai-backbone-trim.log"
+tcap 60 env CI=true BUILD_WAIT_MINUTES=1 just _build-wait >/dev/null 2>&1; sleep 2
+check "and never on CI" "[ ! -e '$tmp/tr/target/ai-backbone-trim.log' ]"
+# A disk nearly full is said at the start of every session.
+mkdir -p "$tmp/fakedf"; printf '#!/bin/sh\necho "Filesystem 1024-blocks Used Available Capacity Mounted on"\necho "/dev/x 100000000 95000000 5000000 95%% /"\n' > "$tmp/fakedf/df"; chmod +x "$tmp/fakedf/df"
+mkdir -p "$tmp/fakedf2"; sed 's/95000000 5000000 95%/50000000 50000000 50%/' "$tmp/fakedf/df" > "$tmp/fakedf2/df"; chmod +x "$tmp/fakedf2/df"
+check "session-start says when the disk is nearly full" "says '^Disk: only 5% free here \(4 GB\)\. Build output is the usual cause -> just trim-build' env PATH='$tmp/fakedf:$PATH' just session-start"
+check "and nothing when it is not" "! says '^Disk:' env PATH='$tmp/fakedf2:$PATH' just session-start"
 cd "$tmp" || exit 1
 
 echo

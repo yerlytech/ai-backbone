@@ -1003,6 +1003,14 @@ _session-start-body:
     else
       echo "Code map: nothing to map yet"
     fi
+    # A disk nearly full stops every build and every save, and on the machines
+    # this came from build output was what filled it (spec 027). `df -Pk` is
+    # POSIX: the same columns on every system.
+    disk=$(df -Pk . 2>/dev/null | awk 'NR == 2 && $2 > 0 { printf "%d %d", $4 * 100 / $2, $4 / 1048576 }' || true)
+    if [ -n "$disk" ]; then
+      read -r pct gbs <<< "$disk"
+      if [ "$pct" -lt 10 ]; then echo "Disk: only $pct% free here ($gbs GB). Build output is the usual cause -> just trim-build; ask the person before deleting anything else"; fi
+    fi
     just template-check 2>/dev/null || true
     # A project without a GitHub address has one copy of its code, on this disk.
     # `just publish` offers to create the address, but only to somebody who types
@@ -3350,9 +3358,11 @@ _examples src kind:
 #         @echo "clean clean-build"         # the recipe that clears the folder
 #         @echo "set   CARGO_TARGET_DIR"    # the setting that put the folder elsewhere, when one did
 # A layer without it is never measured and never waits. Nothing here moves a
-# build folder or deletes one: where the output goes is read by the IDE as well
+# build folder or clears one: where the output goes is read by the IDE as well
 # as by these recipes, and a folder chosen by `just` alone would build every
-# crate twice; clearing it is the person's decision, every time.
+# crate twice; clearing it whole is the person's decision, every time. What
+# does go without asking is the oldest pieces of a cargo folder past its cap,
+# which the next build makes again when it needs them (_build-trim, spec 027).
 
 # Before a heavy build, wait for one already running on this machine. The
 # layer's heavy recipes start their build through it:
@@ -3383,11 +3393,17 @@ _build-wait:
     set -u
     limit=$(awk -v m="${BUILD_WAIT_MINUTES:-20}" 'BEGIN { s = int(m * 60); print (s > 0 ? s : 0) }')
     [ "$limit" -gt 0 ] 2>/dev/null || exit 0
-    names=""; jobs=""
+    names=""; jobs=""; dir=""
     while read -r k v; do
-      case "$k" in names) names="$v" ;; jobs) jobs="$v" ;; esac
+      case "$k" in names) names="$v" ;; jobs) jobs="$v" ;; dir) dir="$v" ;; esac
     done <<< "$(just _build-info 2>/dev/null || true)"
     [ -n "$names" ] || exit 0
+    # The folder's oldest pieces past its cap go in the background, at most once
+    # an hour (spec 027). Every Rust build passes here, so nothing else has to
+    # remember it; it never holds this build, and its words go to its log.
+    if [ -n "$dir" ] && [ -d "$dir" ] && [ -z "${CI:-}" ]; then
+      ( nice -n 19 just _build-trim auto </dev/null >/dev/null 2>&1 & ) 2>/dev/null || true
+    fi
     # 0: a build is running. 1: none is. 2: this machine cannot say.
     # This person's own programs, with their state: a build another user runs —
     # a container on a Linux host, a colleague on a shared server — never holds
@@ -3619,6 +3635,39 @@ _heavy:
       out="${out:+$out }env$vars"
     fi
     printf '%s' "$out"
+
+# Keep this project's build output under its cap now: oldest pieces first (spec 027)
+[group('safety')]
+trim-build:
+    @just _build-trim now
+
+# The cap is 60 GB a project unless git says otherwise, per project or for the
+# machine (`git config [--global] ai-backbone.build-cap 30`, in GB; `off` turns
+# it off). Only a folder cargo made is touched, and only pieces the next build
+# makes again; .ai-backbone/buildtrim.py says what is never removed. `auto` is
+# the run _build-wait starts: never on CI, at most once an hour, by the age of
+# the folder's ai-backbone-trim.log, which every run touches first.
+[positional-arguments]
+_build-trim mode="auto":
+    #!/usr/bin/env bash
+    set -u
+    mode="${1:-auto}"
+    say() { [ "$mode" != now ] || echo "$1"; }
+    cap=$(git config --get ai-backbone.build-cap 2>/dev/null || true)
+    case "$(printf '%s' "$cap" | tr 'A-Z' 'a-z')" in
+      off|false|no|none|0) say "Trimming is off here (git config ai-backbone.build-cap off): nothing removed."; exit 0 ;;
+    esac
+    cap=${cap%[gG][bB]}; cap=${cap%[gG]}; cap=${cap% }
+    case "$cap" in ""|*[!0-9]*) cap=60 ;; esac
+    dir=""
+    while read -r k v; do case "$k" in dir) dir="$v" ;; esac; done <<< "$(just _build-info 2>/dev/null || true)"
+    if [ -z "$dir" ]; then say "This project's language layer names no build folder: nothing to trim."; exit 0; fi
+    if [ "$mode" = auto ]; then
+      [ -z "${CI:-}" ] && [ -d "$dir" ] || exit 0
+      [ -z "$(find "$dir/ai-backbone-trim.log" -mmin -60 2>/dev/null)" ] || exit 0
+      exec "$(just _py)" .ai-backbone/buildtrim.py "$dir" "$cap"
+    fi
+    exec "$(just _py)" .ai-backbone/buildtrim.py "$dir" "$cap" --now
 
 # Print a folder's size as kilobytes and in words ("12345678 12 GB"), "timeout"
 # when it could not be measured within the seconds given, or nothing when it

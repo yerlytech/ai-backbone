@@ -132,7 +132,8 @@ _build-info:
     echo "jobs  CARGO_BUILD_JOBS"
     echo "clean clean-build"
 
-# Clearing it is the person's decision, every time: this asks, the way `just
+# Clearing it whole is the person's decision, every time (the oldest pieces past
+# a cap go on their own: just trim-build, spec 027): this asks, the way `just
 # undo` asks, and an agent passes on the person's own yes and nothing else
 # (printf 'y\n' | just clean-build). A folder other projects build into too is
 # refused: cargo clean there clears every project's builds.

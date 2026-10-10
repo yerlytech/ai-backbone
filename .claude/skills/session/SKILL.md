@@ -24,7 +24,11 @@ folder wait on one lock anyway, and two at once can run the machine out of
 memory when they link. `just _build-wait` looks for the compilers the language
 layer names and waits, and builds that wait go one at a time, oldest first;
 the Rust layer's heavy recipes already call it, and `BUILD_WAIT_MINUTES=0`
-switches it off.
+switches it off. A Rust build folder also keeps itself under a cap: past it,
+the oldest pieces go, the ones the next build makes again (60 GB a project
+unless `git config ai-backbone.build-cap` says otherwise; `off` stops it;
+`just trim-build` runs it now). When `just session-start` says the disk is
+nearly full, run that, and ask the person before deleting anything else.
 
 ## What you know ends on a date
 

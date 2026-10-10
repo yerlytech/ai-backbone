@@ -28,6 +28,7 @@
 .ai-backbone/templates/upstream.toml
 .ai-backbone/upstream.py
 .ai-backbone/budget.py
+.ai-backbone/buildtrim.py
 .ai-backbone/agent-cap.sh
 .ai-backbone/routine.sh
 .ai-backbone/templates/routine.plist
