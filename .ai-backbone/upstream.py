@@ -261,24 +261,44 @@ def from_flutter(channel):
     return list(rows.values())
 
 
-def from_hf(repo):
+def from_hf(repo, pin=""):
     """Hugging Face, for a model a project pins by its revision: the commit it
     downloads. A model has commits, not versions, so the commits are the
     releases, newest first, and a pin is followed by the ones above it
     (spec 027). Measured on 2026-10-10: api/models/<owner>/<name>/commits/main
-    lists them newest first with id, title and date; an unknown model is 401.
+    lists them newest first with id, title and date, fifty a page (?p=0, 1,
+    ...; a model of 109 commits answered 50, 50 and 9); pages are read until
+    the pin is among them, twenty at most. A gated or private model answers
+    401 without a token: HF_TOKEN is sent when it is set, and the 401 says so.
     The version shown is the commit's first twelve characters; the whole id is
     kept for matching a pin written longer."""
-    data = fetch_json(f"https://huggingface.co/api/models/{repo}/commits/main")
-    if not isinstance(data, list):
-        raise ValueError(f"{repo}: Hugging Face answered something that is not a list of commits")
-    return [
-        {"version": (c.get("id") or "")[:12], "commit": c.get("id") or "",
-         "at": (c.get("date") or "")[:10], "title": c.get("title") or "",
-         "notes": "\n\n".join(t for t in (c.get("title") or "", (c.get("message") or "").strip()) if t),
-         "url": f"https://huggingface.co/{repo}/commit/{c.get('id', '')}", "prerelease": False}
-        for c in data if isinstance(c, dict)
-    ]
+    token = os.environ.get("HF_TOKEN", "").strip()
+    headers = {"User-Agent": "ai-backbone"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    pin = str(pin).strip().lower()
+    out = []
+    for page in range(20):
+        try:
+            data = fetch_json(f"https://huggingface.co/api/models/{repo}/commits/main"
+                              + (f"?p={page}" if page else ""), headers)
+        except urllib.error.HTTPError as err:
+            if err.code == 401:
+                raise ValueError(f"{repo}: Hugging Face answered 401, so the model is gated or private"
+                                 + ("; HF_TOKEN was sent and is not enough" if token else "; set HF_TOKEN to read it")) from err
+            raise
+        if not isinstance(data, list):
+            raise ValueError(f"{repo}: Hugging Face answered something that is not a list of commits")
+        out += [
+            {"version": (c.get("id") or "")[:12], "commit": c.get("id") or "",
+             "at": (c.get("date") or "")[:10], "title": c.get("title") or "",
+             "notes": "\n\n".join(t for t in (c.get("title") or "", (c.get("message") or "").strip()) if t),
+             "url": f"https://huggingface.co/{repo}/commit/{c.get('id', '')}", "prerelease": False}
+            for c in data if isinstance(c, dict)
+        ]
+        if len(data) < 50 or (len(pin) >= 7 and any(r["commit"].lower().startswith(pin) for r in out)):
+            break
+    return out
 
 
 def by_commit(entry):
@@ -297,8 +317,10 @@ def commits_after(entry, releases):
             return releases[:i], release["at"], ""
     if not releases:
         return [], "", "lists no commits"
+    if len(pin) < 7:
+        return [], "", f"pin {pin} is too short: a pin is a commit id, seven characters or more"
     return [], "", (f"lists no commit {pin} among its last {len(releases)}; the newest is"
-                    f" {releases[0]['version']}: a pin is a commit id, seven characters or more")
+                    f" {releases[0]['version']}")
 
 
 def shown(path):
@@ -655,6 +677,8 @@ def look(entry):
                          " pub:name, pypi:name, flutter:stable or hf:owner/name")
     if OFFLINE:
         raise Unreachable("offline: AI_BACKBONE_OFFLINE is set")
+    if kind == "hf":
+        return from_hf(rest, entry.get("pin", ""))
     return SOURCES[kind](rest)
 
 

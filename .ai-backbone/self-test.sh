@@ -1788,7 +1788,8 @@ case "${PS_FAIL:-}" in 1) echo "ps: cannot list processes" >&2; exit 1 ;; empty)
 # build stopped with Ctrl-Z (PS_STOPPED=1).
 st=""; case "$*" in *stat=*) st="S " ;; esac
 for p in /sbin/init "/usr/bin/bash" "Google Chrome Helper" rust-analyzer; do echo "$st$p"; done
-if [ "$n" -le "${PS_BUSY:-0}" ]; then
+# PS_LATER=k: a build that starts after the k-th look.
+if [ "$n" -le "${PS_BUSY:-0}" ] || { [ -n "${PS_LATER:-}" ] && [ "$n" -gt "$PS_LATER" ]; }; then
   [ -n "$st" ] && [ "${PS_STOPPED:-}" = 1 ] && st="T "
   echo "$st/home/someone/.rustup/toolchains/stable/bin/${PS_NAME:-cargo}"
 fi
@@ -2525,6 +2526,17 @@ check "a commit the model does not list is no answer, and says why" "says '^  lo
 check "a commit the pin file no longer holds is MOVED" "says '^  moved .* MOVED\$' hfu"
 check "and one model read prints the newer commits with their titles" "says '^-- d4e5f6a7b8c9  2026-09-30  https://huggingface.co/org/model/commit/d4e5' hfu model && says '^Fix the chat template' hfu model"
 check "the template names the Hugging Face source" "grep -q 'hf:owner/name' '$root/.ai-backbone/templates/upstream.toml'"
+# Fifty commits a page: a pin older than the first page is found on the next.
+hfp() { "$py" -c "import importlib.util as i, sys, urllib.error; s=i.spec_from_file_location('u', '$rootw/.ai-backbone/upstream.py'); u=i.module_from_spec(s); s.loader.exec_module(u); asked=[]
+def page(url, headers=None):
+    asked.append(url)
+    if 'gated' in url: raise urllib.error.HTTPError(url, 401, 'Unauthorized', {}, None)
+    ids = range(100, 50, -1) if '?p=1' not in url else range(50, 47, -1)
+    return [{'id': '%040x' % n, 'date': '2026-01-01T00:00:00.000Z', 'title': 't'} for n in ids]
+u.fetch_json = page
+$1"; }
+check "a pin past the first page of fifty is found on the next, and no page after it is asked" "hfp \"r = u.from_hf('o/m', '%040x' % 49); ahead, at, why = u.commits_after({'pin': '%040x' % 49}, r); sys.exit(0 if len(ahead) == 51 and not why and len(asked) == 2 else 1)\""
+check "a gated model says so and names HF_TOKEN" "says 'gated or private; set HF_TOKEN' hfp \"u.from_hf('o/gated')\""
 # Claude Code's agent checkouts are repositories of their own; a save must not take them.
 check "a new project ignores Claude Code's agent worktrees" "( cd '$tmp/plain' && git check-ignore -q .claude/worktrees/agent-1/file )"
 check "the session skill says what to do when the context fills up" "grep -q '^## When the context fills up' '$root/.agents/skills/session/SKILL.md' && grep -q 'new chat' '$root/.agents/skills/session/SKILL.md' && grep -q 'Do not compact on your own' '$root/.agents/skills/session/SKILL.md'"
@@ -2564,6 +2576,11 @@ if [ -n "$(command -v prek)" ] && grep -qs prek "$(git rev-parse --git-path hook
   check "and the log keeps every run of it, the message checks too" "grep -q 'chore: add a and b  (message checks)' '$s27log' && grep -q 'slow suite\.*Passed' '$s27log'"
   echo x >> b.txt
   check "the message checks still refuse a Turkish message" "! just save 'özellik: türkçe' >/dev/null 2>&1 && [ \"\$(git log -1 --format=%s)\" = 'chore: add a and b' ]"
+  # A hook of the project's own, kept by prek as <hook>.legacy, still runs: the
+  # save goes the old way, through git's hooks, when one is there.
+  printf '#!/bin/sh\necho "the project own hook refuses"\nexit 1\n' > "$(git rev-parse --git-path hooks/pre-commit).legacy"; chmod +x "$(git rev-parse --git-path hooks/pre-commit).legacy"
+  check "a hook of the project's own still refuses a save" "! says 'Saved|Kaydedildi' just save 'chore: past an own hook' && [ \"\$(git log -1 --format=%s)\" = 'chore: add a and b' ]"
+  rm -f "$(git rev-parse --git-path hooks/pre-commit).legacy"
   mv "$(git rev-parse --git-path hooks/pre-commit)" "$tmp/s27-hook"; mv "$(git rev-parse --git-path hooks/commit-msg)" "$tmp/s27-msg"; rm -f "$tmp/s27-slow"
   out=$(just save "without hooks" 2>&1); rc=$?
   check "a project whose hooks are not installed saves as before, with no checks line" "[ $rc -eq 0 ] && [ \"\$(git log -1 --format=%s)\" = 'chore: without hooks' ] && ! grep -q 'checks:' <<<\"\$out\" && [ ! -e '$tmp/s27-slow' ]"
@@ -2596,6 +2613,13 @@ sleep 120 & hs=$!
 printf '%s %s\n' "$hs" "$(( $(date +%s) - 300 ))" > "$bq/t-0000000002-00000002"
 s=$SECONDS; bw env BUILD_WAIT_MINUTES=2 just _build-wait >/dev/null 2>&1; took=$((SECONDS - s))
 check "a build that went longer ago than the limit holds nobody" "[ $took -lt 4 ]"
+sleep 0 & gone=$!; wait "$gone" 2>/dev/null
+printf '%s\n' "$hs" > "$bq/t-0000000004-$(printf '%08d' "$gone")"
+s=$SECONDS; bw env BUILD_WAIT_MINUTES=2 just _build-wait >/dev/null 2>&1; took=$((SECONDS - s))
+check "a ticket still waiting whose waiter is gone holds nobody, though its holder lives" "[ $took -lt 4 ] && [ ! -e '$bq/t-0000000004-$(printf '%08d' "$gone")' ]"
+printf '%s %s\n' "$hs" "$(( $(date +%s) - 60 ))" > "$bq/t-0000000005-00000005"
+s=$SECONDS; bw env BUILD_WAIT_MINUTES=2 just _build-wait >/dev/null 2>"$tmp/q-err5"; took=$((SECONDS - s))
+check "a build that went a minute ago holds the turn no longer once no compiler runs" "[ $took -lt 15 ] && grep -q 'Its turn: going on' '$tmp/q-err5'"
 { kill "$hs"; wait "$hs"; } 2>/dev/null; wait 2>/dev/null; rm -f "$bq"/t-*
 # Where ps lists parents, a ticket whose holder is this caller, or above it, is
 # this build's own (a recipe that waits and then calls another that waits).
@@ -2642,7 +2666,9 @@ for rel, age in (("debug/.fingerprint/old-aaaaaaaaaaaaaaaa", 30), ("debug/increm
     os.utime(os.path.join(root, rel), (t, t))
 PY
 }
-trimpy() { "$py" "$root/.ai-backbone/buildtrim.py" "$@"; }
+# Through the fake ps, which lists no compiler unless asked: this machine's own
+# builds are not the suite's business.
+trimpy() { rm -f "$tmp/trim-ps"; env PATH="$bo/bin:$PATH" PS_COUNT="$tmp/trim-ps" "$py" "$root/.ai-backbone/buildtrim.py" "$@"; }
 kb() { "$py" -c "print(round($1 / 1048576, 9))"; }
 tt="$tmp/tt"; mkcargo "$tt/target"
 if "$py" -c 'import fcntl' 2>/dev/null; then
@@ -2661,13 +2687,26 @@ if "$py" -c 'import fcntl' 2>/dev/null; then
   trimpy "$t4" "$(kb 760)" >/dev/null 2>&1
   check "it stops at 75% of the cap, the oldest gone first" "[ ! -e '$t4/debug/deps/liba-aaaaaaaaaaaaaaaa.rlib' ] && [ ! -e '$t4/debug/deps/libb-bbbbbbbbbbbbbbbb.rlib' ] && [ -e '$t4/debug/deps/libc-cccccccccccccccc.rlib' ] && [ -e '$t4/debug/deps/libd-dddddddddddddddd.rlib' ]"
   check "under its cap it removes nothing and says so" "says 'under the cap of .*: nothing removed' trimpy '$t4' 1 --now && [ -e '$t4/debug/deps/libc-cccccccccccccccc.rlib' ]"
-  check "with less than 15% of the disk free the cap is halved" "\"\$py\" -c 'import importlib.util as i, collections, sys; s = i.spec_from_file_location(\"b\", \"$rootw/.ai-backbone/buildtrim.py\"); b = i.module_from_spec(s); s.loader.exec_module(b); D = collections.namedtuple(\"D\", \"total used free\"); b.shutil.disk_usage = lambda p: D(100, 90, 10); line = b.trim(b.Path(\"$t4\"), 1024 ** 3); sys.exit(0 if \"halved: 10% of the disk is free\" in line else 1)'"
+  # Nothing while a compiler runs: cargo lets go of its locks when compiling
+  # ends, and the tests it then runs need what is in deps/.
+  t5="$tmp/t5/target"; mkcargo "$t5"
+  out=$(PS_BUSY=99 trimpy "$t5" "$(kb 100)" --now 2>&1)
+  check "while a compiler runs nothing is removed, and --now says so" "grep -q 'a build is running on this machine: nothing removed' <<<\"\$out\" && [ -e '$t5/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && [ ! -e '$t5/ai-backbone-trim.done' ]"
+  out=$(PS_LATER=1 trimpy "$t5" "$(kb 100)" --now 2>&1)
+  check "a build that starts before a piece goes stops the run, and it is not counted as done" "grep -q 'stopped: a build started' <<<\"\$out\" && [ -e '$t5/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && [ ! -e '$t5/ai-backbone-trim.done' ]"
+  "$py" -c "import fcntl, os, time; fd = os.open('$t5/ai-backbone-trim.lock', os.O_RDWR | os.O_CREAT); fcntl.flock(fd, fcntl.LOCK_EX); open('$t5/held', 'w').close(); time.sleep(60)" & tl=$!
+  i=0; until [ -e "$t5/held" ] || [ "$i" -ge 50 ]; do sleep 0.1; i=$((i + 1)); done
+  check "one run at a time" "says 'Another trim of this folder is running' trimpy '$t5' '$(kb 100)' --now && [ -e '$t5/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ]"
+  { kill "$tl"; wait "$tl"; } 2>/dev/null
+  check "with less than 15% of the disk free the cap is halved" "\"\$py\" -c 'import importlib.util as i, collections, sys; s = i.spec_from_file_location(\"b\", \"$rootw/.ai-backbone/buildtrim.py\"); b = i.module_from_spec(s); s.loader.exec_module(b); D = collections.namedtuple(\"D\", \"total used free\"); b.shutil.disk_usage = lambda p: D(100, 90, 10); line = b.trim(b.Path(\"$t4\"), 1024 ** 3)[0]; sys.exit(0 if \"halved: 10% of the disk is free\" in line else 1)'"
 else
   out=$(trimpy "$tt/target" "$(kb 100)" --now 2>&1)
-  check "where cargo's locks cannot be read (no fcntl), nothing is removed" "[ -e '$tt/target/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && grep -q 'left alone' <<<\"\$out\""
+  check "where cargo's locks cannot be read (no fcntl), nothing is removed" "[ -e '$tt/target/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && grep -q 'cannot be read on this system' <<<\"\$out\""
 fi
+check "the cap reads GB as written, 0 or off as off, and nothing else" "\"\$py\" -c 'import importlib.util as i, sys; s = i.spec_from_file_location(\"b\", \"$rootw/.ai-backbone/buildtrim.py\"); b = i.module_from_spec(s); s.loader.exec_module(b); sys.exit(0 if [b.parse_cap(x) for x in (\"60\", \"30GB\", \"30 gb\", \"1.5\", \"0\", \"0 GB\", \"00\", \"off\", \"x\", \"-1\")] == [60, 30, 30, 1.5, 0, 0, 0, 0, None, None] else 1)'"
+check "a cap that says neither is said, and 60 is used" "says 'build-cap .x. is not a number of GB, so 60 is used' trimpy '$t4' x --now"
 mkdir -p "$tmp/notcargo/debug/deps"; printf 'x' > "$tmp/notcargo/debug/deps/libx-aaaaaaaaaaaaaaaa.rlib"
-check "a folder without cargo's marks is never touched" "says 'is not a folder cargo made' trimpy '$tmp/notcargo' 0 --now && [ -e '$tmp/notcargo/debug/deps/libx-aaaaaaaaaaaaaaaa.rlib' ]"
+check "a folder without cargo's marks is never touched" "says 'is not a folder cargo made' trimpy '$tmp/notcargo' '$(kb 1)' --now && [ -e '$tmp/notcargo/debug/deps/libx-aaaaaaaaaaaaaaaa.rlib' ]"
 # The recipes, in the Rust layer's project: the folder comes from the layer.
 cd "$bo/proj" || exit 1
 mkcargo "$tmp/tr/target"
@@ -2676,13 +2715,13 @@ tcap() { local c=$1; shift; bw env -u CI GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=ai-
 check "just trim-build runs now and says what it did" "says '^[0-9-]+ [0-9:]+  .*under the cap of 60.0 GB' tcap 60 just trim-build"
 check "and off turns it off" "says 'Trimming is off here' tcap off just trim-build"
 check "a folder that is not cargo's is left alone by the recipe too" "says 'is not a folder cargo made' tcap 60 env -u CARGO_META_TARGET just trim-build"
-rm -f "$tmp/tr/target/ai-backbone-trim.log"
+rm -f "$tmp/tr/target/ai-backbone-trim.log" "$tmp/tr/target/ai-backbone-trim.done"
 tcap 60 env BUILD_WAIT_MINUTES=1 just _build-wait >/dev/null 2>&1
 i=0; until [ -s "$tmp/tr/target/ai-backbone-trim.log" ] || [ "$i" -ge 100 ]; do sleep 0.1; i=$((i + 1)); done
 check "every build that waits starts a trim in the background" "grep -q 'under the cap' '$tmp/tr/target/ai-backbone-trim.log'"
 tcap 60 env BUILD_WAIT_MINUTES=1 just _build-wait >/dev/null 2>&1; sleep 2
 check "at most once an hour" "[ \$(wc -l < '$tmp/tr/target/ai-backbone-trim.log') -eq 1 ]"
-rm -f "$tmp/tr/target/ai-backbone-trim.log"
+rm -f "$tmp/tr/target/ai-backbone-trim.log" "$tmp/tr/target/ai-backbone-trim.done"
 tcap 60 env CI=true BUILD_WAIT_MINUTES=1 just _build-wait >/dev/null 2>&1; sleep 2
 check "and never on CI" "[ ! -e '$tmp/tr/target/ai-backbone-trim.log' ]"
 # A disk nearly full is said at the start of every session.

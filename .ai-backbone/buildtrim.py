@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Keep a cargo build folder under a cap, the oldest pieces first (spec 027).
 
-    buildtrim.py <folder> <cap in GB> [--now]
+    buildtrim.py <folder> <cap> [--now | --wait]
+
+The cap is git's `ai-backbone.build-cap` as written: a number of GB ("60",
+"30 GB", "1.5"), or off ("off", "0"); anything else is said, and 60 is used.
 
 A Rust project's build folder grows without end: every change of a dependency,
 a feature or a compiler leaves the old compiled units where they were, and on
@@ -16,23 +19,34 @@ cargo rebuilds a piece that is gone the next time it needs it (measured on
 cargo 1.98.1: with a library's .rlib, its fingerprint or its build/ folders
 deleted, the next build rebuilt them and ran).
 
-Never removed: a piece written in the last 6 hours; the top-level files of a
-profile, the programs a person runs; anything else that is no piece; and every
-piece of a profile whose cargo lock is held, because a build is running there.
-While it removes a profile's pieces it holds those locks itself, a few seconds
-at a time, so a build that starts meanwhile waits for it rather than finding a
-piece half gone. Under 15% free disk the cap is halved. Only a folder cargo
-made is touched: CACHEDIR.TAG and .rustc_info.json at its root.
+Nothing at all while cargo, rustc or rustdoc runs on this machine: cargo lets
+go of its locks when compiling ends, and a `cargo test` then runs the test
+programs in deps/ for as long as they take (in review, a piece removed then
+failed a running test). So --wait, the run a build starts in the background,
+waits for a moment with none, an hour at most; --now says so and stops; and
+both look again before each few seconds of removing, and stop when a build
+has started. While removing a profile's pieces it holds that profile's cargo
+locks, so a build that starts meanwhile waits for it rather than finding a
+piece half gone, and each piece's age is read again under them.
+
+Never removed besides: a piece written in the last 6 hours; the top-level
+files of a profile, the programs a person runs; anything else that is no
+piece; and every piece of a profile whose cargo lock is held. Under 15% free
+disk the cap is halved. Only a folder cargo made is touched: CACHEDIR.TAG and
+.rustc_info.json at its root. Where cargo's locks cannot be read (Windows,
+where cargo locks another way, not measured), nothing is removed.
 
 Each run writes one line to ai-backbone-trim.log in the folder, and with --now
-prints it too. It never fails a build: the recipes start it in the background,
-and what goes wrong is a line in the log.
+prints it too; a run that finished touches ai-backbone-trim.done, by whose age
+the recipes start one at most once an hour. One run at a time, by a lock of its
+own. It never fails a build: what goes wrong is a line in the log.
 """
 
 import datetime
 import os
 import re
 import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -51,8 +65,37 @@ PIECES = ("deps", "build", ".fingerprint", "examples")
 LOCKS = (".cargo-lock", ".cargo-build-lock", ".cargo-artifact-lock")
 YOUNG = 6 * 3600
 HOLD = 5.0
+COMPILERS = {"cargo", "rustc", "rustdoc"}
 GB = 1024 ** 3
 LOG = "ai-backbone-trim.log"
+DONE = "ai-backbone-trim.done"
+RUNNING = "ai-backbone-trim.lock"
+
+
+def building():
+    """Whether cargo, rustc or rustdoc runs on this machine; None when the
+    process list cannot be read, which is no answer and so no go."""
+    try:
+        done = subprocess.run(["ps", "-A", "-o", "comm="], capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    names = [line.strip().rsplit("/", 1)[-1] for line in done.stdout.splitlines() if line.strip()]
+    if done.returncode != 0 or not names:
+        return None
+    return any(n in COMPILERS for n in names)
+
+
+def parse_cap(text):
+    """GB as a number, 0 for off, None when it says neither."""
+    t = str(text).strip().lower()
+    if t in ("off", "false", "no", "none"):
+        return 0.0
+    t = re.sub(r"\s*gb?$", "", t)
+    try:
+        cap = float(t)
+    except ValueError:
+        return None
+    return cap if cap >= 0 else None
 
 
 def gb(n):
@@ -166,7 +209,7 @@ def remove(paths):
 
 
 def trim(root, cap):
-    """What was done, as one line."""
+    """What was done, as one line, and whether the run finished."""
     free = shutil.disk_usage(root)
     note = ""
     if free.total and free.free / free.total < 0.15:
@@ -174,11 +217,11 @@ def trim(root, cap):
         note = f" (halved: {free.free * 100 // free.total}% of the disk is free)"
     total, _ = usage(root)
     if total <= cap:
-        return f"{gb(total)}, under the cap of {gb(cap)}{note}: nothing removed"
+        return f"{gb(total)}, under the cap of {gb(cap)}{note}: nothing removed", True
     target, before, now = cap * 0.75, total, time.time()
     candidates = sorted((newest, size, paths, profile) for profile in profiles(root)
                         for newest, size, paths in pieces(profile) if now - newest > YOUNG)
-    held, busy, removed = {}, set(), 0
+    held, busy, removed, stopped = {}, set(), 0, False
     try:
         for newest, size, paths, profile in candidates:
             if total <= target:
@@ -191,11 +234,21 @@ def trim(root, cap):
                 held.pop(profile, None)
                 if fds is not None:
                     time.sleep(0.2)  # a build that waited gets its turn
+                if building() is not False:
+                    stopped = True
+                    break
                 fds = lock(profile)
                 if fds is None:
                     busy.add(profile)
                     continue
                 held[profile] = (fds, time.monotonic())
+            # Read again under the lock: a unit rebuilt since keeps its hash.
+            size, newest = 0, 0.0
+            for p in paths:
+                s, n = usage(p)
+                size, newest = size + s, max(newest, n)
+            if time.time() - newest <= YOUNG:
+                continue
             remove(paths)
             total -= size
             removed += 1
@@ -205,22 +258,40 @@ def trim(root, cap):
     line = f"{gb(before)} over the cap of {gb(cap)}{note}: removed {gb(before - total)} in {removed} pieces, {gb(total)} left"
     if busy:
         line += f"; a build was running in {', '.join(str(p.relative_to(root)) for p in sorted(busy))}, left alone"
-    if total > target and not busy:
+    if stopped:
+        line += "; stopped: a build started, so the rest waits for the next run"
+    elif total > target and not busy:
         line += "; what is left is younger than 6 hours, or no piece (the programs themselves)"
-    return line
+    return line, not stopped
 
 
 def main():
-    args = [a for a in sys.argv[1:] if a != "--now"]
-    now = "--now" in sys.argv[1:]
+    flags = [a for a in sys.argv[1:] if a in ("--now", "--wait")]
+    args = [a for a in sys.argv[1:] if a not in flags]
+    now = "--now" in flags
     if len(args) != 2:
         print(__doc__.split("\n\n")[1])
         return 2
     root = Path(args[0])
-    try:
-        cap = float(args[1]) * GB
-    except ValueError:
-        cap = 60.0 * GB
+
+    def say(line, done=False):
+        line = f"{datetime.datetime.now():%Y-%m-%d %H:%M}  {line}"
+        if now:
+            print(line)
+        log = root / LOG
+        try:
+            kept = log.read_text(errors="ignore").splitlines()[-199:] if log.is_file() else []
+            log.write_text("\n".join(kept + [line]) + "\n")
+            if done:
+                (root / DONE).touch()
+        except OSError:
+            pass
+
+    cap = parse_cap(args[1])
+    if cap == 0:
+        if now:
+            print("Trimming is off here (git config ai-backbone.build-cap off): nothing removed.")
+        return 0
     if not root.is_dir():
         if now:
             print(f"No build output yet at {args[0]}: nothing to trim.")
@@ -229,25 +300,37 @@ def main():
         if now:
             print(f"{args[0]} is not a folder cargo made (no CACHEDIR.TAG and .rustc_info.json): left alone.")
         return 0
-    log = root / LOG
-    # Touched first: the recipes start a run at most once an hour, by this file's
-    # age, and a run over a big folder takes minutes.
+    if fcntl is None:
+        say("cargo's locks cannot be read on this system: nothing removed", done=True)
+        return 0
+    # One run at a time: a second one, started by another build, leaves.
     try:
-        log.touch()
+        mine = os.open(root / RUNNING, os.O_RDWR | os.O_CREAT, 0o644)
+        fcntl.flock(mine, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
-        pass
+        if now:
+            print("Another trim of this folder is running: nothing more to do.")
+        return 0
+    note = ""
+    if cap is None:
+        note, cap = f"build-cap {args[1]!r} is not a number of GB, so 60 is used; ", 60.0
+    waited, state = 0, building()
+    while "--wait" in flags and state and waited < 3600:
+        time.sleep(30)
+        waited += 30
+        state = building()
+    if state is None:
+        say(note + "the process list cannot be read, so whether a build runs is unknown: nothing removed", done=True)
+        return 0
+    if state:
+        say(note + ("a build is running on this machine: nothing removed; run it again when it ends" if now
+                    else "a build ran the whole hour: the next build tries again"))
+        return 0
     try:
-        line = trim(root, cap)
+        line, finished = trim(root, cap * GB)
     except Exception as err:  # noqa: BLE001 - a build is never failed by this
-        line = f"stopped: {type(err).__name__}: {err}"
-    line = f"{datetime.datetime.now():%Y-%m-%d %H:%M}  {line}"
-    if now:
-        print(line)
-    try:
-        kept = log.read_text(errors="ignore").splitlines()[-199:] if log.is_file() else []
-        log.write_text("\n".join(kept + [line]) + "\n")
-    except OSError:
-        pass
+        line, finished = f"stopped: {type(err).__name__}: {err}", False
+    say(note + line, done=finished)
     return 0
 
 

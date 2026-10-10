@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.34.5
+# .ai-backbone/core.just — the backbone's recipes, version 3.35.0
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -1400,12 +1400,18 @@ save msg *paths:
     # every check ran even after one had failed, and a Turkish word was reported
     # only after a ten-minute suite listed below it, twice in one day. Then the
     # message checks, then the commit, which does not run them a second time.
-    # A save of named paths, and a project whose hooks are not prek's, commit as
-    # before and let git run what it has.
-    hookfile() { local f; f=$(git rev-parse --git-path "hooks/$1" 2>/dev/null) && grep -qs prek "$f"; }
+    # A save of named paths, and a project with any hook prek does not run,
+    # commit as before and let git run what it has: the commit below skips
+    # git's hooks, so a hook of the project's own would be skipped with them.
+    # prek keeps one it replaced as <hook>.legacy and runs it from its own
+    # (measured in review, prek 0.5.5); `prek run` does not.
+    hook() { git rev-parse --git-path "hooks/$1" 2>/dev/null; }
+    prekhook() { local f; f=$(hook "$1") && grep -qs prek "$f" && [ ! -e "$f.legacy" ]; }
+    nohook() { local f; f=$(hook "$1") && [ ! -e "$f" ] && [ ! -e "$f.legacy" ]; }
     self=""
-    if [ ${#paths[@]} -eq 0 ] && command -v prek >/dev/null 2>&1 && [ -f .pre-commit-config.yaml ] && hookfile pre-commit; then self=yes; fi
-    msghook=""; if [ -n "$self" ] && hookfile commit-msg; then msghook=yes; fi
+    if [ ${#paths[@]} -eq 0 ] && command -v prek >/dev/null 2>&1 && [ -f .pre-commit-config.yaml ] \
+       && prekhook pre-commit && { prekhook commit-msg || nohook commit-msg; } && nohook pre-merge-commit; then self=yes; fi
+    msghook=""; if [ -n "$self" ] && prekhook commit-msg; then msghook=yes; fi
     # What every run said, kept for the last saves: a save that passed used to
     # leave no trace of which checks ran, and prek keeps only its last run's log.
     log=$(git rev-parse --git-path ai-backbone-checks.log)
@@ -3431,11 +3437,16 @@ _build-wait:
     # oldest goes. A ticket that went holds the turn until its holder ends: the
     # recipe that asked, whose build follows this one, found as the nearest
     # process above whose parent is `just` (a caller that knows better names it
-    # in BUILD_WAIT_HOLDER). A ticket whose holder is gone is thrown away, one
-    # whose holder is this caller or above it is this build's own, and one that
-    # went longer ago than the limit no longer holds anybody. Where ps cannot
-    # list parents (Git Bash), the holder is this script, gone when it returns:
-    # waiters are still served in order, and a build that went holds nothing.
+    # in BUILD_WAIT_HOLDER). A ticket whose holder is gone is thrown away, and
+    # so is one still waiting whose waiter is gone (the pid in its name); one
+    # whose holder is this caller or above it is this build's own; one that
+    # went longer ago than the limit holds nobody. One that went more than
+    # half a minute ago holds the turn only while a compiler runs: when two
+    # looks in a row find none, its build is over, though its holder may live
+    # on (a recipe that builds, then serves). Where ps cannot list parents (Git
+    # Bash), the holder is this script, gone when it returns: waiters are still
+    # served in order, and a build that went holds nothing. With no recipe
+    # above (`just _build-wait` typed in a terminal), the same.
     q="${AI_BACKBONE_BUILD_QUEUE:-${XDG_CACHE_HOME:-$HOME/.cache}/ai-backbone/build-queue}"
     mkdir -p "$q" 2>/dev/null || q=""
     chain=$(ps -A -o pid= -o ppid= -o comm= 2>/dev/null | awk -v me=$$ '
@@ -3444,20 +3455,22 @@ _build-wait:
     ours=" $(awk '{ printf "%s ", $1 }' <<< "$chain")"
     holder="${BUILD_WAIT_HOLDER:-}"
     case "$holder" in ""|*[!0-9]*) holder=$(awk '{ pid[NR] = $1; c[NR] = $2 }
-      END { for (i = 2; i <= NR; i++) if (c[i] != "just" && c[i + 1] == "just") { print pid[i]; exit }
-            for (i = 2; i <= NR; i++) if (c[i] != "just") { print pid[i]; exit } }' <<< "$chain") ;; esac
+      END { for (i = 2; i <= NR; i++) if (c[i] != "just" && c[i + 1] == "just") { print pid[i]; exit } }' <<< "$chain") ;; esac
     case "$holder" in ""|*[!0-9]*) holder=$$ ;; esac
     me=""
     if [ -n "$q" ]; then
       me="$q/t-$(printf '%010d-%08d' "$(date +%s)" "$$")"
       printf '%s\n' "$holder" > "$q/.w-$$" && mv "$q/.w-$$" "$me" || me=""
     fi
-    trap '[ -z "$me" ] || rm -f "$me"' INT TERM HUP
+    trap '[ -z "$me" ] || rm -f "$me"; exit 130' INT TERM HUP
     # Going: the ticket says when, and stays until its holder ends.
     go() { if [ -n "$me" ]; then trap - INT TERM HUP; printf '%s %s\n' "$holder" "$(date +%s)" > "$q/.w-$$" && mv "$q/.w-$$" "$me"; fi; }
+    # Two numbers: the tickets ahead that hold the turn whatever runs (still
+    # waiting, or gone in the last half minute, whose compiler may not show
+    # yet), and those that went before that and hold it while a compiler runs.
     ahead() {
-      local t h w n=0 now; now=$(date +%s)
-      [ -n "$me" ] || { echo 0; return; }
+      local t h w p n=0 m=0 now; now=$(date +%s)
+      [ -n "$me" ] || { echo "0 0"; return; }
       for t in "$q"/t-*; do
         [ -f "$t" ] && [ "$t" != "$me" ] || continue
         [[ "$t" < "$me" ]] || continue
@@ -3465,18 +3478,35 @@ _build-wait:
         case "$h" in ""|*[!0-9]*) rm -f "$t"; continue ;; esac
         if ! kill -0 "$h" 2>/dev/null; then rm -f "$t"; continue; fi
         case "$ours" in *" $h "*) continue ;; esac
-        case "$w" in ""|*[!0-9]*) ;; *) [ $((now - w)) -lt "$limit" ] || continue ;; esac
-        n=$((n + 1))
+        case "$w" in
+          ""|*[!0-9]*)
+            p=${t##*-}; case "$p" in ""|*[!0-9]*) rm -f "$t"; continue ;; esac; p=$((10#$p))
+            if ! kill -0 "$p" 2>/dev/null; then rm -f "$t"; continue; fi
+            n=$((n + 1)) ;;
+          *)
+            [ $((now - w)) -lt "$limit" ] || continue
+            if [ $((now - w)) -lt 30 ]; then n=$((n + 1)); else m=$((m + 1)); fi ;;
+        esac
       done
-      echo "$n"
+      echo "$n $m"
+    }
+    # Whether to go on waiting for the tickets ahead; counts the looks that
+    # found no compiler while only builds that went long ago were ahead.
+    quiet=0
+    behind() {
+      local n m; read -r n m <<< "$(ahead)"
+      if [ "$n" -gt 0 ]; then quiet=0; return 0; fi
+      [ "$m" -gt 0 ] || return 1
+      if running; then quiet=0; else quiet=$((quiet + 1)); fi
+      [ "$quiet" -lt 2 ]
     }
     span() { if [ $(($1 % 60)) -eq 0 ]; then n=$(($1 / 60)) u=minute; else n=$1 u=second; fi
              if [ "$n" -eq 1 ]; then echo "1 $u"; else echo "$n ${u}s"; fi; }
     poll=5; [ "$limit" -ge "$poll" ] || poll=$limit
-    first=$(ahead)
-    if [ "$first" -gt 0 ]; then
-      echo "$first other build(s) on this machine came first. This one waits its turn (BUILD_WAIT_MINUTES; 0 switches this off)." >&2
-      while [ "$(ahead)" -gt 0 ]; do sleep "$poll"; done
+    read -r n m <<< "$(ahead)"
+    if [ $((n + m)) -gt 0 ] && behind; then
+      echo "$((n + m)) other build(s) on this machine came first. This one waits its turn (BUILD_WAIT_MINUTES; 0 switches this off)." >&2
+      while behind; do sleep "$poll"; done
       running; r=$?
       if [ "$r" -ne 0 ]; then echo "Its turn: going on." >&2; go; exit 0; fi
     else
@@ -3644,30 +3674,25 @@ trim-build:
 # The cap is 60 GB a project unless git says otherwise, per project or for the
 # machine (`git config [--global] ai-backbone.build-cap 30`, in GB; `off` turns
 # it off). Only a folder cargo made is touched, and only pieces the next build
-# makes again; .ai-backbone/buildtrim.py says what is never removed. `auto` is
-# the run _build-wait starts: never on CI, at most once an hour, by the age of
-# the folder's ai-backbone-trim.log, which every run touches first.
+# makes again, and nothing while a compiler runs; .ai-backbone/buildtrim.py says
+# what is never removed. `auto` is the run _build-wait starts: never on CI, at
+# most once an hour by the age of the folder's ai-backbone-trim.done, which a
+# run that finished touches, and it waits for the builds to end first.
 [positional-arguments]
 _build-trim mode="auto":
     #!/usr/bin/env bash
     set -u
     mode="${1:-auto}"
-    say() { [ "$mode" != now ] || echo "$1"; }
     cap=$(git config --get ai-backbone.build-cap 2>/dev/null || true)
-    case "$(printf '%s' "$cap" | tr 'A-Z' 'a-z')" in
-      off|false|no|none|0) say "Trimming is off here (git config ai-backbone.build-cap off): nothing removed."; exit 0 ;;
-    esac
-    cap=${cap%[gG][bB]}; cap=${cap%[gG]}; cap=${cap% }
-    case "$cap" in ""|*[!0-9]*) cap=60 ;; esac
     dir=""
     while read -r k v; do case "$k" in dir) dir="$v" ;; esac; done <<< "$(just _build-info 2>/dev/null || true)"
-    if [ -z "$dir" ]; then say "This project's language layer names no build folder: nothing to trim."; exit 0; fi
+    if [ -z "$dir" ]; then [ "$mode" != now ] || echo "This project's language layer names no build folder: nothing to trim."; exit 0; fi
     if [ "$mode" = auto ]; then
       [ -z "${CI:-}" ] && [ -d "$dir" ] || exit 0
-      [ -z "$(find "$dir/ai-backbone-trim.log" -mmin -60 2>/dev/null)" ] || exit 0
-      exec "$(just _py)" .ai-backbone/buildtrim.py "$dir" "$cap"
+      [ -z "$(find "$dir/ai-backbone-trim.done" -mmin -60 2>/dev/null)" ] || exit 0
+      exec "$(just _py)" .ai-backbone/buildtrim.py "$dir" "${cap:-60}" --wait
     fi
-    exec "$(just _py)" .ai-backbone/buildtrim.py "$dir" "$cap" --now
+    exec "$(just _py)" .ai-backbone/buildtrim.py "$dir" "${cap:-60}" --now
 
 # Print a folder's size as kilobytes and in words ("12345678 12 GB"), "timeout"
 # when it could not be measured within the seconds given, or nothing when it

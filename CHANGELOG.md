@@ -13,6 +13,56 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## 3.35.0 — 2026-10-10
+
+**The backlog of 2026-10-10, in one batch** (spec 027). The maintainer asked
+for every open line but spec 020's Windows machine; all eight are built, and
+`docs/backlog.md` is empty.
+
+- **A Rust build folder keeps itself under a cap.** 60 GB a project unless
+  `git config [--global] ai-backbone.build-cap` says otherwise (`off` stops
+  it). Over it, the pieces written longest ago go until the folder is at 75%
+  of the cap: one compiled unit at a time (what `deps/`, `build/`,
+  `.fingerprint/` and `examples/` hold under one hash), or one `incremental/`
+  folder. Never a piece younger than 6 hours, never the programs themselves,
+  never a profile whose cargo lock is held, and only in a folder cargo made.
+  cargo makes a removed piece again when it needs it (measured on cargo
+  1.98.1). Nothing goes while cargo, rustc or rustdoc runs: cargo lets go of
+  its locks when compiling ends, and a running `cargo test` still needs what
+  is in `deps/` (found in review). Under 15% free disk the cap is halved.
+  `_build-wait`, which every Rust build passes, starts it in the background,
+  where it waits for the builds to end (an hour at most), at most once an hour
+  and never on CI; `just trim-build` runs it now. New file:
+  `.ai-backbone/buildtrim.py`. On Windows nothing goes: cargo's locks there
+  are not measured.
+- **A nearly full disk is said.** `just session-start` warns under 10% free.
+- **Builds that wait go one at a time, oldest first.** Each takes a ticket;
+  one that went holds the turn until the recipe that asked for it ends. Three
+  saves no longer wait twenty minutes and then compile together. A build that
+  went more than half a minute ago holds the turn only while a compiler runs,
+  and a waiter that died holds nothing. `BUILD_WAIT_MINUTES` now counts from
+  the front of the queue.
+- **A save stops at the first check that fails.** `just save` runs the checks
+  itself, in the order the project wrote them (`prek run --fail-fast`, prek
+  0.5.5), then the message checks, then commits; a slow suite listed last no
+  longer runs after a cheap check above it failed. Fixers repeat until nothing
+  changes. After a save one line says how many checks passed and which had
+  nothing to check, and `.git/ai-backbone-checks.log` keeps every run. A save
+  of named paths, and a project with a hook prek does not run (its own, kept
+  as `<hook>.legacy`), work as before.
+  The seed's `.pre-commit-config.yaml` says to list a slow check last.
+- **`hf:owner/name` in `docs/upstream.toml`**: a Hugging Face model pinned by
+  its commit; each commit after the pin is one newer, read fifty a page until
+  the pin is found, and the pin's local copy is looked for in the Hugging Face
+  cache. A gated model needs `HF_TOKEN`, and its 401 says so.
+- **`.claude/worktrees/` is ignored**, so a save never takes Claude Code's
+  agent checkouts as embedded repositories.
+- **The session skill says what to do when the context fills up**: finish the
+  task, write the handover into the journal, save, tell the maintainer the next
+  step belongs in a new chat, and stop; no compacting on one's own.
+- The suite no longer reads the machine's own caps for heavy work, nor its
+  build queue, and trims nothing unless a check asks.
+
 ## 3.34.5 — 2026-10-10
 
 **graphify 0.9.82 -> 0.9.84 and uv 0.12.24 -> 0.13.0, with the suite run on
