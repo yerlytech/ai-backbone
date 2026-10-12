@@ -13,6 +13,33 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## 3.36.0 — 2026-10-13
+
+**Night specs: one approval, a night's work, a handover in the morning.** A
+maintainer's request: some work suits a night, when nobody is there to answer.
+A section of its own in the `spec` skill.
+
+- **One approval.** A spec marked `night: yes` in its front matter is approved
+  once, and from then on the agent asks nothing: every choice it would have
+  asked about it makes by its own recommendation and writes down with the
+  reason. What only the maintainer may decide (money, legal text, deleting
+  their files or data, anything a user would meet) is never decided this way:
+  it waits in the morning summary as a question.
+- **Five to seven hours.** The agent ends where the work suits after five, and
+  at seven at the latest; not a fixed six, so a night never stops mid-task to
+  keep to a clock.
+- **Local only.** Nothing leaves the machine but commits to the project's own
+  GitHub: no ship, no deploy, no store, no publish that deploys. Builds at
+  `nice -n 15` and at most 6 jobs. An audit or a release only when the spec
+  names it.
+- **A full context does not end it.** During a night the session skill's "When
+  the context fills up" does not hold: the agent saves and goes on through the
+  summary, and writes the handover once, at the end, opened with a morning
+  summary.
+- **`just session-start` says so.** The open spec's line reads
+  `(approved, night spec)`.
+- **Never in the backbone itself**, whose every publish reaches all projects.
+
 ## 3.35.1 — 2026-10-11
 
 **An audit's findings carry a verdict, a severity with an anchor, and no

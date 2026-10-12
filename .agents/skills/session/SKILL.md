@@ -165,6 +165,9 @@ Do not compact on your own (`/compact`): a summary keeps what it guesses
 matters, the journal keeps what you chose. If the tool compacts anyway, read
 the day's journal before going on.
 
+A night spec is the exception: during its night the work goes on through the
+summary, and the handover waits for the morning (spec skill, "Night specs").
+
 ## Before many agents
 
 Every subagent draws on the same weekly limit as the session, and nobody can

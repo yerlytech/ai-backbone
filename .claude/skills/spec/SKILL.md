@@ -45,6 +45,50 @@ Anything bigger than a small fix gets a spec first. One file, one page, English.
    word, with `just release major`. If the idea is dropped, set
    `status: abandoned` and say why in one line. Never delete a spec.
 
+## Night specs
+
+A night spec is a spec the maintainer approves once, to be built while they
+sleep, with no questions on the way. It is a mode beside the handover, and
+the maintainer's to choose: you may say a spec would suit a night, but never
+mark one on your own.
+
+- **Marking.** `night: yes` in the front matter, under `status:`, and a first
+  paragraph saying it is a night spec, with the maintainer's approval in
+  their words. `just session-start` names it `(approved, night spec)`.
+- **Before the night.** Questions are asked as for any spec, until the
+  section is empty; whatever would come up during the night is settled now
+  or left to your recommendation, and the spec says which. Order the tasks
+  by value, so whatever is left at the end is the least of it.
+- **The length.** Five to seven hours, without a break. Look at the clock
+  (`date`) when you start and after each task; after five hours, end at the
+  first point that suits the work (a task finished and saved), and at seven
+  at the latest. Run out of tasks before five and you end there.
+- **No questions.** Every choice you would have asked about, you make by your
+  own recommendation, and write it down with its reason, in the spec or the
+  journal. A choice that belongs to the maintainer is never made this way:
+  money, legal text, deleting their files or data, anything a user would
+  meet. It goes into the morning summary as a question, and the night goes
+  on with the next task.
+- **This machine only.** Nothing leaves it but commits to the project's own
+  GitHub: no ship, no deploy, no store, no server, and no `just publish`
+  where publishing deploys (`just save` then). Builds run at low priority:
+  `nice -n 15` and at most 6 jobs (`CARGO_BUILD_JOBS=6`, `make -j6`), unless
+  the project's AGENTS.md says otherwise. An audit or a release happens only
+  when the night spec names it.
+- **The context.** A full context is no reason to stop: "When the context
+  fills up" (session skill) does not hold during a night. Where it would
+  stop, tick the spec, `just save`, and go on while the tool summarises the
+  conversation. After a summary, read the night spec and today's journal
+  before the next task.
+- **The morning.** Stop at a saved commit, never mid-step. Write the handover
+  once, at the end of the night: today's journal, opened with a morning
+  summary in the maintainer's language (what was built, what you decided for
+  them and why, what waits for their word, the next step), then `just save`
+  and `just session-end`, and the same summary, short, as your last message.
+  Before a risky step, write the handover first.
+- **Never in the backbone itself.** What the backbone publishes reaches every
+  project the next morning: a night there runs unattended in all of them.
+
 ## Rules
 
 - A spec is public documentation. No secrets, no customer names.

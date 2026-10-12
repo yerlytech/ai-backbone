@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.35.1
+# .ai-backbone/core.just — the backbone's recipes, version 3.36.0
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -967,23 +967,26 @@ _session-start-body:
     # too while a box of its Acceptance list is still "- [ ]": nothing else says
     # whether that list was walked before the status changed (spec 026). A line
     # walked and not yet true is "- [~]" with its reason, and is not named.
+    # A spec with "night: yes" in its front matter is a night spec (spec skill),
+    # and its line says so: the session that opens it next knows it runs alone.
     if ls docs/specs/*.md >/dev/null 2>&1; then
       awk '
         function flush() {
           if (status == "done" && accopen > 0)
             print "Spec " name " (done): " accopen " acceptance line" (accopen == 1 ? "" : "s") " not ticked. Tick each one checked, or mark it - [~] and say why (spec skill)"
           if (status != "draft" && status != "approved") return
-          line = "Spec " name " (" status (status == "draft" ? ", no code until approved" : "") "): "
+          line = "Spec " name " (" status (night ? ", night spec" : "") (status == "draft" ? ", no code until approved" : "") "): "
           if (total == 0)         line = line "no tasks written yet"
           else if (ticked == total) line = line "all " total " tasks ticked. Walk its acceptance list, then close it (spec skill)"
           else                    line = line ticked " of " total " tasks ticked. Next: " todo
           print line
         }
         FNR == 1 { flush(); name = FILENAME; sub(/.*\//, "", name); sub(/\.md$/, "", name)
-                   status = ""; fence = 0; tasks = 0; total = 0; ticked = 0; todo = ""; todo_at = 0; acc = 0; accopen = 0 }
+                   status = ""; night = 0; fence = 0; tasks = 0; total = 0; ticked = 0; todo = ""; todo_at = 0; acc = 0; accopen = 0 }
         { sub(/\r$/, "") }
         /^---[ \t]*$/ { if (FNR == 1 || fence > 0) fence++; next }
         fence == 1 && /^status:/ { status = $2; next }
+        fence == 1 && /^night:/ { night = ($2 == "yes" || $2 == "true"); next }
         /^## / { tasks = ($0 ~ /^## +Tasks/); acc = ($0 ~ /^## +Acceptance/); next }
         acc && /^- \[ \]/ { accopen++; next }
         tasks && /^- \[.\]/ {

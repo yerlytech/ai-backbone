@@ -1111,8 +1111,10 @@ check "session-start is quiet about specs while none is open" "says '^=== LAST C
 just spec 'first idea' >/dev/null 2>&1
 printf -- '---\nstatus: approved\n---\n\n# 002\n\n## Acceptance\n\n- [ ] never counted\n\n## Tasks\n\n- [x] one\n- [~] half done, which is open: it runs\n      on to a second line\n- [ ] three\n' > docs/specs/002-second.md
 printf -- '---\nstatus: done\n---\n\n# 003\n\n## Tasks\n\n- [ ] left open in a finished spec\n' > docs/specs/003-finished.md
+printf -- '---\nstatus: approved\nnight: yes\n---\n\n# 004\n\n## Tasks\n\n- [ ] the first of the night\n' > docs/specs/004-tonight.md
 out=$(just session-start 2>&1)
 check "session-start names each open spec, how far it is, and its next task" "grep -q '^Spec 001-first-idea (draft, no code until approved): 0 of 1 tasks ticked\\. Next: Small steps' <<<\"\$out\" && grep -q '^Spec 002-second (approved): 1 of 3 tasks ticked\\. Next: half done, which is open: it runs …\$' <<<\"\$out\""
+check "a night spec says so on its line"               "grep -q '^Spec 004-tonight (approved, night spec): 0 of 1 tasks ticked\\. Next: the first of the night\$' <<<\"\$out\" && ! grep -q '^Spec 002-second (approved, night' <<<\"\$out\""
 check "and leaves a finished spec out"                 "grep -q '^Spec 002' <<<\"\$out\" && ! grep -q '003-finished' <<<\"\$out\""
 # No GitHub address, no second copy of the code. It asks git only, so the offline
 # suite hears it too; the address below is never asked for anything.
