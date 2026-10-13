@@ -19,11 +19,12 @@ below are the record of every version.
 them a person stopped on the first day.
 
 - **`just new-project` takes a folder that is there and empty** (a Mac's
-  `.DS_Store` aside): the person often makes it and opens it in the editor
-  first. A folder with anything else in it is still refused.
+  `.DS_Store` aside), under the name it has (`My App` too): the person often
+  makes it and opens it in the editor first. A folder with anything else in it is still refused.
 - **`just ref-add old.bundle "why"`** clones a git bundle, the only copy an
   old repository often has, into `.references/`, listed local only with
-  where it came from. **`just ref-add <folder> "why" live`** lists a sibling
+  where it came from (a bundle of one branch, which carries no HEAD, too).
+  **`just ref-add <folder> "why" live`** lists a sibling
   project where it stands (`path`, `status = "live"`), never cloned, which
   `ref-fetch` already read.
 - **The Rust layer, day one.** `just stack <lang>` adds the ignore lines the
@@ -38,9 +39,10 @@ them a person stopped on the first day.
   layer's `_set-version` since spec 016, and a stack.just copied before that
   has none: release and doctor now say so, and where to copy the recipe from.
 - **Claude Code's session start.** Run as the SessionStart hook, session-start
-  writes the folders `just`, `prek`, `graphify` and `uv` live in to the file in
-  `CLAUDE_ENV_FILE`, so the agent's Bash finds them, after a `/resume` too
-  (claude-code 2.1.295). It leaves a mark, and doctor says when the hook has
+  writes `~/.local/bin`, and any folder of `just`, `prek`, `graphify` or `uv`
+  missing from PATH, to the file in `CLAUDE_ENV_FILE`, at the end of PATH and
+  once, so the agent's Bash finds them, after a `/resume` too (claude-code
+  2.1.295). It leaves a mark, and doctor says when the hook has
   never run on the machine, naming `claude --debug`, which logs each hook's
   command and outcome (2.1.296).
 - **The session skill**: when auto mode blocks a command the maintainer

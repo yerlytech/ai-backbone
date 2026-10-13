@@ -11,6 +11,9 @@ set -uo pipefail
 # turned this repository bare and took its GitHub address, once (3.20.0).
 # Whatever git exported, the suite starts without it.
 unset $(git rev-parse --local-env-vars 2>/dev/null) 2>/dev/null || true
+# Claude Code names this file for its SessionStart hook; every session-start
+# below would write into the real one (spec 028).
+unset CLAUDE_ENV_FILE
 root="$(cd "$(dirname "$0")/.." && pwd -P)"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -1807,6 +1810,9 @@ if [ "$1" = metadata ]; then
   [ -n "${CARGO_META_TARGET:-}" ] || exit 101
   printf '{"packages":[],"target_directory":"%s","version":1}\n' "$CARGO_META_TARGET"; exit 0
 fi
+# Asked for the workspace's crates, it answers as cargo 1.97 does, with the
+# blank line between members (spec 028 review).
+if [ "$1" = tree ]; then printf 'bo v0.1.0 (/p)\n\nbo-core v0.1.0 (/p/core)\n'; exit 0; fi
 echo "fake cargo $* jobs=${CARGO_BUILD_JOBS:-none}"
 EOF
 # A du that takes longer than any limit a test gives it, and is one program: a
@@ -1869,7 +1875,7 @@ check "_heavy is nothing until the machine says otherwise" "[ -z \"\$(just _heav
 check "with a cap and a nice level it prints the prefix for both" "[ \"\$(cap 3 15 just _heavy)\" = 'nice -n 15 env CARGO_BUILD_JOBS=3 RUST_TEST_THREADS=3 CMAKE_BUILD_PARALLEL_LEVEL=3 MAKEFLAGS=-j3' ]"
 # A workspace moved since its last build cleans its own crates once (spec 028).
 gd=$(git rev-parse --git-dir); printf '/somewhere/else' > "$gd/ai-backbone.cargo-root"
-check "a moved Rust workspace cleans its own crates before it builds, once" "out=\$(bw env BUILD_WAIT_MINUTES=0 just check 2>&1); grep -q 'This workspace moved since its last build' <<<\"\$out\" && grep -q 'fake cargo clean -p fake' <<<\"\$out\" && ! says 'workspace moved' bw env BUILD_WAIT_MINUTES=0 just check"
+check "a moved Rust workspace cleans its own crates before it builds, once" "out=\$(bw env BUILD_WAIT_MINUTES=0 just check 2>&1); grep -q 'This workspace moved since its last build' <<<\"\$out\" && grep -q 'fake cargo clean -p bo ' <<<\"\$out\" && grep -q 'fake cargo clean -p bo-core ' <<<\"\$out\" && ! says 'workspace moved' bw env BUILD_WAIT_MINUTES=0 just check"
 check "a MAKEFLAGS already set is left as it is" "! says MAKEFLAGS cap 3 0 env MAKEFLAGS=-j1 just _heavy && says 'CARGO_BUILD_JOBS=3' cap 3 0 env MAKEFLAGS=-j1 just _heavy"
 check "half is half the cores, and nonsense is ignored" "[ \"\$(cap half 99 just _heavy)\" = 'env CARGO_BUILD_JOBS=$half RUST_TEST_THREADS=$half CMAKE_BUILD_PARALLEL_LEVEL=$half MAKEFLAGS=-j$half' ] && [ -z \"\$(cap many x just _heavy)\" ]"
 check "the Rust layer builds under the machine's cap" "says 'fake cargo check --workspace --all-targets jobs=1' cap 1 15 env BUILD_WAIT_MINUTES=0.1 just check"
@@ -2745,18 +2751,24 @@ echo "== the backlog of 2026-10-13 (spec 028) =="
 # A folder the person made and opened first is taken while it is empty.
 mkdir -p "$tmp/s28" "$tmp/s28-full"; : > "$tmp/s28-full/x.txt"
 check "new-project takes a folder that is there and empty" "( cd '$root' && just new-project '$tmp/s28' ) >/dev/null 2>&1 && [ -f '$tmp/s28/AGENTS.md' ] && [ -n \"\$(git -C '$tmp/s28' log --oneline 2>/dev/null)\" ]"
+mkdir -p "$tmp/My Own"
+check "and the folder the person made is the one meant, whatever its name" "( cd '$root' && just new-project '$tmp/My Own' ) >/dev/null 2>&1 && [ -f '$tmp/My Own/AGENTS.md' ] && [ ! -e '$tmp/my-own' ]"
 check "and refuses one with something in it" "! ( cd '$root' && just new-project '$tmp/s28-full' ) >/dev/null 2>&1 && says 'is not empty' bash -c \"cd '$root' && just new-project '$tmp/s28-full'\" && [ ! -e '$tmp/s28-full/AGENTS.md' ]"
 cd "$tmp/s28" || exit 1
 # ref-add: a git bundle, and a folder read where it stands.
 mkdir -p "$tmp/s28-old" "$tmp/s28-sib"; git -C "$tmp/s28-old" init -q; : > "$tmp/s28-old/f"; git -C "$tmp/s28-old" add f; git -C "$tmp/s28-old" commit -qm x --no-verify
 git -C "$tmp/s28-old" bundle create "$tmp/Old.bundle" --all >/dev/null 2>&1
 check "ref-add clones a git bundle and lists it local only" "just ref-add '$tmp/Old.bundle' 'an old copy' >/dev/null 2>&1 && [ -f .references/old/f ] && grep -q '^from   = .*Old.bundle\"\$' .references/references.toml"
+git -C "$tmp/s28-old" bundle create "$tmp/One.bundle" "$(git -C "$tmp/s28-old" symbolic-ref --short HEAD)" >/dev/null 2>&1
+check "a bundle of one branch, which carries no HEAD, comes out with its files" "just ref-add '$tmp/One.bundle' 'one branch' >/dev/null 2>&1 && [ -f .references/one/f ]"
 check "ref-add <folder> live lists it where it stands and clones nothing" "just ref-add '$tmp/s28-sib' 'a sibling' live >/dev/null 2>&1 && [ ! -e .references/s28-sib ] && grep -q '^status = \"live\"' .references/references.toml && says 's28-sib .local only, read where it stands' just ref-fetch"
 check "and a third word other than live is refused" "! just ref-add '$tmp/s28-sib' x lively 2>/dev/null"
+mkdir -p "$tmp/s28-b/s28-sib"
+check "a second live folder of the same name is refused, the first kept" "! just ref-add '$tmp/s28-b/s28-sib' y live >/dev/null 2>&1 && [ \$(grep -c '^name   = \"s28-sib\"' .references/references.toml) -eq 1 ] && says 'listed  already' just ref-add '$tmp/s28-sib' again live"
 # The Rust layer: its ignore lines, a first save before cargo init, the version.
 printf 'target/\n' >> .gitignore
 check "stack rust adds the layer's ignore lines, each once" "just stack rust >/dev/null 2>&1 && [ \$(grep -cx 'target/' .gitignore) -eq 1 ] && grep -qxF '*.rs.bk' .gitignore"
-check "with no Cargo.toml yet, lint and test say so and pass, so the first save goes through" "says 'No Cargo.toml yet' just lint && just lint >/dev/null 2>&1 && just test >/dev/null 2>&1 && just save 'chore: the rust layer' >/dev/null 2>&1"
+check "with no Cargo.toml yet, lint and test say so and pass, so the first save goes through" "says 'No Cargo.toml yet' just lint && ! says 'error:' just lint && just lint >/dev/null 2>&1 && just test >/dev/null 2>&1 && just save 'chore: the rust layer' >/dev/null 2>&1"
 perl -0pi -e 's/\n_set-version version:/\n_set_version_gone version:/' stack.just
 printf '[package]\nname = "s28"\nversion = "0.1.0"\n' > Cargo.toml
 check "doctor says when the layer cannot move the version in Cargo.toml" "says 'release does not move the version in Cargo.toml' just doctor"
@@ -2766,8 +2778,9 @@ rm -f Cargo.toml
 # Claude Code's SessionStart hook: the tools' folders for the agent's Bash, and
 # a mark that the hook ran, which doctor reads.
 check "doctor says when the session-start hook has not run here" "says 'session-start hook has not run on this machine' just doctor"
-: > "$tmp/s28-env"
-check "as the hook, session-start writes the tools' folders to CLAUDE_ENV_FILE" "CLAUDE_ENV_FILE='$tmp/s28-env' just session-start >/dev/null 2>&1; [ \$(grep -c '^export PATH=\".*:\$PATH\"\$' '$tmp/s28-env') -eq 1 ] && grep -q \"\$(dirname \"\$(command -v just)\")\" '$tmp/s28-env'"
+: > "$tmp/s28-env"; mkdir -p "$tmp/s28h/.local/bin"; printf '#!/bin/sh\necho prek 0.0.1\n' > "$tmp/s28h/.local/bin/prek"; chmod +x "$tmp/s28h/.local/bin/prek"
+hook28() { env CLAUDE_ENV_FILE="$tmp/s28-env" HOME="$tmp/s28h" PATH="$tmp/s28h/.local/bin:$PATH" just session-start >/dev/null 2>&1; }
+check "as the hook, session-start writes ~/.local/bin to CLAUDE_ENV_FILE, at the end of PATH, once" "hook28; hook28; [ \$(grep -c . '$tmp/s28-env') -eq 1 ] && grep -qx \"export PATH=\\\"\\\$PATH:$tmp/s28h/.local/bin\\\"\" '$tmp/s28-env'"
 check "and doctor then says it ran" "says 'session-start hook ran here, last on' just doctor"
 cd "$tmp" || exit 1
 

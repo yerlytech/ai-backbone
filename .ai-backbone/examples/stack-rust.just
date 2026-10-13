@@ -116,6 +116,7 @@ clean-own:
     echo "Cleaned this workspace's own crates ($(echo $names | sed 's/ /, /g')); the dependencies are kept."
 
 # 0 when the workspace has a Cargo.toml; otherwise one line on stderr, and 1.
+[no-exit-message]
 _crate-here:
     #!/usr/bin/env bash
     [ -f "{{server_dir}}/Cargo.toml" ] && exit 0
@@ -129,10 +130,12 @@ _own-moved:
     [ -f "{{server_dir}}/Cargo.toml" ] || exit 0
     gd=$(git rev-parse --git-dir 2>/dev/null) || exit 0
     here=$(cd {{server_dir}} && pwd -P); was=$(cat "$gd/ai-backbone.cargo-root" 2>/dev/null || true)
-    printf '%s' "$here" > "$gd/ai-backbone.cargo-root" 2>/dev/null || exit 0
-    [ -n "$was" ] && [ "$was" != "$here" ] || exit 0
+    stamp() { printf '%s' "$here" > "$gd/ai-backbone.cargo-root" 2>/dev/null || true; }
+    if [ -z "$was" ]; then stamp; exit 0; fi
+    [ "$was" != "$here" ] || exit 0
     echo "This workspace moved since its last build ($was -> $here): cleaning its own crates first, so the paths built into them are this folder's." >&2
-    just clean-own >&2 || true
+    # Marked as here only once the clean went through, so a failed one is tried again.
+    if just clean-own >&2; then stamp; fi
 
 # ──────────────────────── build output ───────────────────────
 # Where cargo writes, for `just doctor` and the wait above (spec 015). A Rust

@@ -960,12 +960,17 @@ session-start:
     # without a PATH set by hand. The same variable marks that the hook ran, so
     # doctor can say when it never has (spec 028).
     if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
+      # At the end of PATH, never in front: a just from /usr/bin put first would
+      # put the system's python and cargo ahead of the person's own. Only the
+      # folders missing from it, and the line once.
       dirs=""
       for t in just prek graphify uv; do
         p=$(command -v "$t" 2>/dev/null) || continue; d=$(dirname "$p")
+        case ":$PATH:" in *":$d:"*) [ "$d" != "$HOME/.local/bin" ] && continue ;; esac
         case ":$dirs:" in *":$d:"*) ;; *) dirs="${dirs:+$dirs:}$d" ;; esac
       done
-      if [ -n "$dirs" ]; then printf 'export PATH="%s:$PATH"\n' "$dirs" >> "$CLAUDE_ENV_FILE" 2>/dev/null || true; fi
+      line=$(printf 'export PATH="$PATH:%s"' "$dirs")
+      if [ -n "$dirs" ] && ! grep -qxF -- "$line" "$CLAUDE_ENV_FILE" 2>/dev/null; then printf '%s\n' "$line" >> "$CLAUDE_ENV_FILE" 2>/dev/null || true; fi
       date +%Y-%m-%d > "$(git rev-parse --git-path ai-backbone.hook-ran 2>/dev/null || echo /dev/null)" 2>/dev/null || true
     fi
     out=$(just _session-start-body 2>&1 || true)
@@ -2743,6 +2748,9 @@ new-project name lang="":
     slug=$(just _slug "$name")
     if [ -z "$slug" ]; then echo "Give the project a name, e.g. just new-project my-app"; exit 1; fi
     target="$parent/$slug"
+    # The folder the person made and opened is the one meant, whatever its
+    # name (My App, Yeni Proje), while it is empty (spec 028).
+    if [ "$name" != "$slug" ] && [ -d "$parent/$name" ] && [ -z "$(ls -A "$parent/$name" | grep -vx '.DS_Store' || true)" ]; then target="$parent/$name"; fi
     # A folder that is there and empty is taken: the person often makes it
     # and opens it in the editor first (spec 028). A Mac's .DS_Store does not
     # count as something in it; anything else does.
@@ -2901,7 +2909,19 @@ ref-add url note="" mode="":
       if [ -n "$home" ]; then case "$abs" in "$home"/*) from="~/${abs#"$home"/}" ;; esac; fi
       mkdir -p .references; toml=.references/references.toml
       if [ -e ".references/$name" ]; then echo "  exists  .references/$name"
-      else git clone -q "$abs" ".references/$name"; echo "  cloned  .references/$name from the bundle $(basename "$abs") (read-only, not committed)"; fi
+      else
+        git clone -q "$abs" ".references/$name" 2>/dev/null
+        # A bundle of one branch (git bundle create x.bundle main, the usual
+        # form) carries no HEAD, and the clone came out empty: its first
+        # branch is checked out instead.
+        if ! git -C ".references/$name" rev-parse -q --verify HEAD >/dev/null 2>&1; then
+          b=$(git bundle list-heads "$abs" 2>/dev/null | awk '$2 ~ /^refs\/heads\// { sub(/^refs\/heads\//, "", $2); print $2; exit }')
+          [ -z "$b" ] || git -C ".references/$name" checkout -q -b "$b" "origin/$b" 2>/dev/null || true
+        fi
+        if ! git -C ".references/$name" rev-parse -q --verify HEAD >/dev/null 2>&1; then
+          echo "  empty   .references/$name: the bundle holds no branch to read"
+        else echo "  cloned  .references/$name from the bundle $(basename "$abs") (read-only, not committed)"; fi
+      fi
       if [ -f "$toml" ] && N="$name" awk -F'"' '/^name *=/ && $2 == ENVIRON["N"] {f=1} END {exit !f}' "$toml"; then echo "  listed  already in $toml"
       else
         [ -f "$toml" ] || printf '%s\n' '# Read-only references: other people'"'"'s repos, kept to learn from. Never edit them.' '# An entry with url = "" is a folder on this machine only: ref-fetch skips it.' > "$toml"
@@ -2922,7 +2942,10 @@ ref-add url note="" mode="":
       home=$(cd "$HOME" 2>/dev/null && pwd -P || true)
       if [ -n "$home" ]; then case "$abs" in "$home"/*) path="~/${abs#"$home"/}" ;; esac; fi
       mkdir -p .references; toml=.references/references.toml
-      if [ -f "$toml" ] && N="$name" awk -F'"' '/^name *=/ && $2 == ENVIRON["N"] {f=1} END {exit !f}' "$toml"; then echo "  listed  already in $toml"; exit 0; fi
+      if [ -f "$toml" ] && P="$path" awk -F'"' '/^path *=/ && $2 == ENVIRON["P"] {f=1} END {exit !f}' "$toml"; then echo "  listed  already in $toml"; exit 0; fi
+      if [ -e ".references/$name" ] || { [ -f "$toml" ] && N="$name" awk -F'"' '/^name *=/ && $2 == ENVIRON["N"] {f=1} END {exit !f}' "$toml"; }; then
+        echo "Not listed: a reference named $name is there already. Rename the folder, or list the other one under another name."; exit 1
+      fi
       [ -f "$toml" ] || printf '%s\n' '# Read-only references: other people'"'"'s repos, kept to learn from. Never edit them.' '# An entry with url = "" is a folder on this machine only: ref-fetch skips it.' > "$toml"
       printf '\n[[ref]]\nname   = "%s"\nurl    = ""\npath   = "%s"\nnote   = "%s"\nadded  = "%s"\nstatus = "live"\n' "$(esc "$name")" "$(esc "$path")" "$(esc "$note")" "$(date +%Y-%m-%d)" >> "$toml"
       echo "  listed  $toml: $path, read where it stands (live, never cloned; not on another machine)"
@@ -2977,6 +3000,10 @@ ref-add url note="" mode="":
       case "$url" in
         /*|./*|../*|'~'*) echo "No folder at $url. A reference is a git address or a folder on this machine."; exit 1 ;;
       esac
+    fi
+    # A live reference keeps its name: a clone under it would be listed nowhere.
+    if [ -f .references/references.toml ] && N="$name" awk -F'"' '/^\[/ { n = ""; l = 0 } /^name *=/ { n = $2 } /^status *=/ && $2 == "live" { l = 1 } n == ENVIRON["N"] && l { f = 1 } END { exit !f }' .references/references.toml; then
+      echo "Not added: $name is the name of a live reference already (a folder read where it stands). Clone it under another name by hand, or remove that entry."; exit 1
     fi
     mkdir -p .references
     if [ ! -f .references/README.md ] && [ -f .ai-backbone/templates/references-README.md ]; then
