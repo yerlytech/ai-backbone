@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.36.0
+# .ai-backbone/core.just — the backbone's recipes, version 3.37.0
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -534,6 +534,17 @@ doctor:
       else echo "  ok    local-only: nothing goes to GitHub (git config ai-backbone.local-only)"; fi
     fi
     if just --summary 2>/dev/null | tr ' ' '\n' | grep -qx outdated; then echo "  info  run 'just outdated' to see which dependencies are behind"; fi
+    # Whether Claude Code's SessionStart hook has ever run here (spec 028): its
+    # line in .claude/settings.json ends in `2>/dev/null || true`, so a hook
+    # that fails says nothing, and the agent starts without the session's
+    # first page. Said only where the project uses Claude Code.
+    if [ -f .claude/settings.json ] && grep -q 'just session-start' .claude/settings.json 2>/dev/null; then
+      ran=$(cat "$(git rev-parse --git-path ai-backbone.hook-ran 2>/dev/null)" 2>/dev/null || true)
+      if [ -n "$ran" ]; then echo "  ok    Claude Code's session-start hook ran here, last on $ran"
+      else echo "  --    Claude Code's session-start hook has not run on this machine yet. If sessions here start without its page: claude --debug shows each hook's command, outcome and time"; fi
+    fi
+    m=$(just _manifest-unmoved 2>/dev/null || true)
+    if [ -n "$m" ]; then echo "  warn  just release does not move the version in $m: stack.just has no _set-version -> copy it from the backbone's examples/stack-rust.just"; fi
     # A project with a language has a toolchain, a framework and a database
     # whose releases matter, and without a watch list nothing says when they
     # move or when this project's pins were released (spec 026).
@@ -707,6 +718,16 @@ stack lang="":
     fi
     cp "$f" stack.just
     echo "stack.just added from stack-$lang.just. Edit it to fit. 'just --list' shows the new recipes."
+    # What the layer's build writes and git must never take, from its
+    # `_gitignore` (spec 028): each line once, under one heading.
+    ign=$(just _gitignore 2>/dev/null || true)
+    if [ -n "$ign" ]; then
+      new=""; while IFS= read -r l; do if [ -n "$l" ] && ! grep -qxF -- "$l" .gitignore 2>/dev/null; then new="$new$l"$'\n'; fi; done <<< "$ign"
+      if [ -n "$new" ]; then
+        { [ ! -s .gitignore ] || [ -z "$(tail -c1 .gitignore)" ] || echo; printf '\n# %s build output (just stack %s)\n%s' "$lang" "$lang" "$new"; } >> .gitignore
+        echo ".gitignore: added $(printf '%s' "$new" | tr '\n' ' ')"
+      fi
+    fi
     # The layer brings a lint; the hook that runs it comes with it, so a save
     # can never commit code the layer rejects.
     added=$(just _hook-lint || true)
@@ -931,6 +952,22 @@ session-start:
     # diary and nothing else — no open spec, no backlog, no GitHub line). So the
     # body puts what is short and acted on first, bounds every block, and this
     # cuts the whole at 9,500 whatever it grew to, saying so.
+    # Claude Code runs this as the SessionStart hook and names a file in
+    # CLAUDE_ENV_FILE (that variable is set for that hook): what is written there
+    # reaches the agent's Bash tool, after a /resume or /branch too
+    # (claude-code 2.1.295, its CHANGELOG read 2026-10-13). So the folders the
+    # tools were installed in go there, and the agent's first `just` answers
+    # without a PATH set by hand. The same variable marks that the hook ran, so
+    # doctor can say when it never has (spec 028).
+    if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
+      dirs=""
+      for t in just prek graphify uv; do
+        p=$(command -v "$t" 2>/dev/null) || continue; d=$(dirname "$p")
+        case ":$dirs:" in *":$d:"*) ;; *) dirs="${dirs:+$dirs:}$d" ;; esac
+      done
+      if [ -n "$dirs" ]; then printf 'export PATH="%s:$PATH"\n' "$dirs" >> "$CLAUDE_ENV_FILE" 2>/dev/null || true; fi
+      date +%Y-%m-%d > "$(git rev-parse --git-path ai-backbone.hook-ran 2>/dev/null || echo /dev/null)" 2>/dev/null || true
+    fi
     out=$(just _session-start-body 2>&1 || true)
     if [ "${#out}" -gt 9500 ]; then
       printf '%s\n' "${out:0:9500}"
@@ -1803,6 +1840,7 @@ release step="":
     # The language's own manifest, where the layer knows one: `<app>
     # --version` should say what the tag says.
     if just --show _set-version >/dev/null 2>&1; then just _set-version "$next"; fi
+    unmoved=$(just _manifest-unmoved 2>/dev/null || true)
     git add -A
     out=$(mktemp)
     # The same second try a save makes: a check that fixes a file (a trailing
@@ -1820,6 +1858,9 @@ release step="":
     rm -f "$out" "$stamp"
     git tag -a "$tag" -m "$tag"
     echo "Released $tag${last:+ (after $last)}. CHANGELOG.md says what is in it."
+    if [ -n "$unmoved" ]; then
+      echo "  note  $unmoved still says its old version: this project's stack.just has no _set-version, so a program that shows its own version shows the old one. The backbone's examples/stack-rust.just has the recipe: copy it into stack.just, and the next release moves it."
+    fi
     # With publish-on-save on, the release goes to GitHub the way a save does,
     # and its tag with it. Off, it stays here until `just publish`.
     if [ "$(git config --get ai-backbone.publish-on-save 2>/dev/null || echo false)" = "true" ] && [ -z "$(just _local-only)" ] \
@@ -2702,7 +2743,16 @@ new-project name lang="":
     slug=$(just _slug "$name")
     if [ -z "$slug" ]; then echo "Give the project a name, e.g. just new-project my-app"; exit 1; fi
     target="$parent/$slug"
-    if [ -e "$target" ]; then echo "$target already exists. Pick another name."; exit 1; fi
+    # A folder that is there and empty is taken: the person often makes it
+    # and opens it in the editor first (spec 028). A Mac's .DS_Store does not
+    # count as something in it; anything else does.
+    if [ -e "$target" ]; then
+      if [ -d "$target" ] && [ -z "$(ls -A "$target" | grep -vx '.DS_Store' || true)" ]; then
+        echo "  using   $target (it is there and empty)"
+      else
+        echo "$target already exists and is not empty. Pick another name, or empty it first."; exit 1
+      fi
+    fi
     src=""
     if [ -n "$(just _is-backbone)" ]; then src="$PWD"; else src=$(just _backbone 2>/dev/null) || true; fi
     if [ -z "$src" ] || [ ! -f "$src/.ai-backbone/manifest.txt" ]; then
@@ -2831,14 +2881,53 @@ adopt path:
 
 # ──────────────────────── references ─────────────────────────
 
-# Keep a read-only copy of another repo to learn from: just ref-add <git url or folder> "why it is here"
+# Keep a read-only copy of another repo to learn from: just ref-add <git url, folder or .bundle> "why it is here" · a folder read where it stands: ... live
 [group('references')]
 [positional-arguments]
-ref-add url note="":
+ref-add url note="" mode="":
     #!/usr/bin/env bash
     set -euo pipefail
-    url="$1"; note="$2"
+    url="$1"; note="$2"; mode="${3:-}"
+    case "$mode" in ""|live) ;; *) echo "The third word is live or nothing: just ref-add <folder> \"why\" live"; exit 1 ;; esac
     name=$(basename "${url%.git}" | tr '[:upper:]' '[:lower:]')
+    esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+    # A git bundle (spec 028): an old repository's only copy often is one, and
+    # git clone reads it. Cloned into .references/ under its name without
+    # .bundle, and listed local only, with where it came from.
+    if [ -f "$url" ] && [ -z "$mode" ] && git bundle verify -q "$url" >/dev/null 2>&1; then
+      abs="$(cd "$(dirname "$url")" && pwd -P)/$(basename "$url")"
+      name=$(basename "$abs" .bundle | tr '[:upper:]' '[:lower:]')
+      from="$abs"; home=$(cd "$HOME" 2>/dev/null && pwd -P || true)
+      if [ -n "$home" ]; then case "$abs" in "$home"/*) from="~/${abs#"$home"/}" ;; esac; fi
+      mkdir -p .references; toml=.references/references.toml
+      if [ -e ".references/$name" ]; then echo "  exists  .references/$name"
+      else git clone -q "$abs" ".references/$name"; echo "  cloned  .references/$name from the bundle $(basename "$abs") (read-only, not committed)"; fi
+      if [ -f "$toml" ] && N="$name" awk -F'"' '/^name *=/ && $2 == ENVIRON["N"] {f=1} END {exit !f}' "$toml"; then echo "  listed  already in $toml"
+      else
+        [ -f "$toml" ] || printf '%s\n' '# Read-only references: other people'"'"'s repos, kept to learn from. Never edit them.' '# An entry with url = "" is a folder on this machine only: ref-fetch skips it.' > "$toml"
+        printf '\n[[ref]]\nname   = "%s"\nurl    = ""\nfrom   = "%s"\nnote   = "%s"\nadded  = "%s"\nstatus = "frozen"\n' "$(esc "$name")" "$(esc "$from")" "$(esc "$note")" "$(date +%Y-%m-%d)" >> "$toml"
+        echo "  listed  $toml (local only: keep the bundle, no other machine can fetch it)"
+      fi
+      echo "Read it, copy the idea out. Never write in .references/."; exit 0
+    fi
+    if [ -f "$url" ]; then echo "$url is a file, and not a git bundle git can read. A reference is a git address, a folder, or a .bundle."; exit 1; fi
+    # A folder read where it stands, never cloned (spec 028): a sibling project
+    # that moves on, read as it is today. Listed with its path (the home folder
+    # as ~) and status live, which ref-fetch reads in place.
+    if [ "$mode" = live ]; then
+      if [ ! -d "$url" ]; then echo "No folder at $url. A live reference is a folder on this machine."; exit 1; fi
+      abs=$(cd "$url" && pwd -P); here=$(pwd -P)
+      case "$abs/" in "$here/"*) echo "$url is part of this project. A reference is another repo, read apart from this one."; exit 1 ;; esac
+      name=$(basename "$abs" | tr '[:upper:]' '[:lower:]'); path="$abs"
+      home=$(cd "$HOME" 2>/dev/null && pwd -P || true)
+      if [ -n "$home" ]; then case "$abs" in "$home"/*) path="~/${abs#"$home"/}" ;; esac; fi
+      mkdir -p .references; toml=.references/references.toml
+      if [ -f "$toml" ] && N="$name" awk -F'"' '/^name *=/ && $2 == ENVIRON["N"] {f=1} END {exit !f}' "$toml"; then echo "  listed  already in $toml"; exit 0; fi
+      [ -f "$toml" ] || printf '%s\n' '# Read-only references: other people'"'"'s repos, kept to learn from. Never edit them.' '# An entry with url = "" is a folder on this machine only: ref-fetch skips it.' > "$toml"
+      printf '\n[[ref]]\nname   = "%s"\nurl    = ""\npath   = "%s"\nnote   = "%s"\nadded  = "%s"\nstatus = "live"\n' "$(esc "$name")" "$(esc "$path")" "$(esc "$note")" "$(date +%Y-%m-%d)" >> "$toml"
+      echo "  listed  $toml: $path, read where it stands (live, never cloned; not on another machine)"
+      echo "Read it, copy the idea out. Never write there."; exit 0
+    fi
     # A folder on this machine, too: an old repo of the person's own that has no
     # address anywhere else (a Flutter project kept three earlier repositories that way,
     # moved into .references/ by hand on 2026-09-22, and nothing listed them).
@@ -3326,6 +3415,18 @@ _tool-pins:
       have=$("$tool" --version 2>/dev/null | grep -oE '[0-9]+(\.[0-9]+)+' | head -1 || true)
       # "-" for a tool that is not here: read splits on tabs and would skip an empty field.
       printf '%s\t%s\t%s\n' "$tool" "${have:--}" "$row"
+    done
+
+# A Cargo.toml whose version `just release` cannot move (spec 028): the layer
+# moves the manifest through its `_set-version`, which the Rust example has
+# carried since spec 016, and a stack.just copied before it has none. Prints
+# the file, or nothing. Only Cargo.toml: no other example has the recipe yet,
+# so a line about another manifest would name nothing to copy.
+_manifest-unmoved:
+    #!/usr/bin/env bash
+    just --show _set-version >/dev/null 2>&1 && exit 0
+    for m in Cargo.toml server/Cargo.toml; do
+      if [ -f "$m" ] && grep -qE '^[[:space:]]*version[[:space:]]*=[[:space:]]*"' "$m"; then echo "$m"; exit 0; fi
     done
 
 # Each skill whose folder and the `name:` in its SKILL.md differ, one per line:

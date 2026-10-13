@@ -45,20 +45,31 @@ dev:
 # Fast type check. No tests, no codegen.
 [group('rust')]
 check:
+    @just _own-moved
     cd {{server_dir}} && $(just _heavy) env $(just _build-wait) cargo check --workspace --all-targets
 
 # Unit tests only. Database tests are separate, see test-db.
 [group('rust')]
 test:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just _crate-here || exit 0
+    just _own-moved
     cd {{server_dir}} && $(just _heavy) env $(just _build-wait) cargo test --workspace
 
 # Formatter and linter. Both must pass before a commit. The last line reports
-# docs that name a path no longer here; the leading - keeps it from failing lint.
+# docs that name a path no longer here, and never fails lint. With no Cargo.toml
+# yet, lint and test say so and pass: right after `just stack rust` the hook
+# runs lint on the first save, and that save must not wait for `cargo init`.
 [group('rust')]
 lint:
-    cd {{server_dir}} && $(just _heavy) env $(just _build-wait) cargo clippy --workspace --all-targets -- -D warnings
-    cd {{server_dir}} && cargo fmt --check
-    -@just stale
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just _crate-here || exit 0
+    just _own-moved
+    ( cd {{server_dir}} && $(just _heavy) env $(just _build-wait) cargo clippy --workspace --all-targets -- -D warnings )
+    ( cd {{server_dir}} && cargo fmt --check )
+    just stale || true
 
 # `just lint` prints a diff and does not say how to apply it, and
 # `cargo fmt -p <crate>` prints cargo-fmt's help instead of formatting; a
@@ -79,12 +90,49 @@ fmt:
 # The tests without the doctests: quick enough to run before a commit
 [group('rust')]
 test-fast:
+    @just _own-moved
     cd {{server_dir}} && $(just _heavy) env $(just _build-wait) cargo test --workspace --lib --bins --tests
 
 # Release build
 [group('rust')]
 build:
+    @just _own-moved
     cd {{server_dir}} && $(just _heavy) env $(just _build-wait) cargo build --release
+
+# Clean this workspace's own crates, never the dependencies: after the folder
+# was moved or renamed (the heavy recipes above do it on their own when they
+# see that), cargo kept reusing them, its fingerprints being relative, so
+# env!("CARGO_MANIFEST_DIR") still named the old folder and a test that reads a
+# fixture by it failed under some build flags only (spec 028).
+[group('rust')]
+clean-own:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just _crate-here || exit 0
+    cd {{server_dir}}
+    names=$(cargo tree --workspace --depth 0 --prefix none 2>/dev/null | awk 'NF { print $1 }' | sort -u)
+    if [ -z "$names" ]; then echo "cargo could not list this workspace's crates; nothing was cleaned."; exit 1; fi
+    for n in $names; do cargo clean -p "$n" --quiet 2>/dev/null || cargo clean -p "$n"; done
+    echo "Cleaned this workspace's own crates ($(echo $names | sed 's/ /, /g')); the dependencies are kept."
+
+# 0 when the workspace has a Cargo.toml; otherwise one line on stderr, and 1.
+_crate-here:
+    #!/usr/bin/env bash
+    [ -f "{{server_dir}}/Cargo.toml" ] && exit 0
+    echo "No Cargo.toml yet ({{server_dir}}/Cargo.toml): nothing to build or check. cargo init there, or set server_dir in stack.just." >&2
+    exit 1
+
+# Clean the own crates once when the workspace is not where it was last built.
+# Where it was is kept per clone and per worktree, in git's own folder.
+_own-moved:
+    #!/usr/bin/env bash
+    [ -f "{{server_dir}}/Cargo.toml" ] || exit 0
+    gd=$(git rev-parse --git-dir 2>/dev/null) || exit 0
+    here=$(cd {{server_dir}} && pwd -P); was=$(cat "$gd/ai-backbone.cargo-root" 2>/dev/null || true)
+    printf '%s' "$here" > "$gd/ai-backbone.cargo-root" 2>/dev/null || exit 0
+    [ -n "$was" ] && [ "$was" != "$here" ] || exit 0
+    echo "This workspace moved since its last build ($was -> $here): cleaning its own crates first, so the paths built into them are this folder's." >&2
+    just clean-own >&2 || true
 
 # ──────────────────────── build output ───────────────────────
 # Where cargo writes, for `just doctor` and the wait above (spec 015). A Rust
@@ -275,10 +323,8 @@ gen-types:
     cd {{server_dir}} && cargo test -p core --tests export_bindings_
 
 # ─────────────────────────────────────────────────────────────
-# Also add these to the repo root, outside this file:
-#
-#   .gitignore          target/
-#                       *.rs.bk
+# Also add these to the repo root, outside this file (`just stack rust` wrote
+# the .gitignore lines already, from `_gitignore` below):
 #
 #   .graphifyignore     **/target/
 #                       **/.sqlx/          (thousands of generated json files)
@@ -310,6 +356,12 @@ outdated:
 # naming a file that is not there costs nothing.
 _root-allow:
     @echo "Cargo.toml Cargo.lock rust-toolchain.toml deny.toml clippy.toml rustfmt.toml"
+
+# What `just stack rust` adds to .gitignore, one line each, each once (spec 028):
+# without target/ the first save after a build staged gigabytes of it.
+_gitignore:
+    @echo "target/"
+    @echo "*.rs.bk"
 
 # What this layer needs on the machine, so `just doctor` can say when it is not
 # there: one line per tool, the command first, then where to get it.

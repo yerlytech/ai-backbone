@@ -14,8 +14,9 @@ A reference may be a folder on this machine that lives nowhere else: an old repo
 of yours with no remote. `just ref-add <folder> "why"` lists it with `url = ""`.
 A git repository is cloned in (one that has an address elsewhere is listed with
 that address); a folder already in `.references/` is listed where it stands.
-A folder can also be listed by hand with `path` in place of `url`: it is read
-where it stands. `just ref-fetch` cannot bring a local-only one back on another
+A folder read where it stands, never cloned (a sibling project that moves on):
+`just ref-add <folder> "why" live`, which writes `path` in place of `url`. A git
+bundle (`old.bundle`) is cloned in like a repository and listed local only. `just ref-fetch` cannot bring a local-only one back on another
 machine; it says which are there and which are not. Keep a second copy of it
 yourself if it matters.
 

@@ -13,6 +13,42 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## 3.37.0 — 2026-10-13
+
+**The backlog of 2026-10-13, in one batch** (spec 028). Ten lines, most of
+them a person stopped on the first day.
+
+- **`just new-project` takes a folder that is there and empty** (a Mac's
+  `.DS_Store` aside): the person often makes it and opens it in the editor
+  first. A folder with anything else in it is still refused.
+- **`just ref-add old.bundle "why"`** clones a git bundle, the only copy an
+  old repository often has, into `.references/`, listed local only with
+  where it came from. **`just ref-add <folder> "why" live`** lists a sibling
+  project where it stands (`path`, `status = "live"`), never cloned, which
+  `ref-fetch` already read.
+- **The Rust layer, day one.** `just stack <lang>` adds the ignore lines the
+  layer names (a `_gitignore` recipe; Rust's says `target/` and `*.rs.bk`),
+  each once: the first save after a build staged gigabytes of `target/`. With
+  no Cargo.toml yet, `lint` and `test` say so and pass, so the save right
+  after `just stack rust` is not blocked. A workspace moved since its last
+  build cleans its own crates once before the next one (cargo's fingerprints
+  are relative, so `env!("CARGO_MANIFEST_DIR")` kept the old folder); `just
+  clean-own` does it by hand, dependencies kept.
+- **The version in Cargo.toml.** `just release` has moved it through the
+  layer's `_set-version` since spec 016, and a stack.just copied before that
+  has none: release and doctor now say so, and where to copy the recipe from.
+- **Claude Code's session start.** Run as the SessionStart hook, session-start
+  writes the folders `just`, `prek`, `graphify` and `uv` live in to the file in
+  `CLAUDE_ENV_FILE`, so the agent's Bash finds them, after a `/resume` too
+  (claude-code 2.1.295). It leaves a mark, and doctor says when the hook has
+  never run on the machine, naming `claude --debug`, which logs each hook's
+  command and outcome (2.1.296).
+- **The session skill**: when auto mode blocks a command the maintainer
+  approved, they type it in the chat; never a `!` line, which runs nothing in
+  the VS Code extension.
+- **The suite** sees the disk half free in the build-trim checks: a sandbox
+  with 11% free halved every cap and failed checks about something else.
+
 ## 3.36.0 — 2026-10-13
 
 **Night specs: one approval, a night's work, a handover in the morning.** A

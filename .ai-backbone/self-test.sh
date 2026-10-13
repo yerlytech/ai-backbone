@@ -1867,6 +1867,9 @@ check "check, test, test-fast, lint and build all start cargo through the wait" 
 cap() { bw env GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=ai-backbone.jobs GIT_CONFIG_VALUE_0="$1" GIT_CONFIG_KEY_1=ai-backbone.nice GIT_CONFIG_VALUE_1="$2" "${@:3}"; }
 check "_heavy is nothing until the machine says otherwise" "[ -z \"\$(just _heavy)\" ]"
 check "with a cap and a nice level it prints the prefix for both" "[ \"\$(cap 3 15 just _heavy)\" = 'nice -n 15 env CARGO_BUILD_JOBS=3 RUST_TEST_THREADS=3 CMAKE_BUILD_PARALLEL_LEVEL=3 MAKEFLAGS=-j3' ]"
+# A workspace moved since its last build cleans its own crates once (spec 028).
+gd=$(git rev-parse --git-dir); printf '/somewhere/else' > "$gd/ai-backbone.cargo-root"
+check "a moved Rust workspace cleans its own crates before it builds, once" "out=\$(bw env BUILD_WAIT_MINUTES=0 just check 2>&1); grep -q 'This workspace moved since its last build' <<<\"\$out\" && grep -q 'fake cargo clean -p fake' <<<\"\$out\" && ! says 'workspace moved' bw env BUILD_WAIT_MINUTES=0 just check"
 check "a MAKEFLAGS already set is left as it is" "! says MAKEFLAGS cap 3 0 env MAKEFLAGS=-j1 just _heavy && says 'CARGO_BUILD_JOBS=3' cap 3 0 env MAKEFLAGS=-j1 just _heavy"
 check "half is half the cores, and nonsense is ignored" "[ \"\$(cap half 99 just _heavy)\" = 'env CARGO_BUILD_JOBS=$half RUST_TEST_THREADS=$half CMAKE_BUILD_PARALLEL_LEVEL=$half MAKEFLAGS=-j$half' ] && [ -z \"\$(cap many x just _heavy)\" ]"
 check "the Rust layer builds under the machine's cap" "says 'fake cargo check --workspace --all-targets jobs=1' cap 1 15 env BUILD_WAIT_MINUTES=0.1 just check"
@@ -2206,7 +2209,7 @@ check "a perl that fails is no all-clear: stale says nothing was checked" "grep 
 mkdir -p "$tmp/s15-bin" && printf '#!/bin/sh\nexit 0\n' > "$tmp/s15-bin/cargo" && chmod +x "$tmp/s15-bin/cargo"
 just stack rust >/dev/null 2>&1; : > Cargo.toml
 check "the Rust layer's lint reports stale lines and still passes" "out=\$(PATH='$tmp/s15-bin:'\"\$PATH\" just lint 2>&1) && grep -q 'server/src/main.rs:1' <<<\"\$out\""
-check "and the Swift layer's lint ends with it too, never failing on it" "grep -q '^    just stale || true\$' '$root/.ai-backbone/examples/stack-swift.just' && grep -q '^    -@just stale\$' '$root/.ai-backbone/examples/stack-rust.just'"
+check "and the Swift layer's lint ends with it too, never failing on it" "grep -q '^    just stale || true\$' '$root/.ai-backbone/examples/stack-swift.just' && grep -q '^    just stale || true\$' '$root/.ai-backbone/examples/stack-rust.just'"
 rm -f Cargo.toml stack.just
 # The pre-push hook: in the seed config, commented; installed once it is not.
 fp="$tmp/s15-prek"; mkdir -p "$fp"
@@ -2671,7 +2674,11 @@ PY
 }
 # Through the fake ps, which lists no compiler unless asked: this machine's own
 # builds are not the suite's business.
-trimpy() { rm -f "$tmp/trim-ps"; env PATH="$bo/bin:$PATH" PS_COUNT="$tmp/trim-ps" "$py" "$root/.ai-backbone/buildtrim.py" "$@"; }
+# The disk is seen half free: under 15% free the cap is halved, and a machine
+# whose disk is that full (a sandbox, measured 2026-10-13) halved every cap here
+# and failed the checks that are about something else. The halving has a check
+# of its own below.
+trimpy() { rm -f "$tmp/trim-ps"; env PATH="$bo/bin:$PATH" PS_COUNT="$tmp/trim-ps" "$py" -c 'import collections, runpy, shutil, sys; D = collections.namedtuple("D", "total used free"); shutil.disk_usage = lambda p: D(100, 50, 50); sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name="__main__")' "$root/.ai-backbone/buildtrim.py" "$@"; }
 kb() { "$py" -c "print(round($1 / 1048576, 9))"; }
 tt="$tmp/tt"; mkcargo "$tt/target"
 if "$py" -c 'import fcntl' 2>/dev/null; then
@@ -2715,7 +2722,7 @@ cd "$bo/proj" || exit 1
 mkcargo "$tmp/tr/target"
 # The suite turns trimming off for itself; these turn it on, outside CI.
 tcap() { local c=$1; shift; bw env -u CI GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=ai-backbone.build-cap GIT_CONFIG_VALUE_0="$c" CARGO_META_TARGET="$tmp/tr/target" "$@"; }
-check "just trim-build runs now and says what it did" "says '^[0-9-]+ [0-9:]+  .*under the cap of 60.0 GB' tcap 60 just trim-build"
+check "just trim-build runs now and says what it did" "says '^[0-9-]+ [0-9:]+  .*under the cap of (60|30).0 GB' tcap 60 just trim-build"
 check "and off turns it off" "says 'Trimming is off here' tcap off just trim-build"
 check "a folder that is not cargo's is left alone by the recipe too" "says 'is not a folder cargo made' tcap 60 env -u CARGO_META_TARGET just trim-build"
 rm -f "$tmp/tr/target/ai-backbone-trim.log" "$tmp/tr/target/ai-backbone-trim.done"
@@ -2732,6 +2739,36 @@ mkdir -p "$tmp/fakedf"; printf '#!/bin/sh\necho "Filesystem 1024-blocks Used Ava
 mkdir -p "$tmp/fakedf2"; sed 's/95000000 5000000 95%/50000000 50000000 50%/' "$tmp/fakedf/df" > "$tmp/fakedf2/df"; chmod +x "$tmp/fakedf2/df"
 check "session-start says when the disk is nearly full" "says '^Disk: only 5% free here \(4 GB\)\. Build output is the usual cause -> just trim-build' env PATH='$tmp/fakedf:$PATH' just session-start"
 check "and nothing when it is not" "! says '^Disk:' env PATH='$tmp/fakedf2:$PATH' just session-start"
+cd "$tmp" || exit 1
+
+echo "== the backlog of 2026-10-13 (spec 028) =="
+# A folder the person made and opened first is taken while it is empty.
+mkdir -p "$tmp/s28" "$tmp/s28-full"; : > "$tmp/s28-full/x.txt"
+check "new-project takes a folder that is there and empty" "( cd '$root' && just new-project '$tmp/s28' ) >/dev/null 2>&1 && [ -f '$tmp/s28/AGENTS.md' ] && [ -n \"\$(git -C '$tmp/s28' log --oneline 2>/dev/null)\" ]"
+check "and refuses one with something in it" "! ( cd '$root' && just new-project '$tmp/s28-full' ) >/dev/null 2>&1 && says 'is not empty' bash -c \"cd '$root' && just new-project '$tmp/s28-full'\" && [ ! -e '$tmp/s28-full/AGENTS.md' ]"
+cd "$tmp/s28" || exit 1
+# ref-add: a git bundle, and a folder read where it stands.
+mkdir -p "$tmp/s28-old" "$tmp/s28-sib"; git -C "$tmp/s28-old" init -q; : > "$tmp/s28-old/f"; git -C "$tmp/s28-old" add f; git -C "$tmp/s28-old" commit -qm x --no-verify
+git -C "$tmp/s28-old" bundle create "$tmp/Old.bundle" --all >/dev/null 2>&1
+check "ref-add clones a git bundle and lists it local only" "just ref-add '$tmp/Old.bundle' 'an old copy' >/dev/null 2>&1 && [ -f .references/old/f ] && grep -q '^from   = .*Old.bundle\"\$' .references/references.toml"
+check "ref-add <folder> live lists it where it stands and clones nothing" "just ref-add '$tmp/s28-sib' 'a sibling' live >/dev/null 2>&1 && [ ! -e .references/s28-sib ] && grep -q '^status = \"live\"' .references/references.toml && says 's28-sib .local only, read where it stands' just ref-fetch"
+check "and a third word other than live is refused" "! just ref-add '$tmp/s28-sib' x lively 2>/dev/null"
+# The Rust layer: its ignore lines, a first save before cargo init, the version.
+printf 'target/\n' >> .gitignore
+check "stack rust adds the layer's ignore lines, each once" "just stack rust >/dev/null 2>&1 && [ \$(grep -cx 'target/' .gitignore) -eq 1 ] && grep -qxF '*.rs.bk' .gitignore"
+check "with no Cargo.toml yet, lint and test say so and pass, so the first save goes through" "says 'No Cargo.toml yet' just lint && just lint >/dev/null 2>&1 && just test >/dev/null 2>&1 && just save 'chore: the rust layer' >/dev/null 2>&1"
+perl -0pi -e 's/\n_set-version version:/\n_set_version_gone version:/' stack.just
+printf '[package]\nname = "s28"\nversion = "0.1.0"\n' > Cargo.toml
+check "doctor says when the layer cannot move the version in Cargo.toml" "says 'release does not move the version in Cargo.toml' just doctor"
+cp "$root/.ai-backbone/examples/stack-rust.just" stack.just
+check "and nothing once the layer has _set-version" "! says 'does not move the version' just doctor"
+rm -f Cargo.toml
+# Claude Code's SessionStart hook: the tools' folders for the agent's Bash, and
+# a mark that the hook ran, which doctor reads.
+check "doctor says when the session-start hook has not run here" "says 'session-start hook has not run on this machine' just doctor"
+: > "$tmp/s28-env"
+check "as the hook, session-start writes the tools' folders to CLAUDE_ENV_FILE" "CLAUDE_ENV_FILE='$tmp/s28-env' just session-start >/dev/null 2>&1; [ \$(grep -c '^export PATH=\".*:\$PATH\"\$' '$tmp/s28-env') -eq 1 ] && grep -q \"\$(dirname \"\$(command -v just)\")\" '$tmp/s28-env'"
+check "and doctor then says it ran" "says 'session-start hook ran here, last on' just doctor"
 cd "$tmp" || exit 1
 
 echo

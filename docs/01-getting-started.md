@@ -190,6 +190,8 @@ just snapshot        # zip the whole thing, just in case
 just archive <path>  # retire a file or folder into .archive/, kept but not read
 just ref-add <url> "why"   # keep a read-only copy of another repo to learn from
 just ref-add <folder> "why"   # or list an old repo of yours that lives on this machine only
+just ref-add old.bundle "why" # or a git bundle, the only copy an old repo often has
+just ref-add <folder> "why" live   # or a sibling project, read where it stands and never copied
 just project-note <project> "one line"   # a note for another project on this machine (or ai-backbone); its next session-start, save or session-end shows it
 just save "msg" <path>...                # save only those paths, and hear what was left unsaved
 just --list          # everything

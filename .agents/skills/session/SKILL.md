@@ -212,6 +212,11 @@ a message that names none.
 
 ## Rules
 
+- When auto mode blocks a command the maintainer already approved (a
+  deletion, most often), ask them to type that exact command in the chat, then
+  run the same command. Never offer a `!` line instead: in the VS Code
+  extension it runs nothing and arrives as a plain message.
+
 - The journal is the only memory that survives between sessions. Write it.
   (The backbone's own scheduled agent has no journal; the backbone-dev skill
   says where its memory is.)
