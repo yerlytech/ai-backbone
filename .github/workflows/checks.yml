@@ -64,18 +64,20 @@ jobs:
       # A red Mac must not cancel the Linux answer, or the other way round.
       fail-fast: false
       matrix:
-        # Twice the measured time (2026-09-24: Linux 2 min 20 s, macOS 3 min
-        # 14 s for setup and suite together); the job's cap is the backstop
-        # behind the suite step's own.
+        # Twice the measured suite; the job's cap is the backstop behind the
+        # suite step's own. Measured again 2026-10-13 (run 38400602011, 727
+        # checks): Linux 3 min 6 s, macOS 7 min 13 s, Windows 22 min. The caps
+        # of 2026-09-24 (twice 2 min 20 s and 3 min 14 s, then about 520
+        # checks) stopped the next run on macOS and Windows with every check
+        # that ran green (spec 028).
         include:
-          - { os: ubuntu-latest,  cap: 7,  suite_cap: 5, report_only: false }
-          - { os: macos-latest,   cap: 10, suite_cap: 8, report_only: false }
-          # Deciding since spec 020 (the maintainer's word, 2026-09-24): green
-          # at 829f3a6 (run 36010227211, 522 checks, the suite 15 minutes and
-          # the job 17); the caps are twice that. Report-only before it: at ten
-          # minutes about 220 checks were red, and gate.sh read only the other
-          # two. A carry waits for the whole run, so about seventeen minutes.
-          - { os: windows-latest, cap: 34, suite_cap: 30, report_only: false }
+          - { os: ubuntu-latest,  cap: 9,  suite_cap: 7,  report_only: false }
+          - { os: macos-latest,   cap: 17, suite_cap: 15, report_only: false }
+          # Deciding since spec 020 (the maintainer's word, 2026-09-24).
+          # Report-only before it: at ten minutes about 220 checks were red,
+          # and gate.sh read only the other two. A carry waits for the whole
+          # run, so about twenty-five minutes.
+          - { os: windows-latest, cap: 48, suite_cap: 44, report_only: false }
     # The name gate.sh reads the verdict by: without it the matrix's other
     # values are appended ("suite (ubuntu-latest, 30, false)"; measured).
     name: suite (${{ matrix.os }})

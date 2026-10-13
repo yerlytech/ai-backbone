@@ -117,7 +117,7 @@ a half-started Docker Desktop, 2026-09-27.
 5. `just save "..."`. The hook runs `just self-test`; red means not saved.
    Then `just publish`: it goes to `cloud`, and the gate on GitHub tests it on
    a clean Linux, Mac and Windows, carries it to `main` when all three are
-   green (about seventeen minutes, the Windows job's), and tags the version (`just ci` shows the run; a red gate
+   green (about twenty-five minutes, the Windows job's), and tags the version (`just ci` shows the run; a red gate
    writes a `gate:` line into `docs/routine-log.md` on `cloud`). Then
    `git checkout main`: what projects copy is `main`, and a sibling left on
    `cloud` blocks every project's update. A change to `.github/workflows/`

@@ -2768,20 +2768,24 @@ check "a second live folder of the same name is refused, the first kept" "! just
 # The Rust layer: its ignore lines, a first save before cargo init, the version.
 printf 'target/\n' >> .gitignore
 check "stack rust adds the layer's ignore lines, each once" "just stack rust >/dev/null 2>&1 && [ \$(grep -cx 'target/' .gitignore) -eq 1 ] && grep -qxF '*.rs.bk' .gitignore"
-check "with no Cargo.toml yet, lint and test say so and pass, so the first save goes through" "says 'No Cargo.toml yet' just lint && ! says 'error:' just lint && just lint >/dev/null 2>&1 && just test >/dev/null 2>&1 && just save 'chore: the rust layer' >/dev/null 2>&1"
+lint28=$(just lint 2>&1); rc28=$?
+check "with no Cargo.toml yet, lint and test say so and pass, so the first save goes through" "[ $rc28 -eq 0 ] && grep -q 'No Cargo.toml yet' <<<\"\$lint28\" && ! grep -q 'error:' <<<\"\$lint28\" && just test >/dev/null 2>&1 && just save 'chore: the rust layer' >/dev/null 2>&1"
 perl -0pi -e 's/\n_set-version version:/\n_set_version_gone version:/' stack.just
 printf '[package]\nname = "s28"\nversion = "0.1.0"\n' > Cargo.toml
-check "doctor says when the layer cannot move the version in Cargo.toml" "says 'release does not move the version in Cargo.toml' just doctor"
-cp "$root/.ai-backbone/examples/stack-rust.just" stack.just
-check "and nothing once the layer has _set-version" "! says 'does not move the version' just doctor"
-rm -f Cargo.toml
+# One doctor before and one after, each read for two things: the suite has a
+# time limit on every machine, and a doctor costs seconds on a runner.
+doc28=$(just doctor 2>&1)
+check "doctor says when the layer cannot move the version in Cargo.toml" "grep -q 'release does not move the version in Cargo.toml' <<<\"\$doc28\""
 # Claude Code's SessionStart hook: the tools' folders for the agent's Bash, and
 # a mark that the hook ran, which doctor reads.
-check "doctor says when the session-start hook has not run here" "says 'session-start hook has not run on this machine' just doctor"
+check "doctor says when the session-start hook has not run here" "grep -q 'session-start hook has not run on this machine' <<<\"\$doc28\""
+cp "$root/.ai-backbone/examples/stack-rust.just" stack.just
 : > "$tmp/s28-env"; mkdir -p "$tmp/s28h/.local/bin"; printf '#!/bin/sh\necho prek 0.0.1\n' > "$tmp/s28h/.local/bin/prek"; chmod +x "$tmp/s28h/.local/bin/prek"
 hook28() { env CLAUDE_ENV_FILE="$tmp/s28-env" HOME="$tmp/s28h" PATH="$tmp/s28h/.local/bin:$PATH" just session-start >/dev/null 2>&1; }
 check "as the hook, session-start writes ~/.local/bin to CLAUDE_ENV_FILE, at the end of PATH, once" "hook28; hook28; [ \$(grep -c . '$tmp/s28-env') -eq 1 ] && grep -qx \"export PATH=\\\"\\\$PATH:$tmp/s28h/.local/bin\\\"\" '$tmp/s28-env'"
-check "and doctor then says it ran" "says 'session-start hook ran here, last on' just doctor"
+doc28=$(just doctor 2>&1); rm -f Cargo.toml
+check "and doctor then says it ran" "grep -q 'session-start hook ran here, last on' <<<\"\$doc28\""
+check "and nothing about the version once the layer has _set-version" "! grep -q 'does not move the version' <<<\"\$doc28\""
 cd "$tmp" || exit 1
 
 echo

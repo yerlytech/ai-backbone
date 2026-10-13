@@ -13,6 +13,31 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## 3.37.1 — 2026-10-13
+
+What review found in 3.37.0 (spec 028), and the gate's time limits.
+
+- A git bundle of one branch, the usual form, carries no HEAD, and `just
+  ref-add` cloned it empty and called it cloned: its first branch is checked
+  out now. A live reference whose name is taken is refused instead of
+  dropped, and a clone may no longer take a live reference's name.
+- `just new-project "My App"` uses the folder the person made under that
+  name, while it is empty, instead of making `my-app/` beside it.
+- The line session-start writes to `CLAUDE_ENV_FILE` adds the tool folders at
+  the end of PATH, never in front (a `just` from `/usr/bin` put first put the
+  system's python and cargo ahead of the person's own), only the ones missing,
+  and once.
+- The Rust layer's `lint` with no Cargo.toml says one line, without just's
+  "error:" after it; a workspace that moved is marked as moved only once its
+  clean went through, so a failed one is tried again.
+- The suite leaves out any `CLAUDE_ENV_FILE` it is run under, and its fake
+  cargo lists two crates as cargo 1.97 does.
+- **The gate's limits, measured again.** The suite has grown from about 520
+  checks to 730 since the limits were set at twice its time; the run after
+  3.37.0 was stopped on macOS and Windows with every check that ran green.
+  Twice today's time: Linux 7 minutes, macOS 15, Windows 44. A change to the
+  workflow is carried to `main` by hand, after green checks, as always.
+
 ## 3.37.0 — 2026-10-13
 
 **The backlog of 2026-10-13, in one batch** (spec 028). Ten lines, most of
