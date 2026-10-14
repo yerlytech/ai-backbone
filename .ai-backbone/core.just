@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.38.0
+# .ai-backbone/core.just — the backbone's recipes, version 3.38.1
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -3840,10 +3840,11 @@ trim-build:
 # The cap is 60 GB a project unless git says otherwise, per project or for the
 # machine (`git config [--global] ai-backbone.build-cap 30`, in GB; `off` turns
 # it off). Only a folder cargo made is touched, and only pieces the next build
-# makes again, and nothing while a compiler runs; .ai-backbone/buildtrim.py says
+# makes again, and nothing in a profile a running build or test uses (a build
+# of another folder holds nothing back, 3.38.1); .ai-backbone/buildtrim.py says
 # what is never removed. `auto` is the run _build-wait starts: never on CI, at
 # most once an hour by the age of the folder's ai-backbone-trim.done, which a
-# run that finished touches, and it waits for the builds to end first.
+# run that finished touches, and it waits for the builds using the folder to end.
 [positional-arguments]
 _build-trim mode="auto":
     #!/usr/bin/env bash

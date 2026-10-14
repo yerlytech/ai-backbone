@@ -49,15 +49,21 @@ cargo rebuilds a piece that is gone the next time it needs it (measured on
 cargo 1.98.1: with a library's .rlib, its fingerprint or its build/ folders
 deleted, the next build rebuilt them and ran).
 
-Nothing at all while cargo, rustc or rustdoc runs on this machine: cargo lets
-go of its locks when compiling ends, and a `cargo test` then runs the test
-programs in deps/ for as long as they take (in review, a piece removed then
-failed a running test). So --wait, the run a build starts in the background,
-waits for a moment with none, an hour at most; --now says so and stops; and
-both look again before each few seconds of removing, and stop when a build
-has started. While removing a profile's pieces it holds that profile's cargo
-locks, so a build that starts meanwhile waits for it rather than finding a
-piece half gone, and each piece's age is read again under them.
+Nothing in a profile a running program uses: cargo lets go of its locks when
+compiling ends, and a `cargo test` then runs the test programs in deps/ for as
+long as they take (in review, a piece removed then failed a running test). A
+program uses a profile when its command line names a folder of pieces there:
+a rustc writing into deps/, a test program run from it, a rustdoc linking
+against it, a build script (`ps -o args`, measured on macOS: cargo passes them
+whole paths). A build of another folder holds nothing back; until 3.38.1 any
+compiler on the machine did, and with six projects building there was always
+one, so the trim never ran. --wait, the run a build starts in the
+background, waits until nothing uses the folder, an hour at most; --now does
+not wait; and both look again before each few seconds of removing, and leave
+a profile alone once something uses it. While removing a profile's pieces it
+holds that profile's cargo locks, so a build that starts meanwhile waits for
+it rather than finding a piece half gone, and each piece's age is read again
+under them.
 
 Never removed besides: a piece used in the last 6 hours; the top-level
 files of a profile, the programs a person runs; anything else that is no
@@ -97,24 +103,40 @@ LOCKS = (".cargo-lock", ".cargo-build-lock", ".cargo-artifact-lock")
 YOUNG = 6 * 3600
 IN_USE = 24 * 3600
 HOLD = 5.0
-COMPILERS = {"cargo", "rustc", "rustdoc"}
 GB = 1024 ** 3
 LOG = "ai-backbone-trim.log"
 DONE = "ai-backbone-trim.done"
 RUNNING = "ai-backbone-trim.lock"
 
 
-def building():
-    """Whether cargo, rustc or rustdoc runs on this machine; None when the
-    process list cannot be read, which is no answer and so no go."""
-    try:
-        done = subprocess.run(["ps", "-A", "-o", "comm="], capture_output=True, text=True, timeout=20)
-    except (OSError, subprocess.SubprocessError):
+def users(root):
+    """The profiles of root whose pieces a running program names in its
+    command line: a rustc writing into deps/, a test program run from it, a
+    rustdoc linking against it, a build script. None when the process list
+    cannot be read, which is no answer and so no go. A program run from the
+    top of a profile, a server left running, names none: nothing there is
+    ever removed. A build of another folder is not this one's business: with
+    six projects building, one machine always had a compiler running, the
+    trim never ran, and a folder grew 24 GB an hour (spec 029, 3.38.1)."""
+    lines = None
+    for cmd in (["ps", "-A", "-ww", "-o", "args="], ["ps", "-A", "-o", "args="]):
+        try:
+            done = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if done.returncode == 0 and done.stdout.strip():
+            # Another trim names the folder too; its own lock keeps it apart.
+            lines = [line for line in done.stdout.splitlines() if "buildtrim.py" not in line]
+            break
+    if lines is None:
         return None
-    names = [line.strip().rsplit("/", 1)[-1] for line in done.stdout.splitlines() if line.strip()]
-    if done.returncode != 0 or not names:
-        return None
-    return any(n in COMPILERS for n in names)
+    found = set()
+    for profile in profiles(root):
+        forms = {str(profile), os.path.abspath(profile), os.path.realpath(profile)}
+        needles = [f"{f}/{sub}" for f in forms for sub in PIECES + ("incremental",)]
+        if any(n in line for line in lines for n in needles):
+            found.add(profile)
+    return found
 
 
 def parse_cap(text):
@@ -344,9 +366,13 @@ def trim(root, cap):
                 held.pop(profile, None)
                 if fds is not None:
                     time.sleep(0.2)  # a build that waited gets its turn
-                if building() is not False:
+                using = users(root)
+                if using is None:
                     stopped = True
                     break
+                if profile in using:
+                    busy.add(profile)
+                    continue
                 fds = lock(profile)
                 if fds is None:
                     busy.add(profile)
@@ -369,16 +395,16 @@ def trim(root, cap):
     if latest is None and removed:
         line += "; cargo's records could not be read, so the pieces written longest ago went first"
     if busy:
-        line += f"; a build was running in {', '.join(str(p.relative_to(root)) for p in sorted(busy))}, left alone"
+        line += f"; {', '.join(str(p.relative_to(root)) for p in sorted(busy))} in use by a build or its programs, left alone"
     if stopped:
-        line += "; stopped: a build started, so the rest waits for the next run"
+        line += "; stopped: the process list could not be read, so the rest waits for the next run"
     elif total > target and not busy:
         line += ("; what is left was used in the last 6 hours, or is no piece (the programs themselves), or is"
                  " what the newest builds of the last day reach, which the next build would compile again")
         if kept > target:
             line += (f": {gb(kept)} of it, more than 75% of the cap, so the cap is below what this"
                      " project's builds need (git config ai-backbone.build-cap <GB> raises it)")
-    return line, not stopped
+    return line, not stopped and not busy
 
 
 def main():
@@ -434,17 +460,16 @@ def main():
         if now:
             print("Another trim of this folder is running: nothing more to do.")
         return 0
-    waited, state = 0, building()
+    # The run a build starts waits for that build, and any other using this
+    # folder, to end, an hour at most; then a profile still in use is left
+    # alone and the rest is trimmed. --now does not wait.
+    waited, state = 0, users(root)
     while "--wait" in flags and state and waited < 3600:
         time.sleep(30)
         waited += 30
-        state = building()
+        state = users(root)
     if state is None:
-        say(note + "the process list cannot be read, so whether a build runs is unknown: nothing removed", done=True)
-        return 0
-    if state:
-        say(note + ("a build is running on this machine: nothing removed; run it again when it ends" if now
-                    else "a build ran the whole hour: the next build tries again"))
+        say(note + "the process list cannot be read, so whether a build uses this folder is unknown: nothing removed", done=True)
         return 0
     try:
         line, finished = trim(root, cap * GB)

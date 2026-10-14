@@ -13,6 +13,20 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## 3.38.1 — 2026-10-14
+
+**The build trim runs on a machine that is always building.** It waited for a
+moment with no cargo, rustc or rustdoc anywhere on the machine; with six
+projects building there was none, every run ended "stopped: a build started",
+and one folder grew 24 GB an hour past its cap. Now only a build or a program
+using the folder holds it back, profile by profile: a profile whose cargo lock
+is held, or whose pieces a running program names in its command line (a rustc
+writing into deps/, a test program run from it, a rustdoc linking against it,
+a build script). A build of another folder holds nothing back, nor does a
+server run from the top of a profile, where nothing is ever removed. A run
+that left a profile alone is not counted as done, so the next build tries
+again within the hour.
+
 ## 3.38.0 — 2026-10-14
 
 **The backlog of 2026-10-14, in one batch** (spec 029). Six lines; the first

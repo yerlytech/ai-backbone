@@ -1794,10 +1794,12 @@ case "${PS_FAIL:-}" in 1) echo "ps: cannot list processes" >&2; exit 1 ;; empty)
 # build stopped with Ctrl-Z (PS_STOPPED=1).
 st=""; case "$*" in *stat=*) st="S " ;; esac
 for p in /sbin/init "/usr/bin/bash" "Google Chrome Helper" rust-analyzer; do echo "$st$p"; done
-# PS_LATER=k: a build that starts after the k-th look.
+# PS_LATER=k: a build that starts after the k-th look. Asked for command
+# lines (-o args=, the trim), it also prints PS_USES as one, if set.
 if [ "$n" -le "${PS_BUSY:-0}" ] || { [ -n "${PS_LATER:-}" ] && [ "$n" -gt "$PS_LATER" ]; }; then
   [ -n "$st" ] && [ "${PS_STOPPED:-}" = 1 ] && st="T "
   echo "$st/home/someone/.rustup/toolchains/stable/bin/${PS_NAME:-cargo}"
+  case "$*" in *args=*) [ -z "${PS_USES:-}" ] || echo "$PS_USES" ;; esac
 fi
 exit 0
 EOF
@@ -2698,7 +2700,7 @@ if "$py" -c 'import fcntl' 2>/dev/null; then
   out=$(trimpy "$tt/target" "$(kb 100)" --now 2>&1)
   { kill "$lk"; wait "$lk"; } 2>/dev/null
   check "over its cap, a cargo folder loses its old pieces, whole units at a time" "[ ! -e '$tt/target/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && [ ! -e '$tt/target/debug/deps/old-aaaaaaaaaaaaaaaa.d' ] && [ ! -d '$tt/target/debug/.fingerprint/old-aaaaaaaaaaaaaaaa' ] && [ ! -d '$tt/target/debug/incremental/old-2axyao3nv6b3e' ] && [ ! -e '$tt/target/debug/deps/libmid-bbbbbbbbbbbbbbbb.rlib' ]"
-  check "and keeps a piece younger than 6 hours, the program itself, and a profile whose build is running" "[ -e '$tt/target/debug/deps/libnew-cccccccccccccccc.rlib' ] && [ -e '$tt/target/debug/app' ] && [ -e '$tt/target/release/deps/librel-dddddddddddddddd.rlib' ] && grep -q 'removed .* in 3 pieces' <<<\"\$out\" && grep -q 'a build was running in release, left alone' <<<\"\$out\""
+  check "and keeps a piece younger than 6 hours, the program itself, and a profile whose build is running" "[ -e '$tt/target/debug/deps/libnew-cccccccccccccccc.rlib' ] && [ -e '$tt/target/debug/app' ] && [ -e '$tt/target/release/deps/librel-dddddddddddddddd.rlib' ] && grep -q 'removed .* in 3 pieces' <<<\"\$out\" && grep -q 'release in use by a build or its programs, left alone' <<<\"\$out\""
   check "the run is one line in the folder's log" "[ \$(wc -l < '$tt/target/ai-backbone-trim.log') -eq 1 ] && grep -q 'over the cap' '$tt/target/ai-backbone-trim.log'"
   # Down to 75% of the cap, oldest first, and no further.
   t4="$tmp/t4/target"; mkdir -p "$t4/debug/deps"; : > "$t4/CACHEDIR.TAG"; : > "$t4/.rustc_info.json"
@@ -2707,13 +2709,21 @@ if "$py" -c 'import fcntl' 2>/dev/null; then
   trimpy "$t4" "$(kb 760)" >/dev/null 2>&1
   check "it stops at 75% of the cap, the oldest gone first" "[ ! -e '$t4/debug/deps/liba-aaaaaaaaaaaaaaaa.rlib' ] && [ ! -e '$t4/debug/deps/libb-bbbbbbbbbbbbbbbb.rlib' ] && [ -e '$t4/debug/deps/libc-cccccccccccccccc.rlib' ] && [ -e '$t4/debug/deps/libd-dddddddddddddddd.rlib' ]"
   check "under its cap it removes nothing and says so" "says 'under the cap of .*: nothing removed' trimpy '$t4' 1 --now && [ -e '$t4/debug/deps/libc-cccccccccccccccc.rlib' ]"
-  # Nothing while a compiler runs: cargo lets go of its locks when compiling
-  # ends, and the tests it then runs need what is in deps/.
+  # Nothing in a profile a running program uses: cargo lets go of its locks
+  # when compiling ends, and the tests it then runs need what is in deps/.
   t5="$tmp/t5/target"; mkcargo "$t5"
-  out=$(PS_BUSY=99 trimpy "$t5" "$(kb 100)" --now 2>&1)
-  check "while a compiler runs nothing is removed, and --now says so" "grep -q 'a build is running on this machine: nothing removed' <<<\"\$out\" && [ -e '$t5/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && [ ! -e '$t5/ai-backbone-trim.done' ]"
-  out=$(PS_LATER=1 trimpy "$t5" "$(kb 100)" --now 2>&1)
-  check "a build that starts before a piece goes stops the run, and it is not counted as done" "grep -q 'stopped: a build started' <<<\"\$out\" && [ -e '$t5/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && [ ! -e '$t5/ai-backbone-trim.done' ]"
+  out=$(PS_BUSY=99 PS_USES="/home/someone/.rustup/toolchains/stable/bin/rustc --crate-name t --out-dir $(winpath "$t5")/debug/deps" trimpy "$t5" "$(kb 100)" --now 2>&1)
+  check "a profile a running program uses is left alone, said, and the run is not counted as done" "grep -q 'debug in use by a build or its programs, left alone' <<<\"\$out\" && [ -e '$t5/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && [ ! -e '$t5/ai-backbone-trim.done' ]"
+  out=$(PS_LATER=1 PS_USES="$(winpath "$t5")/debug/deps/t-aaaaaaaaaaaaaaaa --test-threads 1" trimpy "$t5" "$(kb 100)" --now 2>&1)
+  check "and one a test program starts to use after the first look" "grep -q 'debug in use by a build or its programs, left alone' <<<\"\$out\" && [ -e '$t5/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && [ ! -e '$t5/ai-backbone-trim.done' ]"
+  # A build of another folder, and a server run from the top of a profile,
+  # hold nothing back (3.38.1: with six projects building there was always one).
+  t6="$tmp/t6/target"; mkcargo "$t6"
+  out=$(PS_BUSY=99 PS_USES="$(winpath "$t6")/debug/app serve --port 8080" trimpy "$t6" "$(kb 100)" --now 2>&1)
+  check "a build elsewhere and a program run from the top of a profile hold nothing back" "[ ! -e '$t6/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && [ -e '$t6/debug/app' ] && ! grep -q 'in use by' <<<\"\$out\""
+  t7="$tmp/t7/target"; mkcargo "$t7"
+  out=$(PS_FAIL=1 trimpy "$t7" "$(kb 100)" --now 2>&1)
+  check "a process list that cannot be read removes nothing" "grep -q 'the process list cannot be read.*nothing removed' <<<\"\$out\" && [ -e '$t7/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ]"
   "$py" -c "import fcntl, os, time; fd = os.open('$t5/ai-backbone-trim.lock', os.O_RDWR | os.O_CREAT); fcntl.flock(fd, fcntl.LOCK_EX); open('$t5/held', 'w').close(); time.sleep(60)" & tl=$!
   i=0; until [ -e "$t5/held" ] || [ "$i" -ge 50 ]; do sleep 0.1; i=$((i + 1)); done
   check "one run at a time" "says 'Another trim of this folder is running' trimpy '$t5' '$(kb 100)' --now && [ -e '$t5/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ]"
