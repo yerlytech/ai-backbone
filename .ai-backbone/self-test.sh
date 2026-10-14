@@ -1875,7 +1875,7 @@ check "_heavy is nothing until the machine says otherwise" "[ -z \"\$(just _heav
 check "with a cap and a nice level it prints the prefix for both" "[ \"\$(cap 3 15 just _heavy)\" = 'nice -n 15 env CARGO_BUILD_JOBS=3 RUST_TEST_THREADS=3 CMAKE_BUILD_PARALLEL_LEVEL=3 MAKEFLAGS=-j3' ]"
 # A workspace moved since its last build cleans its own crates once (spec 028).
 gd=$(git rev-parse --git-dir); printf '/somewhere/else' > "$gd/ai-backbone.cargo-root"
-check "a moved Rust workspace cleans its own crates before it builds, once" "out=\$(bw env BUILD_WAIT_MINUTES=0 just check 2>&1); grep -q 'This workspace moved since its last build' <<<\"\$out\" && grep -q 'fake cargo clean -p bo ' <<<\"\$out\" && grep -q 'fake cargo clean -p bo-core ' <<<\"\$out\" && ! says 'workspace moved' bw env BUILD_WAIT_MINUTES=0 just check"
+check "a moved Rust workspace cleans its own crates, dev and release, before it builds, once" "out=\$(bw env BUILD_WAIT_MINUTES=0 just check 2>&1); grep -q 'This workspace moved since its last build' <<<\"\$out\" && grep -q 'fake cargo clean -p bo ' <<<\"\$out\" && grep -q 'fake cargo clean -p bo-core ' <<<\"\$out\" && grep -q 'fake cargo clean --release -p bo ' <<<\"\$out\" && grep -q 'fake cargo clean --release -p bo-core ' <<<\"\$out\" && ! says 'workspace moved' bw env BUILD_WAIT_MINUTES=0 just check"
 check "a MAKEFLAGS already set is left as it is" "! says MAKEFLAGS cap 3 0 env MAKEFLAGS=-j1 just _heavy && says 'CARGO_BUILD_JOBS=3' cap 3 0 env MAKEFLAGS=-j1 just _heavy"
 check "half is half the cores, and nonsense is ignored" "[ \"\$(cap half 99 just _heavy)\" = 'env CARGO_BUILD_JOBS=$half RUST_TEST_THREADS=$half CMAKE_BUILD_PARALLEL_LEVEL=$half MAKEFLAGS=-j$half' ] && [ -z \"\$(cap many x just _heavy)\" ]"
 check "the Rust layer builds under the machine's cap" "says 'fake cargo check --workspace --all-targets jobs=1' cap 1 15 env BUILD_WAIT_MINUTES=0.1 just check"
@@ -1937,6 +1937,10 @@ rm -rf "$bo/.cargo"
 git add -A >/dev/null 2>&1
 out=$(bw env PS_BUSY=1 BUILD_WAIT_MINUTES=0.05 just save "a save while another build runs" 2>&1)
 check "a save waits where the person can see it, then saves" "grep -q '^Another build is running' <<<\"\$out\" && [ \"\$(git log -1 --format=%s)\" = 'chore: a save while another build runs' ]"
+# A save the lint hook would not run on does not wait for anybody's build (spec 029).
+mkdir -p docs && printf 'a line\n' > docs/note.md && git add -A >/dev/null 2>&1
+out=$(bw env PS_BUSY=1 BUILD_WAIT_MINUTES=0.05 just save "docs: a note while another build runs" 2>&1)
+check "and a save of docs alone does not wait, and saves" "! grep -q '^Another build is running' <<<\"\$out\" && [ \"\$(git log -1 --format=%s)\" = 'docs: a note while another build runs' ]"
 
 # Portable by construction: what this spec added reads no Mac-only tool or path.
 body() { awk -v r="$1" 'index($0, r) == 1 && substr($0, length(r) + 1, 1) ~ /[ :]/ { on = 1; next } on && /^[^ \t]/ { exit } on' "$2"; }
@@ -2787,6 +2791,103 @@ doc28=$(just doctor 2>&1); rm -f Cargo.toml
 check "and doctor then says it ran" "grep -q 'session-start hook ran here, last on' <<<\"\$doc28\""
 check "and nothing about the version once the layer has _set-version" "! grep -q 'does not move the version' <<<\"\$doc28\""
 cd "$tmp" || exit 1
+
+echo "== the backlog of 2026-10-14 (spec 029) =="
+# RustSec: an advisory database in the archive's own layout, and a Cargo.lock.
+adb="$tmp/s29-adb/advisory-db-main/crates"; mkdir -p "$adb/foo" "$adb/bar" "$adb/old"
+adv29() { printf '```toml\n[advisory]\nid = "%s"\npackage = "%s"\ndate = "2099-01-01"\n%s\n[versions]\npatched = [%s]\nunaffected = [%s]\n```\n\n# %s\n\nText.\n' "$@"; }
+adv29 RUSTSEC-2099-0001 foo "" '">= 1.2.3"' '"< 1.0.0"' 'Foo overflows' > "$adb/foo/RUSTSEC-2099-0001.md"
+adv29 RUSTSEC-2099-0002 foo 'withdrawn = "2099-02-01"' '' '' 'Foo was wrong' > "$adb/foo/RUSTSEC-2099-0002.md"
+adv29 RUSTSEC-2099-0003 bar 'informational = "unmaintained"' '' '' 'Bar is unmaintained' > "$adb/bar/RUSTSEC-2099-0003.md"
+adv29 RUSTSEC-2099-0004 old "" '"^0.2.5", ">= 0.3.1"' '' 'Old is old' > "$adb/old/RUSTSEC-2099-0004.md"
+cp -R "$tmp/s29-adb/advisory-db-main" "$tmp/s29-db"; printf '2099-01-01\n' > "$tmp/s29-db/ai-backbone.fetched"
+# The archive, with a path that climbs out and a file outside crates/.
+mkdir -p "$tmp/s29-adb/advisory-db-main/crates/foo/x" && : > "$tmp/s29-adb/advisory-db-main/README.md"
+"$py" - "$(winpath "$tmp/s29-adb")" "$(winpath "$tmp/s29.tgz")" <<'PY'
+import io, sys, tarfile
+src, out = sys.argv[1], sys.argv[2]
+with tarfile.open(out, "w:gz") as t:
+    t.add(f"{src}/advisory-db-main", arcname="advisory-db-main")
+    evil = tarfile.TarInfo("advisory-db-main/crates/../evil.md"); data = b"x"; evil.size = 1
+    t.addfile(evil, io.BytesIO(data))
+PY
+lock29() { printf 'version = 4\n'; while [ $# -gt 0 ]; do printf '\n[[package]]\nname = "%s"\nversion = "%s"\nsource = "%s"\n' "$1" "$2" "$3"; shift 3; done; }
+reg="registry+https://github.com/rust-lang/crates.io-index"
+if ( cd "$root" && just new-project "$tmp/s29" ) >/dev/null 2>&1; then ok "a project for spec 029"; else bad "a project for spec 029"; fi
+cd "$tmp/s29" || exit 1
+lock29 foo 1.2.0 "$reg" bar 0.1.0 "sparse+https://index.crates.io/" old 0.2.7 "$reg" foo 1.1.0 "git+https://example.com/foo" > Cargo.lock
+dbenv() { env AI_BACKBONE_ADVISORY_DB="$(winpath "$tmp/s29-db")" "$@"; }
+if "$py" -c 'import tomllib' 2>/dev/null; then
+  doc29=$(dbenv just doctor 2>&1)
+  check "doctor names the crate, its version, the advisory, its title and the fixed version" "grep -q '^  warn  Cargo.lock: foo 1.2.0 has RUSTSEC-2099-0001, Foo overflows -> fixed in >= 1.2.3' <<<\"\$doc29\""
+  check "and leaves out a withdrawn advisory, a fixed version and a crate from git" "! grep -qE 'RUSTSEC-2099-0002|RUSTSEC-2099-0004|foo 1.1.0' <<<\"\$doc29\""
+  check "and counts a notice apart, as no vulnerability" "grep -q '^  info  Cargo.lock: notices, not vulnerabilities (unmaintained: bar)' <<<\"\$doc29\" && grep -q 'RustSec database of 2099-01-01' <<<\"\$doc29\""
+  check "session-start says the finding" "o=\$(dbenv just session-start 2>&1); grep -q '^=== RUST ADVISORIES (1; RustSec database of 2099-01-01) ===' <<<\"\$o\" && grep -q '^- Cargo.lock: foo 1.2.0 has RUSTSEC-2099-0001' <<<\"\$o\""
+  lock29 foo 1.2.3 "$reg" old 0.3.1 "$reg" > Cargo.lock
+  check "a fixed version: doctor says so, session-start says nothing" "says '^  ok    Cargo.lock: no RustSec advisory for its 2 crates' dbenv just doctor && ! says 'RUST ADVISORIES' dbenv just session-start"
+  # Fetched: once a day at most, only crates/**/*.md, nothing outside the cache.
+  # Asked directly here, not through doctor: a doctor costs seconds on a runner.
+  xdg="$tmp/s29-xdg"; fenv() { env -u AI_BACKBONE_OFFLINE XDG_CACHE_HOME="$(winpath "$xdg")" AI_BACKBONE_ADVISORY_URL="$(fileurl "$tmp/s29.tgz")" "$py" "$root/.ai-backbone/upstream.py" --advisories doctor Cargo.lock; }
+  check "the database is fetched into the cache, and only its advisories" "( cd '$tmp/s29' && says 'no RustSec advisory for its 2 crates' fenv ) && [ -f '$xdg/ai-backbone/advisory-db/crates/foo/RUSTSEC-2099-0001.md' ] && [ ! -e '$xdg/ai-backbone/advisory-db/README.md' ] && [ ! -e '$xdg/ai-backbone/advisory-db/evil.md' ] && [ ! -e '$xdg/ai-backbone/evil.md' ]"
+  mv "$tmp/s29.tgz" "$tmp/s29-gone.tgz"
+  check "and read from the cache within a day, with no fetch" "o=\$(fenv 2>&1); grep -q 'no RustSec advisory for its 2 crates' <<<\"\$o\" && ! grep -q 'could not fetch' <<<\"\$o\""
+  check "with nothing fetched and no network, the check says it did not run" "says 'Cargo.lock not read against RustSec: offline .*no copy of the advisory database here' env AI_BACKBONE_OFFLINE=1 XDG_CACHE_HOME='$(winpath "$tmp/s29-none")' '$py' '$root/.ai-backbone/upstream.py' --advisories doctor Cargo.lock"
+  check "cargo's requirements are read as cargo reads them" "\"\$py\" -c 'import importlib.util as i, sys; s = i.spec_from_file_location(\"u\", \"$rootw/.ai-backbone/upstream.py\"); u = i.module_from_spec(s); s.loader.exec_module(u); c = [(\">= 0.3.47\", \"0.3.46\", 0), (\"^0.2.23\", \"0.2.30\", 1), (\"^0.2.23\", \"0.3.0\", 0), (\"^0.0.3\", \"0.0.4\", 0), (\"~1.2.3\", \"1.3.0\", 0), (\"1.2.*\", \"1.2.9\", 1), (\"1.2.*\", \"1.3.0\", 0), (\">1.2\", \"1.2.9\", 0), (\"<=1.2\", \"1.2.9\", 1), (\">= 1.0.0, < 1.5.2\", \"1.5.2\", 0), (\">= 0.5.0\", \"0.5.0-alpha.1\", 0), (\">= 0.5.0-alpha.2\", \"0.5.0-alpha.3\", 1), (\">= 0.8.1\", \"0.9.0-alpha.1\", 1), (\"1.2.3\", \"1.4.0\", 1)]; sys.exit(0 if all(bool(u.semver_matches(r, u.semver(v))) == bool(w) for r, v, w in c) else 1)'"
+  # A crate watched from GitHub.
+  mkdir -p docs; printf '[[watch]]\nname = "foo"\nsource = "github:someone/foo-rs"\npin = "1.2.3"\n\n[[watch]]\nname = "Old"\nsource = "crates:old"\npin = "0.3.1"\n\n[[watch]]\nname = "tool"\nsource = "github:someone/tool"\npin = "v1"\n' > docs/upstream.toml
+  doc29=$(dbenv just doctor 2>&1)
+  check "a github: row for a crate Cargo.lock locks is named, with the crates: source to write" "[ \$(grep -c 'reads .* from github:' <<<\"\$doc29\") -eq 1 ] && grep -q 'reads foo from github:someone/foo-rs, and Cargo.lock locks the crate foo: .*source = \"crates:foo\"' <<<\"\$doc29\""
+else
+  check "without tomllib, doctor says what the advisory check needs" "says 'Cargo.lock not read against RustSec: needs Python 3.11' just doctor"
+fi
+cd "$tmp" || exit 1
+# The trim's order: what only an old root reaches goes first; what the newest
+# root reaches stays, however long ago it was written.
+if "$py" -c 'import fcntl' 2>/dev/null; then
+  mkgraph() {
+    "$py" - "$@" <<'PY'
+import json, os, sys, time
+root, day = sys.argv[1], 86400
+# Ages in hours of the old root, the piece only it reaches, and the new root.
+old, gone, new = (float(x) * 3600 for x in (sys.argv[2:5] if len(sys.argv) > 4 else (240, 480, 48)))
+def put(rel, size, age):
+    p = os.path.join(root, rel); os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, "wb") as f: f.write(os.urandom(size))
+    t = time.time() - age; os.utime(p, (t, t))
+def unit(name, h, kind, fp, deps, age, size):
+    put(f"debug/deps/lib{name}-{h}.rlib", size, age)
+    fd = f"debug/.fingerprint/{name}-{h}"
+    os.makedirs(os.path.join(root, fd), exist_ok=True)
+    with open(os.path.join(root, fd, f"{kind}-{name}"), "w") as f: f.write(fp)
+    with open(os.path.join(root, fd, f"{kind}-{name}.json"), "w") as f:
+        json.dump({"rustc": 1, "deps": [[1, d, False, int.from_bytes(bytes.fromhex(v), "little")] for d, v in deps]}, f)
+    for dirpath, _, files in os.walk(os.path.join(root, fd)):
+        for x in files: t = time.time() - age; os.utime(os.path.join(dirpath, x), (t, t))
+    t = time.time() - age; os.utime(os.path.join(root, fd), (t, t))
+for n in ("CACHEDIR.TAG", ".rustc_info.json", "debug/.cargo-lock"): put(n, 0, 0)
+unit("dep", "2222222222222222", "lib", "00000000000000d1", [], 40 * day, 200 * 1024)
+unit("gone", "4444444444444444", "lib", "00000000000000a1", [], gone, 200 * 1024)
+unit("app", "3333333333333333", "bin", "00000000000000b1", [("gone", "00000000000000a1")], old, 200 * 1024)
+unit("app", "1111111111111111", "bin", "00000000000000c1", [("dep", "00000000000000d1"), ("twin", "00000000000000e1")], new, 200 * 1024)
+# A build script run is fingerprinted without its profile: two runs, one value.
+unit("twin", "5555555555555555", "run-build-script-build-script-build", "00000000000000e1", [], 40 * day, 100 * 1024)
+unit("twin", "6666666666666666", "run-build-script-build-script-build", "00000000000000e1", [], 40 * day, 100 * 1024)
+PY
+  }
+  g1="$tmp/g1/target"; mkgraph "$g1"
+  trimpy "$g1" "$(kb 760)" >/dev/null 2>&1
+  check "over the cap, what only an old root reaches goes before an older piece the newest root reaches" "[ -e '$g1/debug/deps/libdep-2222222222222222.rlib' ] && [ -e '$g1/debug/deps/libapp-1111111111111111.rlib' ] && [ ! -e '$g1/debug/deps/libgone-4444444444444444.rlib' ] && [ ! -e '$g1/debug/deps/libapp-3333333333333333.rlib' ]"
+  check "and two pieces with one fingerprint, as two build script runs have, are both reached and stay" "[ -e '$g1/debug/deps/libtwin-5555555555555555.rlib' ] && [ -e '$g1/debug/deps/libtwin-6666666666666666.rlib' ]"
+  g2="$tmp/g2/target"; mkgraph "$g2"
+  out=$(trimpy "$g2" "$(kb 300)" --now 2>&1)
+  check "and what the newest builds of the last day reach stays even under a cap too low for it, which is said" "[ -e '$g2/debug/deps/libdep-2222222222222222.rlib' ] && [ -e '$g2/debug/deps/libapp-1111111111111111.rlib' ] && grep -q 'more than 75% of the cap, so the cap is below what this project.s builds need' <<<\"\$out\""
+  # The same program built again under a new hash the same day, by a feature
+  # change or an update: what only the old one reached goes, past 6 hours.
+  g3="$tmp/g3/target"; mkgraph "$g3" 8 9 7
+  trimpy "$g3" "$(kb 760)" >/dev/null 2>&1
+  check "a root a newer one of the same program replaced the same day leaves what only it reached" "[ -e '$g3/debug/deps/libdep-2222222222222222.rlib' ] && [ ! -e '$g3/debug/deps/libgone-4444444444444444.rlib' ] && [ ! -e '$g3/debug/deps/libapp-3333333333333333.rlib' ]"
+fi
+check "the night section says what a series does next, and what an unmet dependency does" "grep -q 'approved several night specs at once as a series' '$root/.agents/skills/spec/SKILL.md' && grep -q 'is skipped, never half' '$root/.agents/skills/spec/SKILL.md'"
 
 echo
 echo "$pass ok, $fail failed"

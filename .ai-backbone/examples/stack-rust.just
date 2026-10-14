@@ -103,7 +103,9 @@ build:
 # was moved or renamed (the heavy recipes above do it on their own when they
 # see that), cargo kept reusing them, its fingerprints being relative, so
 # env!("CARGO_MANIFEST_DIR") still named the old folder and a test that reads a
-# fixture by it failed under some build flags only (spec 028).
+# fixture by it failed under some build flags only (spec 028). Both profiles:
+# `cargo clean -p` alone cleans only dev, and a release build in a worktree
+# that shares the build folder stayed fresh and linked old code (spec 029).
 [group('rust')]
 clean-own:
     #!/usr/bin/env bash
@@ -112,8 +114,10 @@ clean-own:
     cd {{server_dir}}
     names=$(cargo tree --workspace --depth 0 --prefix none 2>/dev/null | awk 'NF { print $1 }' | sort -u)
     if [ -z "$names" ]; then echo "cargo could not list this workspace's crates; nothing was cleaned."; exit 1; fi
-    for n in $names; do cargo clean -p "$n" --quiet 2>/dev/null || cargo clean -p "$n"; done
-    echo "Cleaned this workspace's own crates ($(echo $names | sed 's/ /, /g')); the dependencies are kept."
+    for n in $names; do
+      for prof in "" --release; do cargo clean $prof -p "$n" --quiet 2>/dev/null || cargo clean $prof -p "$n"; done
+    done
+    echo "Cleaned this workspace's own crates ($(echo $names | sed 's/ /, /g')), dev and release; the dependencies are kept."
 
 # 0 when the workspace has a Cargo.toml; otherwise one line on stderr, and 1.
 [no-exit-message]
@@ -183,8 +187,8 @@ _build-info:
     echo "jobs  CARGO_BUILD_JOBS"
     echo "clean clean-build"
 
-# Clearing it whole is the person's decision, every time (the oldest pieces past
-# a cap go on their own: just trim-build, spec 027): this asks, the way `just
+# Clearing it whole is the person's decision, every time (past a cap, the pieces
+# no build has used for longest go on their own: just trim-build, spec 027): this asks, the way `just
 # undo` asks, and an agent passes on the person's own yes and nothing else
 # (printf 'y\n' | just clean-build). A folder other projects build into too is
 # refused: cargo clean there clears every project's builds.

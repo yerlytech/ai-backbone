@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Keep a cargo build folder under a cap, the oldest pieces first (spec 027).
+"""Keep a cargo build folder under a cap, the pieces no build has used for
+longest first (spec 027; the order since spec 029).
 
     buildtrim.py <folder> <cap> [--now | --wait]
 
@@ -11,7 +12,36 @@ a feature or a compiler leaves the old compiled units where they were, and on
 one Mac several workspaces passed 200 GB each and left the disk 2.7 GB free.
 Trimming by age alone did not keep up there (about 130 GB of output in one
 day); a cap of 60 GB per project did. Over the cap, this removes the pieces
-written longest ago until the folder is at 75% of it.
+used longest ago until the folder is at 75% of it.
+
+Used, and not written: a dependency is compiled once and never written again,
+so the pieces a project still builds against were the oldest, and went first,
+and every crate above a removed one was compiled again (spec 029). What a piece
+was built against is in cargo's own records: each unit's file in .fingerprint/
+holds its fingerprint, and the .json beside it the fingerprints of the units it
+was built against (measured on cargo 1.99.0; the file writes the number's bytes
+lowest first, the .json writes the number). A unit nothing was built against
+is a root, the program or test a build ends in, and its files are written each
+time a build makes it; a piece was last used when the newest root that reaches
+it was. A piece reached only from a root a feature change or an update left
+behind goes first. A piece a root of the last day before the newest one
+reaches is never removed, since the next build would compile it again, and
+every crate above it; unless a newer root of the same crate, kind and build
+(cargo's records say each) has taken that root's place, as a feature change
+or an update does: a folder that took in 150 GB in one day was all of that
+day. Two variants both in use, two branches or worktrees on one folder, look
+the same as one replaced, since a build with nothing to do writes nothing: the
+older one's own pieces may go, in the order of their last use. One graph for the whole folder: a build for another target reaches the
+build scripts and macros it compiled for this machine in debug/, and a profile
+nobody builds any more is not kept for ever. Measured on cargo 1.99.0, the same toolchain
+throughout and no compiler cache: a folder of 236 MB, 47 MB of it left behind
+by a feature change, trimmed with a cap just under its size. Written-first
+removed 64 MB in 42 pieces and the next build compiled 43 crates again, 8.1 s
+of a 9.3 s build from nothing; this order removed the 11 pieces left behind,
+and the next build compiled nothing. Where the records cannot be read, a piece
+was used when it was written. A file's read time cannot say it: macOS writes
+one only at the first read after a write (measured on APFS), so a dependency
+compiled weeks ago looks as unread as one a build has left behind.
 
 A piece is one compiled unit: what deps/, build/, .fingerprint/ and examples/
 hold under one 16-digit hash, removed together, or one folder of incremental/.
@@ -29,7 +59,7 @@ has started. While removing a profile's pieces it holds that profile's cargo
 locks, so a build that starts meanwhile waits for it rather than finding a
 piece half gone, and each piece's age is read again under them.
 
-Never removed besides: a piece written in the last 6 hours; the top-level
+Never removed besides: a piece used in the last 6 hours; the top-level
 files of a profile, the programs a person runs; anything else that is no
 piece; and every piece of a profile whose cargo lock is held. Under 15% free
 disk the cap is halved. Only a folder cargo made is touched: CACHEDIR.TAG and
@@ -43,6 +73,7 @@ own. It never fails a build: what goes wrong is a line in the log.
 """
 
 import datetime
+import json
 import os
 import re
 import shutil
@@ -64,6 +95,7 @@ PIECES = ("deps", "build", ".fingerprint", "examples")
 # .cargo-artifact-lock; .cargo-lock is the name older versions used.
 LOCKS = (".cargo-lock", ".cargo-build-lock", ".cargo-artifact-lock")
 YOUNG = 6 * 3600
+IN_USE = 24 * 3600
 HOLD = 5.0
 COMPILERS = {"cargo", "rustc", "rustdoc"}
 GB = 1024 ** 3
@@ -141,31 +173,108 @@ def profiles(root):
     return out
 
 
-def pieces(profile):
-    """Each piece of a profile: (newest change, size, its paths)."""
-    groups = {}
-    for sub in PIECES:
-        folder = profile / sub
+def ties(profiles):
+    """For each piece cargo has a record of, (profile, hash), the pieces it was
+    built against, and what it is: its crate, its kind, and the target, profile,
+    features, platform, config and flags it was built for, so that the same
+    program built again under a new hash is known as the same (a test, a check
+    and a build of it differ in kind or profile). In every profile at once: a
+    build for another target reaches the build scripts and macros it compiled
+    for this machine, in debug/."""
+    owner, wants, ident = {}, {}, {}
+    for profile in profiles:
+        folder = profile / ".fingerprint"
         if not folder.is_dir():
             continue
         for entry in os.scandir(folder):
             found = HASH.search(entry.name)
-            if found:
-                groups.setdefault(found.group(1), []).append(Path(entry.path))
-    inc = profile / "incremental"
-    if inc.is_dir():
-        for entry in os.scandir(inc):
-            if entry.is_dir(follow_symlinks=False):
-                groups["incremental/" + entry.name] = [Path(entry.path)]
-    out = []
-    for paths in groups.values():
+            if not found or not entry.is_dir(follow_symlinks=False):
+                continue
+            piece = (profile, found.group(1))
+            for f in os.scandir(entry.path):
+                if not f.name.endswith(".json"):
+                    continue
+                try:
+                    value = Path(f.path[:-5]).read_text().strip()
+                    data = json.loads(Path(f.path).read_text())
+                    values = {int(d[3]).to_bytes(8, "little").hex() for d in data["deps"]}
+                    ident[piece] = (profile, entry.name[:found.start()], f.name[:-5]) + tuple(
+                        str(data.get(k)) for k in ("target", "profile", "features", "compile_kind", "config", "rustflags"))
+                except (OSError, ValueError, TypeError, KeyError, IndexError, OverflowError, AttributeError):
+                    continue
+                owner.setdefault(value, set()).add(piece)
+                wants.setdefault(piece, set()).update(values)
+    # One value can be two pieces': a build script run is fingerprinted without
+    # its profile, so a crate built as a build dependency and as a dependency
+    # has two runs with one value, and a folder for another target, or another
+    # cargo folder inside this one, repeats them (measured in review). Each is
+    # reached: in the same profile when one is there, else wherever it is.
+    def reached(piece, values):
+        out = set()
+        for v in values:
+            here = {o for o in owner.get(v, ()) if o[0] == piece[0]}
+            out |= here or owner.get(v, set())
+        return out - {piece}
+    return {piece: reached(piece, values) for piece, values in wants.items()}, ident
+
+
+def last_use(written, against, ident):
+    """When each piece was last used, when the newest root was written, and
+    which pieces stay. A piece was used when the newest root that reaches it was
+    written; one with no record, when it was written. What stays: what a root
+    of the last day before the newest one reaches, unless a newer root of the
+    same crate, kind and build has taken that root's place; and a piece with no
+    record written in that day."""
+    below = set().union(*against.values()) if against else set()
+    roots = sorted(((written[p], p) for p in against if p not in below and p in written), reverse=True)
+    latest = roots[0][0] if roots else None
+    use, stays, seen = {}, set(), set()
+    for when, root in roots:
+        current = ident.get(root) not in seen and when > latest - IN_USE
+        seen.add(ident.get(root))
+        stack = [root]
+        while stack:
+            p = stack.pop()
+            if p in (stays if current else use):
+                continue
+            use.setdefault(p, when)
+            if current:
+                stays.add(p)
+            stack.extend(against.get(p, ()))
+    if latest is not None:
+        stays.update(p for p, w in written.items() if p not in against and w > latest - IN_USE)
+    return {p: max(w, use.get(p, 0.0)) for p, w in written.items()}, latest, stays
+
+
+def pieces(profiles):
+    """Each piece of these profiles: (last use, size, its paths, its profile,
+    whether it stays), and when the newest root was written, or None where
+    cargo's records say nothing."""
+    groups = {}
+    for profile in profiles:
+        for sub in PIECES:
+            folder = profile / sub
+            if not folder.is_dir():
+                continue
+            for entry in os.scandir(folder):
+                found = HASH.search(entry.name)
+                if found:
+                    groups.setdefault((profile, found.group(1)), []).append(Path(entry.path))
+        inc = profile / "incremental"
+        if inc.is_dir():
+            for entry in os.scandir(inc):
+                if entry.is_dir(follow_symlinks=False):
+                    groups[(profile, "incremental/" + entry.name)] = [Path(entry.path)]
+    sizes, written = {}, {}
+    for key, paths in groups.items():
         size, newest = 0, 0.0
         for p in paths:
             s, n = usage(p)
             size += s
             newest = max(newest, n)
-        out.append((newest, size, paths))
-    return out
+        sizes[key], written[key] = size, newest
+    used, latest, stays = last_use(written, *ties(profiles))
+    return [(used[key], sizes[key], paths, key[0], key in stays) for key, paths in groups.items()], latest
 
 
 def lock(profile):
@@ -219,8 +328,9 @@ def trim(root, cap):
     if total <= cap:
         return f"{gb(total)}, under the cap of {gb(cap)}{note}: nothing removed", True
     target, before, now = cap * 0.75, total, time.time()
-    candidates = sorted((newest, size, paths, profile) for profile in profiles(root)
-                        for newest, size, paths in pieces(profile) if now - newest > YOUNG)
+    found, latest = pieces(profiles(root))
+    candidates = sorted(piece[:4] for piece in found if now - piece[0] > YOUNG and not piece[4])
+    kept = sum(piece[1] for piece in found if piece[4])
     held, busy, removed, stopped = {}, set(), 0, False
     try:
         for newest, size, paths, profile in candidates:
@@ -256,12 +366,18 @@ def trim(root, cap):
         for fds, _ in held.values():
             release(fds)
     line = f"{gb(before)} over the cap of {gb(cap)}{note}: removed {gb(before - total)} in {removed} pieces, {gb(total)} left"
+    if latest is None and removed:
+        line += "; cargo's records could not be read, so the pieces written longest ago went first"
     if busy:
         line += f"; a build was running in {', '.join(str(p.relative_to(root)) for p in sorted(busy))}, left alone"
     if stopped:
         line += "; stopped: a build started, so the rest waits for the next run"
     elif total > target and not busy:
-        line += "; what is left is younger than 6 hours, or no piece (the programs themselves)"
+        line += ("; what is left was used in the last 6 hours, or is no piece (the programs themselves), or is"
+                 " what the newest builds of the last day reach, which the next build would compile again")
+        if kept > target:
+            line += (f": {gb(kept)} of it, more than 75% of the cap, so the cap is below what this"
+                     " project's builds need (git config ai-backbone.build-cap <GB> raises it)")
     return line, not stopped
 
 

@@ -25,10 +25,13 @@ memory when they link. `just _build-wait` looks for the compilers the language
 layer names and waits, and builds that wait go one at a time, oldest first;
 the Rust layer's heavy recipes already call it, and `BUILD_WAIT_MINUTES=0`
 switches it off. A Rust build folder also keeps itself under a cap: past it,
-the oldest pieces go, the ones the next build makes again (60 GB a project
-unless `git config ai-backbone.build-cap` says otherwise; `off` stops it;
-`just trim-build` runs it now). When `just session-start` says the disk is
-nearly full, run that, and ask the person before deleting anything else.
+the pieces no build has used for longest go first, and never one the newest
+builds of the last day reach (60 GB a project unless `git config ai-backbone.build-cap`
+says otherwise; `off` stops it; `just trim-build` runs it now). When `just
+session-start` says the disk is nearly full, run that, and ask the person
+before deleting anything else. When it lists RUST ADVISORIES, a crate in
+Cargo.lock has a published vulnerability: say it to the person, with the
+fixed version, before other work; `just doctor` has the whole list.
 
 ## What you know ends on a date
 

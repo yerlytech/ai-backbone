@@ -9,7 +9,9 @@ is what changed and what it costs to follow.
 It also says when each pinned version came out and where that version can be
 read on this machine, because an agent's training ends on a day and a version
 released after it is one the agent has never seen. `--recent` prints that from
-the cache alone, without the network, for every session.
+the cache alone, without the network, for every session. `--advisories` reads
+a Cargo.lock against the RustSec advisories, and `--crate-sources` says when
+a row reads from GitHub what Cargo.lock locks as a crate (spec 029).
 
 Nothing here upgrades anything. It reports.
 """
@@ -18,11 +20,16 @@ import collections
 import datetime
 import glob
 import http.client
+import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tarfile
+import tempfile
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -752,10 +759,364 @@ def recent():
     return 0
 
 
+# ─────────── every crate a Cargo.lock locks, against RustSec ───────────
+#
+#     upstream.py --advisories doctor  <Cargo.lock>...   everything, in doctor's columns
+#     upstream.py --advisories session <Cargo.lock>...   only what is found, for session-start
+#
+# A workspace locks hundreds of crates, and a vulnerability published in one of
+# them went unnoticed until someone happened to read it; a watch list follows a
+# handful (spec 029). The database is RustSec's own (rustsec/advisory-db, the
+# one cargo-audit and cargo-deny read), fetched as one archive of about half a
+# megabyte with no name, no e-mail and no git: a person's git can be set to
+# reach GitHub over their own SSH key, and this must not say who asks. It is
+# kept for every project on this machine in ~/.cache/ai-backbone/advisory-db
+# and fetched again when it is a day old. With no network, or with
+# AI_BACKBONE_OFFLINE set, the copy that is here is used and its age is said.
+# AI_BACKBONE_ADVISORY_DB names a folder to read instead, never fetched, and
+# AI_BACKBONE_ADVISORY_URL the archive to fetch.
+#
+# A version is affected when no requirement in the advisory's `patched` and
+# `unaffected` lists matches it. Requirements are read the way cargo reads them
+# (a bare 1.2.3 is ^1.2.3, 1.2.* is =1.2), and versions are compared in plain
+# order, pre-releases too, as OSV compares them: 0.9.0-alpha.1 is past a fix
+# in 0.8.1 (cargo's rule for choosing a dependency would say it is not, and
+# every session would print advice nobody can follow). Only crates from
+# crates.io are read: a path or git crate of the same name is another crate.
+# Withdrawn advisories are left out; `unmaintained`, `unsound` and `notice`
+# ones are counted on a line of their own, since they are not vulnerabilities.
+
+ADV_URL = os.environ.get("AI_BACKBONE_ADVISORY_URL",
+                     "https://codeload.github.com/rustsec/advisory-db/tar.gz/refs/heads/main")
+ADV_DB = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "ai-backbone" / "advisory-db"
+ADV_STAMP = "ai-backbone.fetched"
+ADV_DAY = 86400
+CRATES_IO = ("registry+https://github.com/rust-lang/crates.io-index", "sparse+https://index.crates.io/")
+
+
+# ───────────── versions and requirements, as cargo reads them ─────────────
+
+SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$")
+SEMVER_REQ = re.compile(r"^(=|>=|<=|>|<|~|\^)?\s*(\*|\d+)(?:\.(\*|\d+))?(?:\.(\*|\d+))?(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$")
+
+
+def semver_pre(pre):
+    """A pre-release sorts below its release; numeric parts below the others."""
+    if not pre:
+        return (1,)
+    return (0,) + tuple((0, int(x), "") if x.isdigit() else (1, 0, x) for x in pre.split("."))
+
+
+def semver(text):
+    m = SEMVER.match(text.strip())
+    if not m:
+        return None
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3)), m.group(4) or "")
+
+
+def semver_key(v):
+    return (v[0], v[1], v[2], semver_pre(v[3]))
+
+
+def semver_req(req):
+    """A requirement as a list of (op, version, pre-release named) with the
+    partial and wildcard forms spelled out; None when it cannot be read."""
+    out = []
+    for part in req.split(","):
+        part = part.strip()
+        if part == "*" or part == "":
+            out.append((">=", (0, 0, 0, ""), False))
+            continue
+        m = SEMVER_REQ.match(part)
+        if not m:
+            return None
+        op = m.group(1) or "^"
+        nums = [m.group(2), m.group(3), m.group(4)]
+        pre = m.group(5) or ""
+        if nums[0] == "*":
+            out.append((">=", (0, 0, 0, ""), False))
+            continue
+        # How many numbers were written before a wildcard or the end.
+        n = 0
+        for x in nums:
+            if x is None or x == "*":
+                break
+            n += 1
+        if "*" in nums and op == "^":
+            op = "="  # 1.2.* is =1.2, never ^1.2
+        a = [int(x) for x in nums[:n]] + [0] * (3 - n)
+        lo = (a[0], a[1], a[2], pre)
+        named = bool(pre)
+
+        def up(i):
+            b = a[:i] + [0] * (3 - i)
+            b[i - 1] += 1
+            return (b[0], b[1], b[2], "")
+
+        if op == "=":
+            if n == 3:
+                out.append(("=", lo, named))
+            else:
+                out += [(">=", lo, named), ("<", up(n), False)]
+        elif op == ">":
+            out.append((">", lo, named) if n == 3 else (">=", up(n), False))
+        elif op == ">=":
+            out.append((">=", lo, named))
+        elif op == "<":
+            out.append(("<", lo, named))
+        elif op == "<=":
+            out.append(("<=", lo, named) if n == 3 else ("<", up(n), False))
+        elif op == "~":
+            out += [(">=", lo, named), ("<", up(min(n, 2)), False)]
+        else:  # ^
+            if a[0] > 0 or n == 1:
+                hi = up(1)
+            elif a[1] > 0 or n == 2:
+                hi = up(2)
+            else:
+                hi = up(3)
+            out += [(">=", lo, named), ("<", hi, False)]
+    return out
+
+
+def semver_matches(req, v):
+    cs = semver_req(req)
+    if cs is None:
+        return False
+    for op, c, _ in cs:
+        k, ck = semver_key(v), semver_key(c)
+        ok = {"=": k == ck, ">": k > ck, ">=": k >= ck, "<": k < ck, "<=": k <= ck}[op]
+        if not ok:
+            return False
+    return True
+
+
+# ───────────────────────────── the database ─────────────────────────────
+
+def adv_fetch(db):
+    """Fetch the archive into a new folder beside db and put it in db's place.
+    Only crates/**/*.md is taken from it, and only by its plain name."""
+    db.parent.mkdir(parents=True, exist_ok=True)
+    request = urllib.request.Request(ADV_URL, headers={"User-Agent": "ai-backbone"})
+    with urllib.request.urlopen(request, timeout=15) as response:
+        data = response.read()
+    new = Path(tempfile.mkdtemp(prefix="advisory-db.", dir=db.parent))
+    try:
+        newest = 0
+        with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as archive:
+            for member in archive.getmembers():
+                parts = member.name.split("/")
+                # A name is taken only as plain words: no "..", and nothing that
+                # Windows reads as a folder or a drive.
+                if (not member.isfile() or len(parts) != 4 or parts[1] != "crates"
+                        or not parts[3].endswith(".md") or any(p in ("", ".", "..") for p in parts)
+                        or any(c in p for p in parts for c in "\\:")):
+                    continue
+                target = new / "crates" / parts[2] / parts[3]
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(archive.extractfile(member).read())
+                newest = max(newest, int(member.mtime))
+        if newest == 0:
+            raise ValueError("the archive held no advisory")
+        (new / ADV_STAMP).write_text(time.strftime("%Y-%m-%d", time.gmtime(newest)) + "\n")
+        old = db.parent / f"{db.name}.old.{os.getpid()}"
+        if db.exists():
+            db.rename(old)
+        try:
+            new.rename(db)
+        except OSError:
+            # Another run put its copy there first; else the old one goes back.
+            if not db.exists() and old.exists():
+                old.rename(db)
+        shutil.rmtree(old, ignore_errors=True)
+    finally:
+        shutil.rmtree(new, ignore_errors=True)
+
+
+def adv_database():
+    """The folder to read, its date, and a note when it is not today's; or None
+    and why."""
+    given = os.environ.get("AI_BACKBONE_ADVISORY_DB")
+    if given:
+        db = Path(given)
+        return (db, adv_date(db), "") if (db / "crates").is_dir() else (None, "", f"{db} holds no crates/ folder")
+    db, note = ADV_DB, ""
+    stamp = db / ADV_STAMP
+    age = time.time() - stamp.stat().st_mtime if stamp.is_file() else None
+    if age is None or age > ADV_DAY:
+        if os.environ.get("AI_BACKBONE_OFFLINE"):
+            note = "offline (AI_BACKBONE_OFFLINE)"
+        else:
+            try:
+                adv_fetch(db)
+                age = 0
+            except Exception as err:  # noqa: BLE001 - said, never a traceback
+                note = f"could not fetch it ({type(err).__name__})"
+    if not (db / "crates").is_dir():
+        return None, "", f"{note or 'nothing fetched yet'}, and there is no copy of the advisory database here"
+    if note and age is not None:
+        note = f"{note}; the copy here was fetched {int(age // ADV_DAY)} day(s) ago"
+    return db, adv_date(db), note
+
+
+def adv_date(db):
+    try:
+        return (db / ADV_STAMP).read_text().strip()
+    except OSError:
+        return "?"
+
+
+def adv_front(text):
+    """The TOML block an advisory starts with."""
+    m = re.search(r"```toml\s*\n(.*?)\n```", text, re.S)
+    return m.group(1) if m else None
+
+
+def adv_title(text):
+    m = re.search(r"^#\s+(.+)$", text.split("```", 2)[-1], re.M)
+    return m.group(1).strip() if m else ""
+
+
+def adv_list(db, name, tomllib):
+    folder = db / "crates" / name
+    if not folder.is_dir():
+        return []
+    out = []
+    for f in sorted(folder.glob("*.md")):
+        try:
+            text = f.read_text(errors="replace")
+            data = tomllib.loads(adv_front(text) or "")
+        except (OSError, ValueError):
+            continue
+        adv = data.get("advisory", {})
+        if adv.get("withdrawn") or adv.get("package") != name:
+            continue
+        versions = data.get("versions", {})
+        out.append({"id": adv.get("id", f.stem), "kind": adv.get("informational") or "",
+                    "patched": list(versions.get("patched", [])), "unaffected": list(versions.get("unaffected", [])),
+                    "title": adv_title(text)})
+    return out
+
+
+def cargo_locked(lock, tomllib):
+    """(name, version) of every crates.io package a Cargo.lock locks."""
+    data = tomllib.loads(Path(lock).read_text())
+    return sorted({(p["name"], p["version"]) for p in data.get("package", [])
+                   if isinstance(p, dict) and str(p.get("source", "")).startswith(CRATES_IO)
+                   and "name" in p and "version" in p})
+
+
+def adv_check(lock, db, tomllib):
+    """Vulnerabilities and notices for one Cargo.lock, and how many crates."""
+    crates = cargo_locked(lock, tomllib)
+    found, notices = [], []
+    for name, ver in crates:
+        v = semver(ver)
+        if v is None:
+            continue
+        for adv in adv_list(db, name, tomllib):
+            if any(semver_matches(r, v) for r in adv["patched"] + adv["unaffected"]):
+                continue
+            if adv["kind"]:
+                notices.append((adv["kind"], name))
+            else:
+                found.append((name, ver, adv))
+    return crates, found, notices
+
+
+def advisories(mode, locks):
+    """doctor's lines, or session-start's finding, for these Cargo.lock files."""
+    try:
+        import tomllib
+    except ModuleNotFoundError:
+        if mode == "doctor":
+            print(f"  --    Cargo.lock not read against RustSec: needs Python 3.11 or newer for tomllib, this is"
+                  f" {sys.version.split()[0]} -> uv python install 3.13")
+        return 0
+    db, day, note = adv_database()
+    if db is None:
+        # Said by doctor; a session that cannot read it has nothing to report.
+        if mode == "doctor":
+            print(f"  warn  Cargo.lock not read against RustSec: {note}")
+        return 0
+    lines = []
+    for lock in locks:
+        try:
+            crates, found, notices = adv_check(lock, db, tomllib)
+        except (OSError, ValueError, KeyError, TypeError) as err:
+            lines.append(("warn", f"{lock} could not be read: {err}"))
+            continue
+        for name, ver, adv in found:
+            fix = f"fixed in {' or '.join(adv['patched'])}" if adv["patched"] else "no fixed version yet"
+            lines.append(("warn", f"{lock}: {name} {ver} has {adv['id']}, {adv['title']} -> {fix}"
+                                  f" (https://rustsec.org/advisories/{adv['id']})"))
+        if not found:
+            lines.append(("ok", f"{lock}: no RustSec advisory for its {len(crates)} crate{'' if len(crates) == 1 else 's'}"))
+        if notices:
+            kinds = {}
+            for kind, name in notices:
+                kinds.setdefault(kind, []).append(name)
+            said = "; ".join(f"{k}: {', '.join(sorted(set(v)))}" for k, v in sorted(kinds.items()))
+            lines.append(("info", f"{lock}: notices, not vulnerabilities ({said})"))
+    when = f"database of {day}" + (f", {note}" if note else "")
+    if mode == "doctor":
+        for kind, line in lines:
+            print(f"  {kind:<5} {line}")
+        print(f"        RustSec {when}")
+    else:
+        warns = [line for kind, line in lines if kind == "warn"]
+        if warns:
+            # Five at most: the page an agent reads first has room for little.
+            print(f"=== RUST ADVISORIES ({len(warns)}; RustSec {when}) ===")
+            for line in warns[:5]:
+                print(f"- {line}")
+            if len(warns) > 5:
+                print(f"  ... and {len(warns) - 5} more: just doctor")
+    return 0
+
+
+def crate_sources(locks):
+    """doctor's lines for a row that reads from GitHub what a Cargo.lock locks
+    as a crate (spec 029). A crate's release reaches crates.io whether or not it
+    gets a tag, and a github: row missed four patch releases that got none.
+    Quiet when there is nothing to say, or nothing to read it with."""
+    try:
+        import tomllib
+        watched = tomllib.loads(LIST.read_text()).get("watch", [])
+    except (ModuleNotFoundError, OSError, ValueError):
+        return 0
+    crates = {}
+    for lock in locks:
+        try:
+            packages = tomllib.loads(Path(lock).read_text()).get("package", [])
+        except (OSError, ValueError):
+            continue
+        for p in packages:
+            if isinstance(p, dict) and isinstance(p.get("name"), str) and str(p.get("source", "")).startswith(CRATES_IO):
+                crates[p["name"].lower().replace("_", "-")] = p["name"]
+    for entry in watched if isinstance(watched, list) else []:
+        source = str(entry.get("source", "")) if isinstance(entry, dict) else ""
+        if not source.startswith("github:"):
+            continue
+        repo = source.split(":", 1)[1].rstrip("/").rsplit("/", 1)[-1]
+        for name in (str(entry.get("name", "")), repo):
+            crate = crates.get(name.lower().replace("_", "-"))
+            if crate:
+                say(f"  warn  {LIST} reads {entry.get('name') or repo} from {source}, and Cargo.lock locks the crate"
+                    f" {crate}: a release that gets no GitHub tag is missed -> source = \"crates:{crate}\","
+                    " with the pin as crates.io writes it")
+                break
+    return 0
+
+
 def main():
     # Before the list is read, and so before tomllib: these lines need neither.
     if len(sys.argv) > 1 and sys.argv[1] == "--recent":
         return recent()
+    if len(sys.argv) > 1 and sys.argv[1] == "--crate-sources":
+        return crate_sources(sys.argv[2:])
+    if len(sys.argv) > 3 and sys.argv[1] == "--advisories" and sys.argv[2] in ("doctor", "session"):
+        return advisories(sys.argv[2], sys.argv[3:])
     if not LIST.is_file():
         say(f"No {LIST}. Run: just upstream-init")
         return 0

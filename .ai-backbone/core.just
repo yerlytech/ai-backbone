@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.37.1
+# .ai-backbone/core.just — the backbone's recipes, version 3.38.0
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -534,6 +534,16 @@ doctor:
       else echo "  ok    local-only: nothing goes to GitHub (git config ai-backbone.local-only)"; fi
     fi
     if just --summary 2>/dev/null | tr ' ' '\n' | grep -qx outdated; then echo "  info  run 'just outdated' to see which dependencies are behind"; fi
+    # Every Cargo.lock against the RustSec advisories, the crate, the advisory
+    # and the fixed version, and the watch list's rows that read a crate from
+    # GitHub (spec 029). Here in the core: a language layer is the project's own
+    # file once copied, and no update reaches the Rust projects that exist.
+    locks=(); while IFS= read -r l; do [ -n "$l" ] && [ -f "$l" ] && locks+=("$l"); done <<< "$(just _cargo-locks)"
+    if [ ${#locks[@]} -gt 0 ]; then
+      "$(just _py)" .ai-backbone/upstream.py --advisories doctor "${locks[@]}" 2>/dev/null \
+        || echo "  warn  the RustSec check could not run -> $(just _py) .ai-backbone/upstream.py --advisories doctor ${locks[*]}"
+      if [ -f docs/upstream.toml ]; then "$(just _py)" .ai-backbone/upstream.py --crate-sources "${locks[@]}" 2>/dev/null || true; fi
+    fi
     # Whether Claude Code's SessionStart hook has ever run here (spec 028): its
     # line in .claude/settings.json ends in `2>/dev/null || true`, so a hook
     # that fails says nothing, and the agent starts without the session's
@@ -1169,6 +1179,14 @@ _session-start-body:
       # Shown whole here, so a save later in this session names only what comes after.
       just _notes-new --mark >/dev/null 2>&1 || true
     fi
+    # A published vulnerability in a crate Cargo.lock locks, said only when there
+    # is one (spec 029). The database is fetched at most once a day, about a
+    # second; doctor says the rest, what was read and what could not be.
+    locks=(); while IFS= read -r l; do [ -n "$l" ] && [ -f "$l" ] && locks+=("$l"); done <<< "$(just _cargo-locks)"
+    if [ ${#locks[@]} -gt 0 ]; then
+      adv=$("$(just _py)" .ai-backbone/upstream.py --advisories session "${locks[@]}" 2>/dev/null || true)
+      if [ -n "$adv" ]; then echo; printf '%s\n' "$adv"; echo "  (update the crate: cargo update -p <name>, or the line in Cargo.toml when the fix is a new major)"; fi
+    fi
     echo; echo "=== LAST COMMITS ==="
     git log --oneline -8 2>/dev/null | cut -c1-120 || { [ -n "$(just _is-repo)" ] && echo "(nothing saved yet)" || echo "(no git repo)"; }
     # The journal last, and only its head: what was done is in the commits and the
@@ -1482,9 +1500,25 @@ save msg *paths:
     # kept until they fail: a save that sat silent for twenty minutes looked
     # hung (spec 015 review). Once waited for, the checks do not wait again; if
     # the wait gave up at its limit, they build with the smaller share it chose.
-    cap=$(just _build-wait || true)
-    [ -z "$cap" ] || export "$cap"
-    export BUILD_WAIT_MINUTES=0
+    # Only when the lint hook runs on what is saved (spec 029): a save of docs
+    # alone waited fifteen minutes behind another project's tests, to build
+    # nothing. prek is asked about the staged files by name: asked without
+    # names it sets every other change aside while it looks (prek 0.5.5,
+    # measured). Not waited for here, the checks are not told it was done, so
+    # a hook of the project's own that builds all the same still waits.
+    lintid=$(awk '/^[ \t]*- id:/ { id = $3 } /entry:[ \t]*just _lint-if-any/ { print id; exit }' .pre-commit-config.yaml 2>/dev/null || true)
+    builds=yes
+    if [ -n "$lintid" ] && command -v prek >/dev/null 2>&1; then
+      staged=()
+      while IFS= read -r -d '' f; do staged+=("$f"); done < <(if [ ${#paths[@]} -gt 0 ]; then git diff --cached --name-only -z -- "${paths[@]}"; else git diff --cached --name-only -z; fi)
+      if [ ${#staged[@]} -gt 0 ] && dry=$(prek run --dry-run --stage pre-commit "$lintid" --files "${staged[@]}" 2>/dev/null) \
+         && grep -q 'Skipped$' <<< "$dry" && ! grep -q 'Dry Run$' <<< "$dry"; then builds=""; fi
+    fi
+    if [ -n "$builds" ]; then
+      cap=$(just _build-wait || true)
+      [ -z "$cap" ] || export "$cap"
+      export BUILD_WAIT_MINUTES=0
+    fi
     out=$(mktemp); msgf=$(mktemp); printf '%s\n' "$msg" > "$msgf"
     rc=0
     if [ -n "$self" ]; then
@@ -3498,8 +3532,9 @@ _examples src kind:
 # build folder or clears one: where the output goes is read by the IDE as well
 # as by these recipes, and a folder chosen by `just` alone would build every
 # crate twice; clearing it whole is the person's decision, every time. What
-# does go without asking is the oldest pieces of a cargo folder past its cap,
-# which the next build makes again when it needs them (_build-trim, spec 027).
+# does go without asking is the pieces of a cargo folder past its cap that no
+# build has used for longest, which the next build makes again if it ever
+# needs them (_build-trim, spec 027; the order, spec 029).
 
 # Before a heavy build, wait for one already running on this machine. The
 # layer's heavy recipes start their build through it:
@@ -3535,7 +3570,7 @@ _build-wait:
       case "$k" in names) names="$v" ;; jobs) jobs="$v" ;; dir) dir="$v" ;; esac
     done <<< "$(just _build-info 2>/dev/null || true)"
     [ -n "$names" ] || exit 0
-    # The folder's oldest pieces past its cap go in the background, at most once
+    # The folder's least used pieces past its cap go in the background, at most once
     # an hour (spec 027). Every Rust build passes here, so nothing else has to
     # remember it; it never holds this build, and its words go to its log.
     if [ -n "$dir" ] && [ -d "$dir" ] && [ -z "${CI:-}" ]; then
@@ -3797,7 +3832,7 @@ _heavy:
     fi
     printf '%s' "$out"
 
-# Keep this project's build output under its cap now: oldest pieces first (spec 027)
+# Keep this project's build output under its cap now: what no build has used for longest goes first
 [group('safety')]
 trim-build:
     @just _build-trim now
@@ -4585,6 +4620,13 @@ _commit-msg-check file:
       echo "  Write what changed in English. Only a proper name (a game, a person, a place) keeps its letters, in quotes: feat: add the 'Kırmızı Balık' game"
       echo "  Quotes are for a name, never for a sentence."; exit 1
     fi
+
+# Every Cargo.lock in the project, saved or new, one per line; never one in
+# .archive/ or .references/, which are not this project's (spec 029).
+_cargo-locks:
+    #!/usr/bin/env bash
+    if [ -z "$(just _is-repo)" ]; then [ -f Cargo.lock ] && echo Cargo.lock; exit 0; fi
+    git ls-files --cached --others --exclude-standard -- Cargo.lock '*/Cargo.lock' 2>/dev/null | grep -vE '^(\.archive|\.references)/' || true
 
 # Used by the lint hook: run `just lint` when the project has one.
 # A project without a language layer has no lint recipe, and that is not a

@@ -10,7 +10,8 @@
 # a list nobody reads is worse than no list.
 #
 #   name        short, the one you would say out loud
-#   source      github:owner/repo · crates:name · npm:name · pub:name ·
+#   source      github:owner/repo · crates:name (for a Rust crate, always:
+#               a release reaches crates.io with no GitHub tag) · npm:name · pub:name ·
 #               pypi:name (what uv and pip install from) ·
 #               flutter:stable (the Flutter SDK: its GitHub release pages
 #               stopped at 3.19, its own list did not; flutter:beta works too) ·

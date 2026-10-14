@@ -62,7 +62,12 @@ mark one on your own.
 - **The length.** Five to seven hours, without a break. Look at the clock
   (`date`) when you start and after each task; after five hours, end at the
   first point that suits the work (a task finished and saved), and at seven
-  at the latest. Run out of tasks before five and you end there.
+  at the latest. Run out of tasks before five and you end there, unless the
+  maintainer approved several night specs at once as a series: then start
+  the next approved one of it, in their order, and keep to the same clock.
+  One whose dependency is not met (a spec it builds on not done, a
+  measurement or an answer it needs not there) is skipped, never half
+  begun, and named in the morning summary with what it waits for.
 - **No questions.** Every choice you would have asked about, you make by your
   own recommendation, and write it down with its reason, in the spec or the
   journal. A choice that belongs to the maintainer is never made this way:

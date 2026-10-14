@@ -10,7 +10,7 @@ you fill that slot.
 
 | File | For |
 |---|---|
-| `stack-rust.just` | Rust and Cargo; a sqlx/PostgreSQL group you can delete; `server_dir` finds a root workspace; heavy recipes wait for a build already running; `clean-build`; `clean-own` after the folder moved (done on its own before the next build); `target/` in `.gitignore` from `just stack rust`; lint and test pass before `cargo init` |
+| `stack-rust.just` | Rust and Cargo; a sqlx/PostgreSQL group you can delete; `server_dir` finds a root workspace; heavy recipes wait for a build already running; `clean-build`; `clean-own` after the folder moved, dev and release (done on its own before the next build); `target/` in `.gitignore` from `just stack rust`; lint and test pass before `cargo init` |
 | `stack-swift.just` | Swift, SwiftUI, xcodegen, iOS |
 | `stack-flutter.just` | Flutter and Dart: one app, or a pub workspace of apps and packages |
 | `ci-rust.yml` | the checks GitHub runs on every push, for a Rust workspace on Linux |

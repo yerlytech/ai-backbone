@@ -13,6 +13,59 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## 3.38.0 — 2026-10-14
+
+**The backlog of 2026-10-14, in one batch** (spec 029). Six lines; the first
+found published vulnerabilities in a real workspace on the day it was built.
+
+- **A Rust project hears about a vulnerable crate.** `just doctor` reads every
+  Cargo.lock against the RustSec advisories, the database cargo-audit and
+  cargo-deny read, and names the crate, its version, the advisory, its title
+  and the fixed version; `unmaintained` and `unsound` notices are counted on a
+  line of their own. `just session-start` says only what it finds, under
+  `RUST ADVISORIES`. Nothing to install: the database is one archive of half
+  a megabyte, fetched anonymously (no git, no name) into a cache every project
+  on the machine shares, at most once a day; an offline machine reads the copy
+  it has and says its age. Requirements are read the way cargo reads them, and
+  only crates from crates.io are read; a pre-release past the fix counts as
+  fixed, as OSV counts it. At most five lines at session start. It lives in
+  the core: the Rust layer is
+  the project's own file once copied, and no update would have reached it.
+- **A crate is watched on crates.io.** doctor says when a row of
+  `docs/upstream.toml` reads from `github:` something Cargo.lock locks as a
+  crate, and names the `crates:` source to write: a `github:` row missed four
+  patch releases that got no GitHub tag. The template says so too.
+- **The build trim keeps what builds use.** Over its cap it removed the
+  pieces written longest ago, and a dependency is compiled once and never
+  written again: the pieces still in use went first, and every crate above
+  each was compiled again. Now the order comes from cargo's own records, which
+  say what each piece was built against and which program, test or check it
+  belongs to: what only a root replaced by a newer one (a feature change, an
+  update) reaches goes first, past six hours, the rest by when a build last
+  used it, and what the newest builds of the last day reach is never removed
+  (two branches on one folder look like one replaced: the older one's own
+  pieces may go). Two pieces with one fingerprint, as two build script runs
+  have, are both kept.
+  One graph for the whole folder, so a build for another target keeps the
+  macros it compiled for this machine. Measured on one toolchain with no
+  compiler cache, a 236 MB folder with 47 MB left behind, trimmed just under
+  its size: the old order compiled 43 crates again, the new one nothing. A
+  cap below what a day's builds use is said in the trim's log line, with how
+  to raise it. Where the records cannot be read, the old order holds. A
+  file's read time cannot do this: macOS writes one only at the first read
+  after a write.
+- **A save of docs alone does not wait** for another project's build: the lint
+  hook would not run on it, which prek says without touching the other changes.
+  It waited fifteen minutes once, to build nothing.
+- **The Rust layer's `clean-own` cleans release too**: `cargo clean -p` alone
+  cleans the dev profile, and a release build in a worktree sharing the build
+  folder linked old code. A project's `stack.just` is its own: copy the
+  recipe from the backbone's `examples/stack-rust.just`.
+- **Night specs in a series.** The spec skill says what a night does when its
+  spec ends before five hours and the maintainer approved several as a series
+  (the next one), and when the next one's dependency is not met (skipped,
+  named in the morning).
+
 ## 3.37.1 — 2026-10-13
 
 What review found in 3.37.0 (spec 028), and the gate's time limits.
