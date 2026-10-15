@@ -810,7 +810,8 @@ ADV_DB = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "ai-
 ADV_STAMP = "ai-backbone.fetched"
 ADV_DAY = 86400
 ADV_STALE = 7 * ADV_DAY
-TRIAGE = Path("docs/advisories.toml")
+# Text, not a Path: Windows would print a Path as docs\advisories.toml.
+TRIAGE = "docs/advisories.toml"
 TRIAGE_DAYS = 90
 CRATES_IO = ("registry+https://github.com/rust-lang/crates.io-index", "sparse+https://index.crates.io/")
 
@@ -1146,7 +1147,7 @@ def advisories(mode, locks):
             print(f"  warn  Cargo.lock not read against RustSec: {note}")
         return 0
     lines, rows, loose, today = [], {}, 0, datetime.date.today()
-    if TRIAGE.is_file():
+    if Path(TRIAGE).is_file():
         try:
             rows, loose = triage_read(TRIAGE, tomllib, today)
         except (OSError, ValueError) as err:
