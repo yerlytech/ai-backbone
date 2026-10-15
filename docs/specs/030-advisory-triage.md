@@ -1,5 +1,5 @@
 ---
-status: approved
+status: done
 date: 2026-10-15
 ---
 
@@ -135,28 +135,30 @@ None open. Settled on approval:
 
 ## Acceptance
 
-- [ ] With a valid row, session-start says nothing of that advisory, and
+- [x] With a valid row, session-start says nothing of that advisory, and
       doctor prints it as `info` with its reason and day.
-- [ ] Both say it again, each with why, when `until` has passed, when
+- [x] Both say it again, each with why, when `until` has passed, when
       RustSec's fixed versions differ from the row's `fixed`, and when the row
       is invalid (no `why`, no `fixed`, another crate, `until` not a date or
       more than 90 days ahead).
-- [ ] A second advisory of a triaged crate is said as new.
-- [ ] doctor names a row that matches nothing.
-- [ ] `--advisories gate`: 0 with everything triaged or nothing found; 1 with
+- [x] A second advisory of a triaged crate is said as new.
+- [x] doctor names a row that matches nothing.
+- [x] `--advisories gate`: 0 with everything triaged or nothing found; 1 with
       one untriaged, expired, changed or invalid; 2 with no database, an
       unreadable lock or an unreadable triage file; a missing `--triaged`
       file is an empty list. One line per advisory and the database line;
       nothing from the current folder's `docs/` is read.
-- [ ] A copy fetched more than 7 days ago that cannot be fetched again: a
+- [x] A copy fetched more than 7 days ago that cannot be fetched again: a
       `stale` line, the exit decided by the findings.
-- [ ] session-start's hint names `docs/advisories.toml`; the session skill
+- [x] session-start's hint names `docs/advisories.toml`; the session skill
       says when and how to write a row.
-- [ ] Green on the three machines, released as 3.39.0.
+- [x] Green on the three machines, released as 3.39.0.
 
 ## Tasks
 
 - [x] Rows read and checked; session-start and doctor silence and say again;
       the hint line and the session skill; self-test cases.
 - [x] The gate mode, its exit codes and the stale line; self-test cases.
-- [ ] Through the gate on three machines, tagged; the managing session told the version.
+- [x] Through the gate on three machines, tagged; the managing session told the version.
+      v3.39.0 at 17c52db, run 38716971777 (the first run, 38712500219, was red on
+      Windows: a pathlib.Path printed with a backslash; fixed in 17c52db).
