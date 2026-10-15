@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 date: 2026-10-15
 ---
 
@@ -8,8 +8,10 @@ date: 2026-10-15
 Proposals from an independent review of this repository (2026-10-15), each
 checked against the code, and from what the same day's work showed. They are
 the maintainer's to choose; none is built before that. Written by one agent
-without subagents, on the maintainer's word, to spare the week's limit; the
-building waits for the next week. Ordered by what each protects.
+without subagents, on the maintainer's word, to spare the week's limit.
+Approved by the maintainer on 2026-10-15, all eight proposals; the building
+waits until the weekly limit resets (2026-10-19). Ordered by what each
+protects.
 
 ## What
 
@@ -75,6 +77,26 @@ project's session says "behind" only past the last version marked stable,
 the way 3.39.0 goes out today. A version is marked stable by an attended
 session on the maintainer's word; a security fix is marked the same day.
 
+Decided on 2026-10-15, as the managing session proposed and the maintainer
+approved: the managing session marks a version stable without asking the
+maintainer, and tells them. Its rule: green on the three machines, then one
+day of clean use in its pilot project (session-start, save, publish and its
+own tests clean, no note coming back); a security fix the same day, without
+the pilot. The maintainer can always take the mark back. No mark by a rule
+alone ("no red run for a day"): a run that is not red does not show the
+version was used.
+
+The mark is a one-line file on `main`, never a tag (a tag can be moved, and a
+moved tag reaches nobody without force; a file has a history, and taking it
+back is one commit). It lives outside `.ai-backbone/`, at the top of the
+backbone: a new core file would pass the new-project file ceiling. A
+project's `template-check` and `session-start` read it from `origin/main` and
+say "behind" only below it; `template-update` goes to it, and to the newest
+only when asked. The mark may go back: a project past it is told it is ahead,
+never that it is broken. The gate never carries a change to the file on its
+own and the scheduled run never touches it: only an attended session changes
+it, on the managing session's or the maintainer's word.
+
 ### 5. A smaller core, measured first
 
 Checked: `core.just` is 4,825 lines, 1,504 of them comments (31%);
@@ -130,17 +152,53 @@ as a blank cheque.
 
 ## Questions
 
-Asked one per turn, each with the answer recommended.
-
-- Proposal 4: who marks a version stable. Recommended: an attended session, on
-  the maintainer's word or the managing session's.
-- Proposals 2, 3, 5, 6, 7 and 8 change nothing the maintainer does.
-  Recommended: build them.
+None open. Settled on 2026-10-15: proposal 1 yes, one word per release;
+proposal 4 as decided above; proposals 2, 3, 5, 6, 7 and 8 built as written.
 
 ## Acceptance
 
-- [ ] Written when the questions are answered.
+- [ ] A push to `cloud` that changes code is not carried by the gate on its
+      own: the gate's line says it waits for an attended carry, and
+      `just session-start` in the backbone names what waits.
+- [ ] A push that changes only docs, specs, the backlog or the log is still
+      carried on its own.
+- [ ] An attended carry takes a waiting commit to `main` with `main`'s own copy
+      of the carry, only when all three machines were green for that commit,
+      and tags it; it refuses anything else and says why.
+- [ ] `.claude/settings.json` no longer allows `git checkout -- .`, `just undo`
+      goes through Claude Code's own prompt, and `rm -r -f` and `rm -fr` are
+      denied, each rule measured on the pinned Claude Code; a scheduled run
+      still finishes; `docs/how-it-works.md` says what the list is and is not.
+- [ ] `README.md` names no version, and the suite fails when it names one other
+      than line 1 of `core.just`.
+- [ ] The stable mark: a project's `session-start` and `template-check` say
+      "behind" only below it and "ahead" above it; `template-update` goes to
+      it unless asked for the newest; the gate never carries a change to it on
+      its own, and the routine brief forbids touching it.
+- [ ] A count of the recipes this machine's projects ran in the last month,
+      from local session records only, written into a follow-up spec; no
+      recipe is removed in this one.
+- [ ] The comment rule is in the backbone-dev skill, and `just doctor` in the
+      backbone says the share of comment lines in `core.just`.
+- [ ] The suite says how long each section took; the slowest sections on
+      Windows are named and the worst is cut, measured before and after; the
+      backbone-dev skill says a printed path is text, never a `Path`.
+- [ ] The agent-cap refusal and the audit skill say that a mode the person
+      turned on is not a yes to a count.
+- [ ] Green on the three machines, released, and the managing session told.
 
 ## Tasks
 
-- [ ] Written when the questions are answered.
+- [ ] The gate waits for an attended carry when a push changes code; the
+      attended carry; the routine brief and `docs/` with it.
+- [ ] The stable mark and the three recipes that read it; "ahead" when it goes
+      back; the routine brief forbids it.
+- [ ] The permission list, after measuring how Claude Code matches each rule.
+- [ ] The README without a version, and its check.
+- [ ] A mode is not a yes to a count: agent-cap.sh's refusal and the audit
+      skill.
+- [ ] Section timings in the suite; the slowest Windows section cut; the
+      path-as-text rule.
+- [ ] The comment rule and doctor's line.
+- [ ] The recipe count from local session records, into a follow-up spec.
+- [ ] Through the gate on the three machines; the managing session told.
