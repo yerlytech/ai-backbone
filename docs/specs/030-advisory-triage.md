@@ -1,13 +1,13 @@
 ---
-status: draft
+status: approved
 date: 2026-10-15
 ---
 
 # 030 — An advisory looked at, written down
 
 Asked for on 2026-10-15 by the managing session on the owner's word, as the
-next backbone work; the technical decisions are that session's. Closes the
-backlog line n-bcfbed.
+next backbone work; the technical decisions are that session's. Approved by
+it the same day. Closes the backlog line n-bcfbed.
 
 ## What
 
@@ -110,7 +110,7 @@ reaches is built only for tests. No cargo, about a millisecond. It must follow
 renames (`package =`), `workspace = true` and `[target.*]` tables, and an edge
 misread would call a shipped crate test-only; so it would only label a
 finding "(only tests, by Cargo.toml)" to speed the triage, never silence it.
-A backlog line if wanted.
+Backlog line n-3140d5.
 
 ## Not doing
 
@@ -121,14 +121,17 @@ A backlog line if wanted.
 
 ## Questions
 
-- **`fixed`, a fifth field, required.** "Said again when a fix becomes
-  reachable (the version line changed)" is read as RustSec's fixed-versions
-  line for that advisory, compared with what the row recorded: the check
-  cannot know the Cargo.toml requirement or the dependency that pins it, but
-  it can see the line move. Without the field that cannot be seen. A new
-  version of the crate in Cargo.lock does not reopen a row: if it is still
-  affected, the reason usually still holds, and the day bounds it.
-  Recommendation: yes, required.
+None open. Settled on approval:
+
+- `fixed` is a required fifth field. "Said again when a fix becomes reachable
+  (the version line changed)" is read as RustSec's fixed-versions line for
+  that advisory, compared with what the row recorded: the check cannot know
+  the Cargo.toml requirement or the dependency that pins it, but it can see
+  the line move. A new version of the crate in Cargo.lock does not reopen a
+  row: if it is still affected, the reason usually still holds, and the day
+  bounds it.
+- Exit 1 covers `changed` and `invalid` too; a ship stops on 2 as on 1.
+- The test-only label is backlog line n-3140d5, not this spec.
 
 ## Acceptance
 
