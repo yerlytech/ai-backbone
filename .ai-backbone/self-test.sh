@@ -2899,6 +2899,72 @@ PY
 fi
 check "the night section says what a series does next, and what an unmet dependency does" "grep -q 'approved several night specs at once as a series' '$root/.agents/skills/spec/SKILL.md' && grep -q 'is skipped, never half' '$root/.agents/skills/spec/SKILL.md'"
 
+echo "== an advisory looked at, written down (spec 030) =="
+# The project of spec 029, its database, and two more advisories: a second one
+# for foo, and one for baz with no fix.
+if "$py" -c 'import tomllib' 2>/dev/null && cd "$tmp/s29"; then
+  db30="$tmp/s30-db"; cp -R "$tmp/s29-db" "$db30"; mkdir -p "$db30/crates/baz"
+  adv29 RUSTSEC-2099-0005 foo "" '">= 1.2.2"' '' 'Foo leaks' > "$db30/crates/foo/RUSTSEC-2099-0005.md"
+  adv29 RUSTSEC-2099-0006 baz "" '' '' 'Baz is broken' > "$db30/crates/baz/RUSTSEC-2099-0006.md"
+  lock29 foo 1.2.0 "$reg" baz 0.1.0 "$reg" > Cargo.lock
+  lock29 foo 1.2.3 "$reg" > "$tmp/s30-clean.lock"
+  day30() { "$py" -c 'import datetime, sys; print(datetime.date.today() + datetime.timedelta(days=int(sys.argv[1])))' "$1"; }
+  row30() { printf '[[triaged]]\nid = "%s"\ncrate = "%s"\nwhy = "%s"\nfixed = "%s"\nuntil = %s\n\n' "$@"; }
+  env30() { env AI_BACKBONE_ADVISORY_DB="$(winpath "$db30")" "$@"; }
+  u30() { env30 "$py" "$root/.ai-backbone/upstream.py" --advisories "$@"; }
+  gate30() { out30=$(u30 gate "$@" 2>&1); rc30=$?; }
+  { row30 RUSTSEC-2099-0001 foo "only tests build it" ">= 1.2.3" "$(day30 30)"
+    row30 RUSTSEC-2099-0006 baz "the input is our own" none "$(day30 90)"
+    row30 RUSTSEC-2099-0009 gone x none "$(day30 5)"; } > docs/advisories.toml
+  o30=$(env30 just session-start 2>&1)
+  check "session-start is quiet about a triaged advisory, says a second one of the same crate, and where a row goes" "grep -q '^=== RUST ADVISORIES (1; ' <<<\"\$o30\" && grep -q '^- Cargo.lock: foo 1.2.0 has RUSTSEC-2099-0005, Foo leaks -> fixed in >= 1.2.2 (' <<<\"\$o30\" && ! grep -qE 'RUSTSEC-2099-000[16]' <<<\"\$o30\" && grep -q 'gets a row in docs/advisories.toml' <<<\"\$o30\""
+  d30=$(env30 just doctor 2>&1)
+  check "doctor lists a triaged advisory with its day and reason, and a row nothing needs" "grep -q \"^  info  Cargo.lock: foo 1.2.0 has RUSTSEC-2099-0001, triaged until $(day30 30): only tests build it\" <<<\"\$d30\" && grep -q '^  warn  Cargo.lock: foo 1.2.0 has RUSTSEC-2099-0005' <<<\"\$d30\" && grep -q '^  info  docs/advisories.toml: RUSTSEC-2099-0009 (gone) is in no Cargo.lock any more -> remove the row' <<<\"\$d30\""
+  gate30 --triaged docs/advisories.toml Cargo.lock
+  check "the gate says each advisory on a line of its own, no reason, and refuses the one with no row" "[ $rc30 -eq 1 ] && grep -q '^triaged Cargo.lock: foo 1.2.0 RUSTSEC-2099-0001 -> fixed in >= 1.2.3 (triaged until ' <<<\"\$out30\" && grep -q '^untriaged Cargo.lock: foo 1.2.0 RUSTSEC-2099-0005 -> fixed in >= 1.2.2$' <<<\"\$out30\" && grep -q '^triaged Cargo.lock: baz 0.1.0 RUSTSEC-2099-0006 -> no fixed version yet' <<<\"\$out30\" && [ \"\$(tail -1 <<<\"\$out30\")\" = 'database RustSec of 2099-01-01' ] && ! grep -q 'only tests' <<<\"\$out30\""
+  # Spaces in `fixed` do not count, and a row holds through its last day.
+  row30 RUSTSEC-2099-0005 foo "a key that only verifies" ">=1.2.2" "$(day30 0)" >> docs/advisories.toml
+  gate30 --triaged docs/advisories.toml Cargo.lock
+  check "with a row for each, the gate lets it through, and session-start says nothing" "[ $rc30 -eq 0 ] && ! grep -q '^untriaged' <<<\"\$out30\" && ! says 'RUST ADVISORIES' u30 session Cargo.lock && says '^  ok    Cargo.lock: no RustSec advisory for its 2 crates beyond the 3 triaged in docs/advisories.toml' u30 doctor Cargo.lock"
+  { row30 RUSTSEC-2099-0001 foo x none "$(day30 3)"
+    row30 RUSTSEC-2099-0005 foo y ">= 1.2.2" "$(day30 -1)"
+    row30 RUSTSEC-2099-0006 baz z none "$(day30 3)"; } > docs/advisories.toml
+  s30=$(u30 session Cargo.lock 2>&1); gate30 --triaged docs/advisories.toml Cargo.lock
+  check "a row whose day has passed, or whose fixed versions moved, is said again and refused" "grep -q '^=== RUST ADVISORIES (2; ' <<<\"\$s30\" && grep -q 'RUSTSEC-2099-0001, Foo overflows -> fixed in >= 1.2.3; triaged with fixed = \"none\", and RustSec.s fixed versions have moved' <<<\"\$s30\" && grep -q \"RUSTSEC-2099-0005, Foo leaks -> fixed in >= 1.2.2; triaged until $(day30 -1), which has passed\" <<<\"\$s30\" && [ $rc30 -eq 1 ] && grep -q '^changed Cargo.lock: foo 1.2.0 RUSTSEC-2099-0001' <<<\"\$out30\" && grep -q '^expired Cargo.lock: foo 1.2.0 RUSTSEC-2099-0005' <<<\"\$out30\" && grep -q '^triaged Cargo.lock: baz 0.1.0 RUSTSEC-2099-0006' <<<\"\$out30\""
+  { row30 RUSTSEC-2099-0001 foo x ">= 1.2.3" "$(day30 91)"
+    printf '[[triaged]]\nid = "RUSTSEC-2099-0005"\ncrate = "foo"\nfixed = ">= 1.2.2"\nuntil = %s\n\n' "$(day30 3)"
+    row30 RUSTSEC-2099-0006 bar z none "$(day30 3)"; } > docs/advisories.toml
+  s30=$(u30 doctor Cargo.lock 2>&1); gate30 --triaged docs/advisories.toml Cargo.lock
+  check "a row that cannot count is said with its fault: too far ahead, no why, another crate" "grep -q \"RUSTSEC-2099-0001, .*does not count: its until $(day30 91) is more than 90 days ahead; $(day30 90) at most\" <<<\"\$s30\" && grep -q 'RUSTSEC-2099-0005, .*does not count: it has no why' <<<\"\$s30\" && grep -q 'RUSTSEC-2099-0006, .*does not count: it names the crate bar, and the advisory is about baz' <<<\"\$s30\" && [ $rc30 -eq 1 ] && [ \$(grep -c '^invalid ' <<<\"\$out30\") -eq 3 ]"
+  { printf '[[triaged]]\nid = "RUSTSEC-2099-0001"\ncrate = "foo"\nwhy = "x"\nfixed = ">= 1.2.3"\nuntil = "soon"\n\n'
+    printf '[[triaged]]\nid = "RUSTSEC-2099-0005"\ncrate = "foo"\nwhy = "y"\nuntil = %s\n\n' "$(day30 3)"; } > docs/advisories.toml
+  s30=$(u30 doctor Cargo.lock 2>&1)
+  check "and so is one whose day is not a date, or that has no fixed" "grep -q 'RUSTSEC-2099-0001, .*does not count: its until is not a date' <<<\"\$s30\" && grep -q 'RUSTSEC-2099-0005, .*does not count: it has no fixed' <<<\"\$s30\""
+  printf 'this is = not [toml\n' > "$tmp/s30-bad.toml"
+  gate30 --triaged "$(winpath "$tmp/s30-bad.toml")" Cargo.lock; bad30=$rc30
+  gate30 --triaged docs/advisories.toml no/Cargo.lock; nolock30=$rc30
+  o30=$(env AI_BACKBONE_ADVISORY_DB="$(winpath "$tmp/s30-none")" "$py" "$root/.ai-backbone/upstream.py" --advisories gate Cargo.lock 2>&1); nodb30=$?
+  check "the gate exits 2 when it could not tell: a triage file that is not TOML, a lock it cannot read, no database" "[ $bad30 -eq 2 ] && [ $nolock30 -eq 2 ] && [ $nodb30 -eq 2 ] && grep -q '^error no RustSec database to read' <<<\"\$o30\""
+  gate30 --triaged "$(winpath "$tmp/s30-none.toml")" "$(winpath "$tmp/s30-clean.lock")"
+  check "and reads a triage file that is not there as an empty list" "[ $rc30 -eq 0 ] && grep -q '^note .*s30-none.toml does not exist, so nothing is triaged' <<<\"\$out30\" && grep -q '^ok .*s30-clean.lock: no advisory for its 1 crate$' <<<\"\$out30\""
+  { row30 RUSTSEC-2099-0001 foo x ">= 1.2.3" "$(day30 3)"; row30 RUSTSEC-2099-0005 foo x ">= 1.2.2" "$(day30 3)"
+    row30 RUSTSEC-2099-0006 baz x none "$(day30 3)"; } > docs/advisories.toml
+  gate30 Cargo.lock; here30=$rc30
+  ( cd "$tmp" && u30 gate --triaged "$(winpath "$tmp/s29/docs/advisories.toml")" "$(winpath "$tmp/s29/Cargo.lock")" >/dev/null 2>&1 ); there30=$?
+  check "the gate reads only the files it is given, never the docs/ of the folder it runs in" "[ $here30 -eq 1 ] && [ $there30 -eq 0 ]"
+  # A copy in the cache, fetched 8 days ago and 3 days ago, with no network.
+  xdg30="$tmp/s30-xdg"; mkdir -p "$xdg30/ai-backbone"; cp -R "$tmp/s29-db" "$xdg30/ai-backbone/advisory-db"
+  age30() { "$py" -c 'import os, sys, time; t = time.time() - float(sys.argv[2]) * 86400; os.utime(sys.argv[1], (t, t))' "$(winpath "$xdg30/ai-backbone/advisory-db/ai-backbone.fetched")" "$1"; }
+  sg30() { env -u AI_BACKBONE_ADVISORY_DB AI_BACKBONE_OFFLINE=1 XDG_CACHE_HOME="$(winpath "$xdg30")" "$py" "$root/.ai-backbone/upstream.py" --advisories gate "$(winpath "$tmp/s30-clean.lock")" 2>&1; }
+  age30 8; o30=$(sg30); st30=$?
+  age30 3; o3=$(sg30)
+  check "a copy fetched over 7 days ago that cannot be fetched again is said stale, and the gate still decides" "[ $st30 -eq 0 ] && grep -q '^stale RustSec database of 2099-01-01, offline (AI_BACKBONE_OFFLINE); the copy here was fetched 8 day(s) ago' <<<\"\$o30\" && grep -q '^database RustSec of 2099-01-01, offline' <<<\"\$o3\""
+  rm -f docs/advisories.toml
+else
+  check "without tomllib, the gate says it could not tell" "o=\$(\"\$py\" \"\$root/.ai-backbone/upstream.py\" --advisories gate Cargo.lock 2>&1); [ \$? -eq 2 ] && grep -q '^error needs Python 3.11' <<<\"\$o\""
+fi
+cd "$tmp" || exit 1
+
 echo
 echo "$pass ok, $fail failed"
 [ "$fail" -eq 0 ]

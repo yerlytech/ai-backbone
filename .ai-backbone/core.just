@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.38.1
+# .ai-backbone/core.just — the backbone's recipes, version 3.39.0
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -1180,12 +1180,13 @@ _session-start-body:
       just _notes-new --mark >/dev/null 2>&1 || true
     fi
     # A published vulnerability in a crate Cargo.lock locks, said only when there
-    # is one (spec 029). The database is fetched at most once a day, about a
-    # second; doctor says the rest, what was read and what could not be.
+    # is one (spec 029) and docs/advisories.toml does not cover it (spec 030).
+    # The database is fetched at most once a day, about a second; doctor says
+    # the rest, what was read, what is triaged and what could not be read.
     locks=(); while IFS= read -r l; do [ -n "$l" ] && [ -f "$l" ] && locks+=("$l"); done <<< "$(just _cargo-locks)"
     if [ ${#locks[@]} -gt 0 ]; then
       adv=$("$(just _py)" .ai-backbone/upstream.py --advisories session "${locks[@]}" 2>/dev/null || true)
-      if [ -n "$adv" ]; then echo; printf '%s\n' "$adv"; echo "  (update the crate: cargo update -p <name>, or the line in Cargo.toml when the fix is a new major)"; fi
+      if [ -n "$adv" ]; then echo; printf '%s\n' "$adv"; echo "  (update the crate: cargo update -p <name>, or the line in Cargo.toml when the fix is a new major; one that cannot be updated gets a row in docs/advisories.toml, session skill)"; fi
     fi
     echo; echo "=== LAST COMMITS ==="
     git log --oneline -8 2>/dev/null | cut -c1-120 || { [ -n "$(just _is-repo)" ] && echo "(nothing saved yet)" || echo "(no git repo)"; }

@@ -31,7 +31,16 @@ says otherwise; `off` stops it; `just trim-build` runs it now). When `just
 session-start` says the disk is nearly full, run that, and ask the person
 before deleting anything else. When it lists RUST ADVISORIES, a crate in
 Cargo.lock has a published vulnerability: say it to the person, with the
-fixed version, before other work; `just doctor` has the whole list.
+fixed version, before other work; `just doctor` has the whole list. One that
+cannot be updated (only tests build the crate, a dependency pins it, the flaw
+does not touch how it is used) gets a `[[triaged]]` block in
+`docs/advisories.toml`, made with its first row: `id`, `crate`, `why` in one
+line, `fixed` as doctor prints it after "fixed in" (or `"none"`), and `until`,
+a date at most 90 days ahead. session-start is then quiet about it until that
+day, until RustSec's fixed versions move, or while the row is wrong; doctor
+still lists it. A ship can ask `.ai-backbone/upstream.py --advisories gate
+--triaged docs/advisories.toml <Cargo.lock>...`: 0 when every advisory is
+covered, 1 when one is not, 2 when it could not tell.
 
 ## What you know ends on a date
 

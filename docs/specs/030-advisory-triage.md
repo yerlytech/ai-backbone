@@ -156,7 +156,7 @@ None open. Settled on approval:
 
 ## Tasks
 
-- [ ] Rows read and checked; session-start and doctor silence and say again;
+- [x] Rows read and checked; session-start and doctor silence and say again;
       the hint line and the session skill; self-test cases.
-- [ ] The gate mode, its exit codes and the stale line; self-test cases.
+- [x] The gate mode, its exit codes and the stale line; self-test cases.
 - [ ] Through the gate on three machines, tagged; the managing session told the version.

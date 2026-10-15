@@ -11,7 +11,9 @@ read on this machine, because an agent's training ends on a day and a version
 released after it is one the agent has never seen. `--recent` prints that from
 the cache alone, without the network, for every session. `--advisories` reads
 a Cargo.lock against the RustSec advisories, and `--crate-sources` says when
-a row reads from GitHub what Cargo.lock locks as a crate (spec 029).
+a row reads from GitHub what Cargo.lock locks as a crate (spec 029); what a
+project has looked at and ships anyway is in docs/advisories.toml, and
+`--advisories gate` is a ship's yes or no (spec 030).
 
 Nothing here upgrades anything. It reports.
 """
@@ -785,12 +787,31 @@ def recent():
 # crates.io are read: a path or git crate of the same name is another crate.
 # Withdrawn advisories are left out; `unmaintained`, `unsound` and `notice`
 # ones are counted on a line of their own, since they are not vulnerabilities.
+#
+#     upstream.py --advisories gate [--triaged <file>] <Cargo.lock>...
+#
+# An advisory a project has looked at and ships anyway (only tests build the
+# crate, a dependency pins it, the flaw does not touch how it is used) has a
+# [[triaged]] row in docs/advisories.toml: id, crate, why, fixed and until
+# (spec 030). session-start stays quiet about it and doctor lists it, until
+# the day passes, until RustSec's fixed versions are no longer the row's
+# `fixed` (a fix the project may now reach), or while the row cannot be used.
+# A day is at most 90 ahead: a reason is true for a while, not for ever. The
+# gate is a ship's question, asked of the files it is given and never of the
+# folder it runs in: one line per advisory, 0 when every one is covered, 1
+# when one is not, 2 when it could not tell. A database fetched more than 7
+# days ago that cannot be fetched now is said and still read: it knows every
+# advisory up to its date, and a release a GitHub outage can stop teaches
+# people to switch the gate off.
 
 ADV_URL = os.environ.get("AI_BACKBONE_ADVISORY_URL",
                      "https://codeload.github.com/rustsec/advisory-db/tar.gz/refs/heads/main")
 ADV_DB = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "ai-backbone" / "advisory-db"
 ADV_STAMP = "ai-backbone.fetched"
 ADV_DAY = 86400
+ADV_STALE = 7 * ADV_DAY
+TRIAGE = Path("docs/advisories.toml")
+TRIAGE_DAYS = 90
 CRATES_IO = ("registry+https://github.com/rust-lang/crates.io-index", "sparse+https://index.crates.io/")
 
 
@@ -934,12 +955,12 @@ def adv_fetch(db):
 
 
 def adv_database():
-    """The folder to read, its date, and a note when it is not today's; or None
-    and why."""
+    """The folder to read, its date, a note when it is not today's, and how
+    many seconds ago it was fetched (None when nobody knows); or None and why."""
     given = os.environ.get("AI_BACKBONE_ADVISORY_DB")
     if given:
         db = Path(given)
-        return (db, adv_date(db), "") if (db / "crates").is_dir() else (None, "", f"{db} holds no crates/ folder")
+        return (db, adv_date(db), "", None) if (db / "crates").is_dir() else (None, "", f"{db} holds no crates/ folder", None)
     db, note = ADV_DB, ""
     stamp = db / ADV_STAMP
     age = time.time() - stamp.stat().st_mtime if stamp.is_file() else None
@@ -953,10 +974,10 @@ def adv_database():
             except Exception as err:  # noqa: BLE001 - said, never a traceback
                 note = f"could not fetch it ({type(err).__name__})"
     if not (db / "crates").is_dir():
-        return None, "", f"{note or 'nothing fetched yet'}, and there is no copy of the advisory database here"
+        return None, "", f"{note or 'nothing fetched yet'}, and there is no copy of the advisory database here", None
     if note and age is not None:
         note = f"{note}; the copy here was fetched {int(age // ADV_DAY)} day(s) ago"
-    return db, adv_date(db), note
+    return db, adv_date(db), note, age
 
 
 def adv_date(db):
@@ -1024,6 +1045,91 @@ def adv_check(lock, db, tomllib):
     return crates, found, notices
 
 
+# ─────────────────── what a project has looked at (spec 030) ───────────────────
+
+def adv_fix(patched):
+    """The fixed versions as every line says them; a row's `fixed` copies the
+    part after "fixed in", or says none."""
+    return f"fixed in {' or '.join(patched)}" if patched else "no fixed version yet"
+
+
+def fixed_set(value):
+    """A row's `fixed`, or an advisory's list, as something to compare: spaces
+    and order do not count, and none is nothing."""
+    parts = value if isinstance(value, list) else re.split(r"\s+or\s+", str(value).strip())
+    return frozenset(re.sub(r"\s+", "", str(p)) for p in parts) - {"", "none"}
+
+
+def crate_key(name):
+    return str(name).strip().lower().replace("_", "-")
+
+
+def one_line(text, most=200):
+    """A person's text on one line of a page, whatever they typed."""
+    text = re.sub(r"[\x00-\x1f\x7f]+", " ", str(text)).strip()
+    return text if len(text) <= most else text[:most - 1] + "…"
+
+
+def triage_day(value):
+    if isinstance(value, datetime.datetime):
+        return value.date()
+    if isinstance(value, datetime.date):
+        return value
+    try:
+        return datetime.date.fromisoformat(str(value).strip())
+    except ValueError:
+        return None
+
+
+def triage_read(path, tomllib, today):
+    """The rows of a triage file by advisory id, each with the fault that keeps
+    it from counting, and how many rows name no id. Raises OSError or
+    ValueError when the file cannot be read as one."""
+    rows = tomllib.loads(Path(path).read_text()).get("triaged", [])
+    if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
+        raise ValueError("each advisory is its own [[triaged]] block, with two brackets")
+    out, loose = {}, 0
+    last = today + datetime.timedelta(days=TRIAGE_DAYS)
+    for row in rows:
+        rid = str(row.get("id", "")).strip()
+        if not rid:
+            loose += 1
+            continue
+        until = triage_day(row.get("until", ""))
+        fault = ""
+        if not str(row.get("why", "")).strip():
+            fault = "it has no why"
+        elif "fixed" not in row:
+            fault = 'it has no fixed (what doctor prints after "fixed in", or none)'
+        elif until is None:
+            fault = "its until is not a date (YYYY-MM-DD)"
+        elif until > last:
+            fault = f"its until {until} is more than {TRIAGE_DAYS} days ahead; {last} at most"
+        # The first row of an id is the one read; a second is a copy someone forgot.
+        out.setdefault(rid, {"crate": str(row.get("crate", "")).strip(), "why": one_line(row.get("why", "")),
+                             "fixed": row.get("fixed", ""), "until": until, "fault": fault})
+    return out, loose
+
+
+def adv_judge(name, adv, rows, today):
+    """What a found advisory is now: triaged, untriaged, expired, changed (the
+    fixed versions moved since the row) or invalid, and the words why."""
+    row = rows.get(adv["id"])
+    if row is None:
+        return "untriaged", ""
+    fault = row["fault"]
+    if not fault and crate_key(row["crate"]) != crate_key(name):
+        fault = f"it names the crate {row['crate'] or '(none)'}, and the advisory is about {name}"
+    if fault:
+        return "invalid", fault
+    if row["until"] < today:
+        return "expired", f"triaged until {row['until']}"
+    if fixed_set(row["fixed"]) != fixed_set(adv["patched"]):
+        was = " or ".join(map(str, row["fixed"])) if isinstance(row["fixed"], list) else row["fixed"]
+        return "changed", f"triaged with fixed = \"{one_line(was, 80) or 'none'}\""
+    return "triaged", f"triaged until {row['until']}"
+
+
 def advisories(mode, locks):
     """doctor's lines, or session-start's finding, for these Cargo.lock files."""
     try:
@@ -1033,31 +1139,56 @@ def advisories(mode, locks):
             print(f"  --    Cargo.lock not read against RustSec: needs Python 3.11 or newer for tomllib, this is"
                   f" {sys.version.split()[0]} -> uv python install 3.13")
         return 0
-    db, day, note = adv_database()
+    db, day, note, _ = adv_database()
     if db is None:
         # Said by doctor; a session that cannot read it has nothing to report.
         if mode == "doctor":
             print(f"  warn  Cargo.lock not read against RustSec: {note}")
         return 0
-    lines = []
+    lines, rows, loose, today = [], {}, 0, datetime.date.today()
+    if TRIAGE.is_file():
+        try:
+            rows, loose = triage_read(TRIAGE, tomllib, today)
+        except (OSError, ValueError) as err:
+            lines.append(("warn", f"{TRIAGE} could not be read, so nothing in it counts: {one_line(err)}"))
+    seen, unread = set(), False
     for lock in locks:
         try:
             crates, found, notices = adv_check(lock, db, tomllib)
         except (OSError, ValueError, KeyError, TypeError) as err:
             lines.append(("warn", f"{lock} could not be read: {err}"))
+            unread = True
             continue
+        triaged = 0
         for name, ver, adv in found:
-            fix = f"fixed in {' or '.join(adv['patched'])}" if adv["patched"] else "no fixed version yet"
-            lines.append(("warn", f"{lock}: {name} {ver} has {adv['id']}, {adv['title']} -> {fix}"
-                                  f" (https://rustsec.org/advisories/{adv['id']})"))
-        if not found:
-            lines.append(("ok", f"{lock}: no RustSec advisory for its {len(crates)} crate{'' if len(crates) == 1 else 's'}"))
+            seen.add(adv["id"])
+            state, why = adv_judge(name, adv, rows, today)
+            if state == "triaged":
+                triaged += 1
+                lines.append(("info", f"{lock}: {name} {ver} has {adv['id']}, {why}: {rows[adv['id']]['why']}"))
+                continue
+            said = {"untriaged": "", "expired": f"; {why}, which has passed",
+                    "changed": f"; {why}, and RustSec's fixed versions have moved",
+                    "invalid": f"; its row in {TRIAGE} does not count: {why}"}[state]
+            lines.append(("warn", f"{lock}: {name} {ver} has {adv['id']}, {adv['title']} -> {adv_fix(adv['patched'])}"
+                                  f"{said} (https://rustsec.org/advisories/{adv['id']})"))
+        if len(found) == triaged:
+            beyond = f" beyond the {triaged} triaged in {TRIAGE}" if triaged else ""
+            lines.append(("ok", f"{lock}: no RustSec advisory for its {len(crates)} crate{'' if len(crates) == 1 else 's'}{beyond}"))
         if notices:
             kinds = {}
             for kind, name in notices:
                 kinds.setdefault(kind, []).append(name)
             said = "; ".join(f"{k}: {', '.join(sorted(set(v)))}" for k, v in sorted(kinds.items()))
             lines.append(("info", f"{lock}: notices, not vulnerabilities ({said})"))
+    # A row nothing needs any more: the crate was updated past the fix, or left.
+    # Not said when a lock could not be read: its advisories are not known.
+    if not unread:
+        for rid, row in rows.items():
+            if rid not in seen:
+                lines.append(("info", f"{TRIAGE}: {rid} ({row['crate'] or 'no crate'}) is in no Cargo.lock any more -> remove the row"))
+    if loose:
+        lines.append(("info", f"{TRIAGE}: {loose} [[triaged]] row(s) with no id count for nothing -> the advisory's id, or remove"))
     when = f"database of {day}" + (f", {note}" if note else "")
     if mode == "doctor":
         for kind, line in lines:
@@ -1073,6 +1204,63 @@ def advisories(mode, locks):
             if len(warns) > 5:
                 print(f"  ... and {len(warns) - 5} more: just doctor")
     return 0
+
+
+def advisories_gate(args):
+    """A ship's question for these Cargo.lock files: is every advisory in them
+    one the triage file covers? One line per advisory and lock, its state first;
+    no title and no reason, nothing the caller did not hand in. 0 yes, 1 no, 2
+    could not tell (spec 030)."""
+    triage, locks, i = None, [], 0
+    while i < len(args):
+        if args[i] == "--triaged" and i + 1 < len(args):
+            triage, i = args[i + 1], i + 2
+        else:
+            locks.append(args[i])
+            i += 1
+    if not locks:
+        print("error no Cargo.lock given: upstream.py --advisories gate [--triaged <file>] <Cargo.lock>...")
+        return 2
+    try:
+        import tomllib
+    except ModuleNotFoundError:
+        print(f"error needs Python 3.11 or newer for tomllib, this is {sys.version.split()[0]}")
+        return 2
+    rows, today = {}, datetime.date.today()
+    if triage is not None:
+        # A project with no file yet has nothing triaged: stricter, never looser.
+        if not Path(triage).exists():
+            print(f"note {triage} does not exist, so nothing is triaged")
+        else:
+            try:
+                rows, _ = triage_read(triage, tomllib, today)
+            except (OSError, ValueError) as err:
+                print(f"error {triage} could not be read: {one_line(err)}")
+                return 2
+    db, day, note, age = adv_database()
+    if db is None:
+        print(f"error no RustSec database to read: {note}")
+        return 2
+    worst = 0
+    for lock in locks:
+        try:
+            crates, found, _ = adv_check(lock, db, tomllib)
+        except (OSError, ValueError, KeyError, TypeError) as err:
+            print(f"error {lock} could not be read: {one_line(err)}")
+            worst = 2
+            continue
+        for name, ver, adv in found:
+            state, why = adv_judge(name, adv, rows, today)
+            print(f"{state} {lock}: {name} {ver} {adv['id']} -> {adv_fix(adv['patched'])}" + (f" ({why})" if why else ""))
+            if state != "triaged":
+                worst = max(worst, 1)
+        if not found:
+            print(f"ok {lock}: no advisory for its {len(crates)} crate{'' if len(crates) == 1 else 's'}")
+    if age is not None and age > ADV_STALE:
+        print(f"stale RustSec database of {day}, {note or f'fetched {int(age // ADV_DAY)} days ago'}")
+    else:
+        print(f"database RustSec of {day}" + (f", {note}" if note else ""))
+    return worst
 
 
 def crate_sources(locks):
@@ -1115,6 +1303,8 @@ def main():
         return recent()
     if len(sys.argv) > 1 and sys.argv[1] == "--crate-sources":
         return crate_sources(sys.argv[2:])
+    if len(sys.argv) > 2 and sys.argv[1] == "--advisories" and sys.argv[2] == "gate":
+        return advisories_gate(sys.argv[3:])
     if len(sys.argv) > 3 and sys.argv[1] == "--advisories" and sys.argv[2] in ("doctor", "session"):
         return advisories(sys.argv[2], sys.argv[3:])
     if not LIST.is_file():

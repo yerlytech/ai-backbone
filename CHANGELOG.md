@@ -13,6 +13,36 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## 3.39.0 — 2026-10-15
+
+**An advisory looked at, written down** (spec 030). Since 3.38.0 session-start
+repeated every RustSec advisory in a Cargo.lock at every session, the ones
+nobody can update too: a crate only tests build, a fix behind a dependency's
+exact pin, a flaw that does not touch how the crate is used. A new advisory
+drowned among them, and a ship had nothing to stop on.
+
+- **`docs/advisories.toml`**, the project's own, made with its first row: one
+  `[[triaged]]` block per advisory with `id`, `crate`, `why`, `fixed` (the
+  fixed versions as doctor printed them that day, or `none`) and `until`, a
+  date at most 90 days ahead. session-start is quiet about an advisory a row
+  covers; doctor lists it as `info` with its reason and day, and names a row
+  nothing needs any more.
+- **Said again** when the day has passed, when RustSec's fixed versions are no
+  longer the row's `fixed` (a fix the project may now reach), or while the row
+  cannot count (no why, no fixed, another crate, a day too far ahead). A
+  second advisory of the same crate has no row, so it is new.
+- **A gate for a ship:** `.ai-backbone/upstream.py --advisories gate
+  [--triaged <file>] <Cargo.lock>...` reads only the files it is given, never
+  the folder it runs in, and prints one line per advisory, its state first
+  (`triaged`, `untriaged`, `expired`, `changed`, `invalid`), with no title and
+  no reason. Exit 0 when every advisory is covered, 1 when one is not, 2 when
+  it could not tell (no database, a file it cannot read). A database last
+  fetched more than 7 days ago that cannot be fetched now is said `stale` and
+  still read: it knows every advisory up to its date.
+- Nothing to do in a project until it has an advisory to record. A crate only
+  tests build is recorded by hand (`why = "only tests build it"`): Cargo.lock
+  does not mark a dev-dependency, and session-start does not run cargo.
+
 ## 3.38.1 — 2026-10-14
 
 **The build trim runs on a machine that is always building.** It waited for a
