@@ -41,6 +41,8 @@ what it says about its author: every code change waits, and an attended
 session carries its own right after the green run. Cost: one word per release;
 a scheduled run's code waits until the next attended session.
 
+Decided by the maintainer on 2026-10-15: yes, one word per release.
+
 ### 2. Throwing work away asks first; the list says what it is
 
 Checked: `.claude/settings.json` allows `Bash(just:*)` and
@@ -130,7 +132,6 @@ as a blank cheque.
 
 Asked one per turn, each with the answer recommended.
 
-- Proposal 1 changes what the maintainer does: one yes per release. Recommended: yes.
 - Proposal 4: who marks a version stable. Recommended: an attended session, on
   the maintainer's word or the managing session's.
 - Proposals 2, 3, 5, 6, 7 and 8 change nothing the maintainer does.
