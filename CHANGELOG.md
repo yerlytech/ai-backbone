@@ -13,6 +13,16 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## 3.39.1 — 2026-10-16
+
+**The code map and the installer, on their newest release** (spec 021). The
+pins of graphify and uv in `docs/upstream.toml` follow what is installed, and
+this run's setup had both at their newest: graphify 0.9.91 and uv 0.13.1.
+Neither publishes release notes, so each row's question was measured rather
+than remembered, and the comments in `update-map` and `tools-update` that keep
+that record now name those versions and the day. The secret scanner's `rev:`
+did not move, so its four places needed nothing.
+
 ## 3.39.0 — 2026-10-15
 
 **An advisory looked at, written down** (spec 030). Since 3.38.0 session-start
