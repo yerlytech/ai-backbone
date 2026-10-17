@@ -23,7 +23,7 @@ server_dir := if path_exists("Cargo.toml") == "true" { "." } else { "server" }
 # check, test, test-fast, lint and build start cargo through
 # `env $(just _build-wait)`. When another build is already running on this
 # machine, in this project or another, it says so and waits for it to finish;
-# after BUILD_WAIT_MINUTES (20) it goes on with half the cores, by handing `env`
+# after BUILD_WAIT_MINUTES (5) it goes on with half the cores, by handing `env`
 # a CARGO_BUILD_JOBS. Otherwise it prints nothing and cargo runs as always.
 # Two builds that share a folder wait on one lock anyway, and two at once on a
 # machine with little memory can run it out at link time. BUILD_WAIT_MINUTES=0

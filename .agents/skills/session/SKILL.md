@@ -27,7 +27,11 @@ the Rust layer's heavy recipes already call it, and `BUILD_WAIT_MINUTES=0`
 switches it off. A Rust build folder also keeps itself under a cap: past it,
 the pieces no build has used for longest go first, and never one the newest
 builds of the last day reach (60 GB a project unless `git config ai-backbone.build-cap`
-says otherwise; `off` stops it; `just trim-build` runs it now). When `just
+says otherwise; `off` stops it; `just trim-build` runs it now). Under 15% free
+disk, a build's trim also empties the folders of projects nobody has built in
+a week, the longest idle first, until 20% is free; their next build starts
+from nothing. `just doctor` says when the caps add up past half the disk:
+lowering the global cap is the person's call. When `just
 session-start` says the disk is nearly full, run that, and ask the person
 before deleting anything else. When it lists RUST ADVISORIES, a crate in
 Cargo.lock has a published vulnerability: say it to the person, with the

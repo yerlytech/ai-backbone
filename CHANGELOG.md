@@ -13,6 +13,29 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## 3.40.0 — 2026-10-17
+
+**One disk, many projects; one queue, many builds** (spec 032). Each Rust
+project kept its build folder under its own cap, and nine of them, each under
+150 GB, filled a 926 GB disk at 60 GB an hour while nothing was trimmed.
+`just doctor` now adds up the caps of the machine's Rust projects (found
+next to the backbone, as `project-note` finds them) and says when they pass
+half the disk, with a cap that fits; it changes nothing. And under 15% free,
+the hourly trim a build starts goes on into the other projects' cargo folders
+that no build has written in 7 days, the one built longest ago first, and
+takes from each what a build makes again, its working set too, until 20% is
+free: the price is one full build when someone comes back to that project
+(the owner's yes, 2026-10-17). Never a folder a program uses now, never a
+piece younger than 6 hours, and one line in each folder's log.
+
+The build queue waits `BUILD_WAIT_MINUTES` in all, 5 by default, then goes on
+with half the cores, the cap that protects memory at link time. Until now the
+queue and a running compiler each had the full 20 minutes, so one 40-minute
+build held a small build in another project for 40, and agents switched the
+wait off. While it waits it says which project holds the turn, and since when.
+
+Nothing to do in a project; `just template-update` brings it.
+
 ## 3.39.1 — 2026-10-16
 
 **The code map and the installer, on their newest release** (spec 021). The

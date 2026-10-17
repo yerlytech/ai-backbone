@@ -103,7 +103,7 @@ _build-info:
 
 - **Waiting.** A heavy recipe starts its build through the core's wait:
   `env $(just _build-wait) cargo test`. With a build already running on the
-  machine it says so and waits (up to `BUILD_WAIT_MINUTES`, 20), then goes on
+  machine it says so and waits (up to `BUILD_WAIT_MINUTES`, 5, in all), then goes on
   with half the cores. With none, or where `ps` cannot list processes, it says
   nothing. `BUILD_WAIT_MINUTES=0` switches it off.
 - **Size.** `just doctor` says when the folder is over `BUILD_OUTPUT_WARN_GB`

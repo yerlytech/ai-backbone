@@ -24,6 +24,9 @@ export AI_BACKBONE_OFFLINE=1   # never reach GitHub or a registry from a test
 # own fixtures. Until then: no meter, no transcripts, one quiet line.
 export AI_BACKBONE_BUDGET_PROJECTS="$tmp/no-projects" AI_BACKBONE_BUDGET_METER="$tmp/no-meter" AI_BACKBONE_BUDGET_CACHE="$tmp/budget-cache.json"
 mkdir -p "$tmp/T"; export TMPDIR="$tmp/T"
+# Nor the projects next to the real backbone: doctor adds up their build caps,
+# and a build's trim may go into their folders (spec 032).
+export AI_BACKBONE_PROJECTS="$tmp/no-projects"
 # Nor does a test read or write this machine's own git settings: the place for
 # second copies of brain/ lives there, and a doctor run in a throwaway project
 # would look into the real one. git is pointed at a file in the temp folder that
@@ -2639,6 +2642,14 @@ printf '%s %s\n' "$hs" "$(( $(date +%s) - 60 ))" > "$bq/t-0000000005-00000005"
 s=$SECONDS; bw env BUILD_WAIT_MINUTES=2 just _build-wait >/dev/null 2>"$tmp/q-err5"; took=$((SECONDS - s))
 check "a build that went a minute ago holds the turn no longer once no compiler runs" "[ $took -lt 15 ] && grep -q 'Its turn: going on' '$tmp/q-err5'"
 { kill "$hs"; wait "$hs"; } 2>/dev/null; wait 2>/dev/null; rm -f "$bq"/t-*
+# One limit for the whole wait (spec 032): the queue and a running compiler
+# together, not each in full; and the wait names the project that holds the turn.
+sleep 120 & hs=$!
+printf '%s %s %s\n' "$hs" "$(( $(date +%s) - 5 ))" "/x/other-proj" > "$bq/t-0000000006-00000006"
+s=$SECONDS; out=$(bw env PS_BUSY=99 BUILD_WAIT_MINUTES=0.2 just _build-wait 2>"$tmp/q-err6"); took=$((SECONDS - s))
+check "behind a turn and a running compiler, the wait is one limit in all, then half the cores" "[ $took -ge 10 ] && [ $took -lt 20 ] && [ \"\$out\" = 'CARGO_BUILD_JOBS=$half' ]"
+check "and it names the project that holds the turn" "grep -q 'came first (the turn is other-proj, for under a minute)' '$tmp/q-err6'"
+{ kill "$hs"; wait "$hs"; } 2>/dev/null; wait 2>/dev/null; rm -f "$bq"/t-*
 # Where ps lists parents, a ticket whose holder is this caller, or above it, is
 # this build's own (a recipe that waits and then calls another that waits).
 if "$REAL_PS" -A -o pid= -o ppid= >/dev/null 2>&1; then
@@ -2759,6 +2770,42 @@ mkdir -p "$tmp/fakedf"; printf '#!/bin/sh\necho "Filesystem 1024-blocks Used Ava
 mkdir -p "$tmp/fakedf2"; sed 's/95000000 5000000 95%/50000000 50000000 50%/' "$tmp/fakedf/df" > "$tmp/fakedf2/df"; chmod +x "$tmp/fakedf2/df"
 check "session-start says when the disk is nearly full" "says '^Disk: only 5% free here \(4 GB\)\. Build output is the usual cause -> just trim-build' env PATH='$tmp/fakedf:$PATH' just session-start"
 check "and nothing when it is not" "! says '^Disk:' env PATH='$tmp/fakedf2:$PATH' just session-start"
+# One disk, many projects (spec 032). Two Rust projects beside this one, each
+# capped at 30 GB like it: 90 GB of caps on a 95 GB disk is said, on a 953 GB
+# one it is not. A sibling's layer here only names its folder.
+rp="$tmp/rp"
+for n in p1 p2; do
+  mkdir -p "$rp/$n/.ai-backbone"; : > "$rp/$n/.ai-backbone/core.just"; git -C "$rp/$n" init -q
+  printf '# a layer for cargo\n_build-info:\n    @echo "dir %s"\n' "$tmp/rp-target-$n" > "$rp/$n/stack.just"
+  printf 'import "stack.just"\n' > "$rp/$n/Justfile"
+done
+mkdir -p "$tmp/fakedf3"; sed 's/100000000 50000000 50000000/1000000000 500000000 500000000/' "$tmp/fakedf2/df" > "$tmp/fakedf3/df"; chmod +x "$tmp/fakedf3/df"
+out=$(tcap 30 env AI_BACKBONE_PROJECTS="$rp" PATH="$tmp/fakedf2:$PATH" just doctor 2>&1)
+check "doctor says when the build caps of the machine's Rust projects pass half the disk, with a cap that fits" "grep -q 'build caps of this machine.s 3 Rust projects add up to 90 GB, more than half the 95 GB disk' <<<\"\$out\" && grep -q 'A cap that fits: git config --global ai-backbone.build-cap 15' <<<\"\$out\""
+out=$(tcap 30 env AI_BACKBONE_PROJECTS="$rp" PATH="$tmp/fakedf3:$PATH" just doctor 2>&1)
+check "and nothing when they fit" "! grep -q 'build caps of this machine' <<<\"\$out\""
+out=$(tcap off env AI_BACKBONE_PROJECTS="$rp" PATH="$tmp/fakedf2:$PATH" just doctor 2>&1)
+check "a cap that is off adds nothing" "! grep -q 'build caps of this machine' <<<\"\$out\""
+# Under 15% free, a build's trim goes into the idle sibling's folder too.
+mkcargo "$tmp/rp-target-p1"; rm -f "$tmp/tr/target/ai-backbone-trim.done"
+tcap 60 env AI_BACKBONE_PROJECTS="$rp" PATH="$tmp/fakedf:$PATH" just _build-trim auto >/dev/null 2>&1
+check "with the disk under 15% free, a build's trim also trims a project idle for a week" "grep -q 'last built 30 days ago: removed' '$tmp/rp-target-p1/ai-backbone-trim.log'"
+cd "$tmp" || exit 1
+# The order and the limits, against a disk seen 10% free: an idle folder loses
+# its working set too, oldest used first; a folder built today, or one a program
+# uses, keeps everything; a piece younger than 6 hours stays.
+if "$py" -c 'import fcntl' 2>/dev/null; then
+  mfull() { env PATH="$bo/bin:$PATH" "$py" -c 'import collections, runpy, shutil, sys; D = collections.namedtuple("D", "total used free"); shutil.disk_usage = lambda p: D(10 * 1048576, 9 * 1048576, 1048576); sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name="__main__")' "$root/.ai-backbone/buildtrim.py" --machine "$@"; }
+  mo="$tmp/m/own"; mkcargo "$mo"; mi="$tmp/m/idle"; mkcargo "$mi"; mn="$tmp/m/new"; mkcargo "$mn"; mu="$tmp/m/used"; mkcargo "$mu"
+  touch "$mn/debug/.fingerprint/old-aaaaaaaaaaaaaaaa"
+  out=$(PS_BUSY=99 PS_USES="rustc --out-dir $(winpath "$mu")/debug/deps" mfull "$mo" "$mi" "$mn" "$mu" 2>&1)
+  check "an idle folder loses what a build makes again, its working set too" "[ ! -e '$mi/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && [ ! -e '$mi/debug/deps/libmid-bbbbbbbbbbbbbbbb.rlib' ] && [ ! -e '$mi/release/deps/librel-dddddddddddddddd.rlib' ] && grep -q 'last built 30 days ago: removed' '$mi/ai-backbone-trim.log'"
+  check "and keeps a piece younger than 6 hours and the program itself" "[ -e '$mi/debug/deps/libnew-cccccccccccccccc.rlib' ] && [ -e '$mi/debug/app' ]"
+  check "a folder built today, its own folder, and one a program uses keep everything" "[ -e '$mn/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && [ -e '$mo/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && [ -e '$mu/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && grep -q 'in use now: left alone' '$mu/ai-backbone-trim.log'"
+  mi2="$tmp/m2/idle"; mkcargo "$mi2"
+  out=$(env PATH="$bo/bin:$PATH" "$py" -c 'import collections, runpy, shutil, sys; D = collections.namedtuple("D", "total used free"); shutil.disk_usage = lambda p: D(100, 50, 50); sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name="__main__")' "$root/.ai-backbone/buildtrim.py" --machine "$mo" "$mi2" 2>&1)
+  check "with the disk 15% free or more, no other folder is touched" "[ -z \"\$out\" ] && [ -e '$mi2/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && [ ! -e '$mi2/ai-backbone-trim.log' ]"
+fi
 cd "$tmp" || exit 1
 
 echo "== the backlog of 2026-10-13 (spec 028) =="

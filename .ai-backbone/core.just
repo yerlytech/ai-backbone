@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.39.1
+# .ai-backbone/core.just — the backbone's recipes, version 3.40.0
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -651,6 +651,31 @@ doctor:
           echo "        To end it: point the build folder back inside this project."
         fi
       fi
+      # One disk, many projects (spec 032): each cap holds its own folder, and
+      # caps that add up past the disk let it fill while every folder is under
+      # its own. Said when they pass half of it, with a cap that fits; changed
+      # by nobody but the person. Only the caps are read, no folder is measured.
+      dkb=$(df -Pk "${bdir:-.}" 2>/dev/null | awk 'NR == 2 { print $2 }') || dkb=""
+      [ -d "$bdir" ] || dkb=$(df -Pk . 2>/dev/null | awk 'NR == 2 { print $2 }')
+      case "$dkb" in ""|*[!0-9]*) ;; *)
+        sum=0; count=0
+        while read -r d; do
+          [ -n "$d" ] || continue
+          c=$(git -C "$d" config --get ai-backbone.build-cap 2>/dev/null || true)
+          c=$(printf '%s' "${c:-60}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[[:space:]]*gb?$//')
+          case "$c" in off|false|no|none) continue ;; esac
+          c=$(awk -v c="$c" 'BEGIN { if (c ~ /^[0-9]+(\.[0-9]+)?$/) print int(c + 0.5); else print 60 }')
+          [ "$c" -gt 0 ] || continue
+          sum=$((sum + c)); count=$((count + 1))
+        done <<< "$(just _rust-projects)"
+        dgb=$((dkb / 1048576))
+        if [ "$count" -gt 0 ] && [ "$dgb" -gt 0 ] && [ $((sum * 2)) -gt "$dgb" ]; then
+          fit=$((dgb / 2 / count)); [ "$fit" -ge 1 ] || fit=1
+          echo "  warn  the build caps of this machine's $count Rust projects add up to $sum GB, more than half the $dgb GB disk:"
+          echo "        every folder can stay under its own cap while the disk fills. Under 15% free, a build"
+          echo "        trims the projects idle for a week first. A cap that fits: git config --global ai-backbone.build-cap $fit"
+        fi
+      ;; esac
     fi
     # What the language layer has to say about the project itself, printed as it
     # is: a `_stack-advice` recipe in stack.just, in doctor's own two columns.
@@ -3548,9 +3573,12 @@ _examples src kind:
 # Nothing running: back at once, nothing said. Something running: one line,
 # a look every five seconds, and one line when it goes on. Builds that wait
 # queue up and go one at a time, oldest first (below). After
-# BUILD_WAIT_MINUTES (default 20) at the front of the queue it goes on anyway,
-# with half the machine's cores, because memory at link time is what two
-# builds at once run out of.
+# BUILD_WAIT_MINUTES (default 5) in all, in the queue and behind a running
+# compiler together, it goes on anyway, with half the machine's cores, because
+# memory at link time is what two builds at once run out of, not the order.
+# Until spec 032 the queue and the compiler each had the whole limit, 20
+# minutes, so one 40-minute build in one project held a small build elsewhere
+# for 40, and agents switched the wait off.
 # BUILD_WAIT_MINUTES=0 switches it off: a CI runner that builds alone, an agent
 # that has already looked.
 #
@@ -3564,8 +3592,9 @@ _examples src kind:
 _build-wait:
     #!/usr/bin/env bash
     set -u
-    limit=$(awk -v m="${BUILD_WAIT_MINUTES:-20}" 'BEGIN { s = int(m * 60); print (s > 0 ? s : 0) }')
+    limit=$(awk -v m="${BUILD_WAIT_MINUTES:-5}" 'BEGIN { s = int(m * 60); print (s > 0 ? s : 0) }')
     [ "$limit" -gt 0 ] 2>/dev/null || exit 0
+    t0=$(date +%s)
     names=""; jobs=""; dir=""
     while read -r k v; do
       case "$k" in names) names="$v" ;; jobs) jobs="$v" ;; dir) dir="$v" ;; esac
@@ -3630,8 +3659,22 @@ _build-wait:
       printf '%s\n' "$holder" > "$q/.w-$$" && mv "$q/.w-$$" "$me" || me=""
     fi
     trap '[ -z "$me" ] || rm -f "$me"; exit 130' INT TERM HUP
-    # Going: the ticket says when, and stays until its holder ends.
-    go() { if [ -n "$me" ]; then trap - INT TERM HUP; printf '%s %s\n' "$holder" "$(date +%s)" > "$q/.w-$$" && mv "$q/.w-$$" "$me"; fi; }
+    # Going: the ticket says when, and the project, and stays until its holder ends.
+    go() { if [ -n "$me" ]; then trap - INT TERM HUP; printf '%s %s %s\n' "$holder" "$(date +%s)" "$(pwd -P)" > "$q/.w-$$" && mv "$q/.w-$$" "$me"; fi; }
+    # Who holds the turn: the project of the oldest ticket ahead that went,
+    # and for how long, in words ("shop, for 12 minutes"); nothing when none
+    # says (a ticket written before 3.40.0 names no project).
+    turn() {
+      local t h w d now; now=$(date +%s)
+      [ -n "$me" ] || return 0
+      for t in "$q"/t-*; do
+        [ -f "$t" ] && [ "$t" != "$me" ] && [[ "$t" < "$me" ]] || continue
+        h=""; w=""; d=""; read -r h w d < "$t" 2>/dev/null || true
+        case "$w" in ""|*[!0-9]*) continue ;; esac
+        [ -n "$d" ] || continue
+        echo "$(basename "$d"), for $(span $(( (now - w) / 60 * 60 )) | sed 's/^0 minutes$/under a minute/')"; return 0
+      done
+    }
     # Two numbers: the tickets ahead that hold the turn whatever runs (still
     # waiting, or gone in the last half minute, whose compiler may not show
     # yet), and those that went before that and hold it while a compiler runs.
@@ -3641,7 +3684,7 @@ _build-wait:
       for t in "$q"/t-*; do
         [ -f "$t" ] && [ "$t" != "$me" ] || continue
         [[ "$t" < "$me" ]] || continue
-        h=""; w=""; read -r h w < "$t" 2>/dev/null || true
+        h=""; w=""; read -r h w _ < "$t" 2>/dev/null || true
         case "$h" in ""|*[!0-9]*) rm -f "$t"; continue ;; esac
         if ! kill -0 "$h" 2>/dev/null; then rm -f "$t"; continue; fi
         case "$ours" in *" $h "*) continue ;; esac
@@ -3670,19 +3713,23 @@ _build-wait:
     span() { if [ $(($1 % 60)) -eq 0 ]; then n=$(($1 / 60)) u=minute; else n=$1 u=second; fi
              if [ "$n" -eq 1 ]; then echo "1 $u"; else echo "$n ${u}s"; fi; }
     poll=5; [ "$limit" -ge "$poll" ] || poll=$limit
+    elapsed() { echo $(( $(date +%s) - t0 )); }
     read -r n m <<< "$(ahead)"
     if [ $((n + m)) -gt 0 ] && behind; then
-      echo "$((n + m)) other build(s) on this machine came first. This one waits its turn (BUILD_WAIT_MINUTES; 0 switches this off)." >&2
-      while behind; do sleep "$poll"; done
-      running; r=$?
-      if [ "$r" -ne 0 ]; then echo "Its turn: going on." >&2; go; exit 0; fi
+      who=$(turn)
+      echo "$((n + m)) other build(s) on this machine came first${who:+ (the turn is ${who})}. This one waits its turn, up to $(span "$limit") (BUILD_WAIT_MINUTES; 0 switches this off)." >&2
+      while behind; do [ "$(elapsed)" -lt "$limit" ] || break; sleep "$poll"; done
+      if [ "$(elapsed)" -lt "$limit" ]; then
+        running; r=$?
+        if [ "$r" -ne 0 ]; then echo "Its turn: going on." >&2; go; exit 0; fi
+      fi
     else
       running || { go; exit 0; }
     fi
-    echo "Another build is running on this machine ($(echo $names | sed 's/ /, /g')). This one waits for it to finish, up to $(span "$limit") (BUILD_WAIT_MINUTES; 0 switches this off)." >&2
-    waited=0
+    waited=$(elapsed)
+    [ "$waited" -ge "$limit" ] || echo "Another build is running on this machine ($(echo $names | sed 's/ /, /g')). This one waits for it to finish, up to $(span $((limit - waited)))$([ "$waited" -eq 0 ] || echo " more") (BUILD_WAIT_MINUTES; 0 switches this off)." >&2
     while [ "$waited" -lt "$limit" ]; do
-      sleep "$poll"; waited=$((waited + poll))
+      sleep "$poll"; waited=$(elapsed)
       running; r=$?
       if [ "$r" -eq 1 ]; then echo "The other build has finished. Going on." >&2; go; exit 0; fi
       if [ "$r" -eq 2 ]; then echo "Going on: the process list can no longer be read." >&2; go; exit 0; fi
@@ -3858,9 +3905,49 @@ _build-trim mode="auto":
     if [ "$mode" = auto ]; then
       [ -z "${CI:-}" ] && [ -d "$dir" ] || exit 0
       [ -z "$(find "$dir/ai-backbone-trim.done" -mmin -60 2>/dev/null)" ] || exit 0
-      exec "$(just _py)" .ai-backbone/buildtrim.py "$dir" "${cap:-60}" --wait
+      py=$(just _py)
+      "$py" .ai-backbone/buildtrim.py "$dir" "${cap:-60}" --wait
+      # One disk, many projects (spec 032): with less than 15% of it free, the
+      # other projects' folders that no build has written in a week go too,
+      # the one built longest ago first. Their folders are asked for only then:
+      # each is a `cargo metadata`. A folder another setting chose is theirs to
+      # say, so this project's own CARGO_TARGET_DIR does not go with the question.
+      free=$(df -Pk "$dir" 2>/dev/null | awk 'NR == 2 && $2 > 0 { print int($4 * 100 / $2) }')
+      case "$free" in ""|*[!0-9]*) exit 0 ;; esac
+      [ "$free" -lt 15 ] || exit 0
+      folders=()
+      while read -r d; do
+        [ -n "$d" ] && [ "$d" != "$(pwd -P)" ] || continue
+        f=$(cd "$d" && env -u CARGO_TARGET_DIR -u CARGO_BUILD_TARGET_DIR just _build-info 2>/dev/null | sed -n 's/^dir //p' | head -1)
+        [ -z "$f" ] || folders+=("$f")
+      done <<< "$(just _rust-projects)"
+      [ "${#folders[@]}" -eq 0 ] || exec "$py" .ai-backbone/buildtrim.py --machine --free "$free" "$dir" "${folders[@]}"
+      exit 0
     fi
     exec "$(just _py)" .ai-backbone/buildtrim.py "$dir" "${cap:-60}" --now
+
+# The Rust projects on this machine, this one among them, one folder a line:
+# found the way project-note finds projects, next to the backbone, one and two
+# folders down (AI_BACKBONE_PROJECTS names another place to look, the
+# self-test's). A project is Rust when its stack.just names a build folder for
+# cargo (spec 032).
+_rust-projects:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    if [ -n "${AI_BACKBONE_PROJECTS:-}" ]; then base="$AI_BACKBONE_PROJECTS"
+    else
+      bb=$(just _backbone 2>/dev/null || true)
+      if [ -n "$bb" ]; then base=$(dirname "$bb"); else base=$(cd .. && pwd -P); fi
+    fi
+    seen=" "
+    for d in "$(pwd -P)/" "$base"/*/ "$base"/*/*/; do
+      d="${d%/}"; [ -f "$d/.ai-backbone/core.just" ] && [ -f "$d/stack.just" ] || continue
+      grep -q '^_build-info' "$d/stack.just" && grep -q 'cargo' "$d/stack.just" || continue
+      d=$(cd "$d" && pwd -P)
+      case "$seen" in *" $d "*) continue ;; esac; seen="$seen$d "
+      echo "$d"
+    done
+    exit 0
 
 # Print a folder's size as kilobytes and in words ("12345678 12 GB"), "timeout"
 # when it could not be measured within the seconds given, or nothing when it

@@ -3,6 +3,7 @@
 longest first (spec 027; the order since spec 029).
 
     buildtrim.py <folder> <cap> [--now | --wait]
+    buildtrim.py --machine [--free <percent>] <folder> <another folder>...
 
 The cap is git's `ai-backbone.build-cap` as written: a number of GB ("60",
 "30 GB", "1.5"), or off ("off", "0"); anything else is said, and 60 is used.
@@ -72,6 +73,17 @@ disk the cap is halved. Only a folder cargo made is touched: CACHEDIR.TAG and
 .rustc_info.json at its root. Where cargo's locks cannot be read (Windows,
 where cargo locks another way, not measured), nothing is removed.
 
+One disk, many projects (spec 032): each folder's cap is its own, and nine
+folders each under a cap of 150 GB filled a 926 GB disk at 60 GB an hour.
+--machine is the run a build starts after its own folder's: with less than
+15% of the disk free, it goes through the other projects' cargo folders on the
+same disk, the one built longest ago first, and takes from each one that no
+build has written in 7 days what its next build would make again, oldest
+used first, until 20% is free. The working set of an idle project too: the
+price is one full build when somebody comes back to it, and a full disk stops
+every project (the owner's yes, 2026-10-17). Never a folder something uses
+now, whole or in part; each folder trimmed gets its line in its own log.
+
 Each run writes one line to ai-backbone-trim.log in the folder, and with --now
 prints it too; a run that finished touches ai-backbone-trim.done, by whose age
 the recipes start one at most once an hour. One run at a time, by a lock of its
@@ -101,6 +113,8 @@ PIECES = ("deps", "build", ".fingerprint", "examples")
 # .cargo-artifact-lock; .cargo-lock is the name older versions used.
 LOCKS = (".cargo-lock", ".cargo-build-lock", ".cargo-artifact-lock")
 YOUNG = 6 * 3600
+IDLE = 7 * 86400
+FULL, ENOUGH = 0.15, 0.20
 IN_USE = 24 * 3600
 HOLD = 5.0
 GB = 1024 ** 3
@@ -353,10 +367,33 @@ def trim(root, cap):
     found, latest = pieces(profiles(root))
     candidates = sorted(piece[:4] for piece in found if now - piece[0] > YOUNG and not piece[4])
     kept = sum(piece[1] for piece in found if piece[4])
-    held, busy, removed, stopped = {}, set(), 0, False
+    freed, removed, busy, stopped = sweep(root, candidates, lambda freed: before - freed <= target)
+    total = before - freed
+    line = f"{gb(before)} over the cap of {gb(cap)}{note}: removed {gb(before - total)} in {removed} pieces, {gb(total)} left"
+    if latest is None and removed:
+        line += "; cargo's records could not be read, so the pieces written longest ago went first"
+    if busy:
+        line += f"; {', '.join(str(p.relative_to(root)) for p in sorted(busy))} in use by a build or its programs, left alone"
+    if stopped:
+        line += "; stopped: the process list could not be read, so the rest waits for the next run"
+    elif total > target and not busy:
+        line += ("; what is left was used in the last 6 hours, or is no piece (the programs themselves), or is"
+                 " what the newest builds of the last day reach, which the next build would compile again")
+        if kept > target:
+            line += (f": {gb(kept)} of it, more than 75% of the cap, so the cap is below what this"
+                     " project's builds need (git config ai-backbone.build-cap <GB> raises it)")
+    return line, not stopped and not busy
+
+
+def sweep(root, candidates, enough):
+    """Remove the candidates, (last use, size, paths, profile), in order until
+    enough(bytes removed) says so, each profile under its cargo locks and none
+    a running program uses. The bytes removed, the pieces, the profiles in use,
+    and whether it stopped because the process list could not be read."""
+    held, busy, freed, removed, stopped = {}, set(), 0, 0, False
     try:
         for newest, size, paths, profile in candidates:
-            if total <= target:
+            if enough(freed):
                 break
             if profile in busy:
                 continue
@@ -386,28 +423,144 @@ def trim(root, cap):
             if time.time() - newest <= YOUNG:
                 continue
             remove(paths)
-            total -= size
+            freed += size
             removed += 1
     finally:
         for fds, _ in held.values():
             release(fds)
-    line = f"{gb(before)} over the cap of {gb(cap)}{note}: removed {gb(before - total)} in {removed} pieces, {gb(total)} left"
-    if latest is None and removed:
-        line += "; cargo's records could not be read, so the pieces written longest ago went first"
-    if busy:
-        line += f"; {', '.join(str(p.relative_to(root)) for p in sorted(busy))} in use by a build or its programs, left alone"
-    if stopped:
-        line += "; stopped: the process list could not be read, so the rest waits for the next run"
-    elif total > target and not busy:
-        line += ("; what is left was used in the last 6 hours, or is no piece (the programs themselves), or is"
-                 " what the newest builds of the last day reach, which the next build would compile again")
-        if kept > target:
-            line += (f": {gb(kept)} of it, more than 75% of the cap, so the cap is below what this"
-                     " project's builds need (git config ai-backbone.build-cap <GB> raises it)")
-    return line, not stopped and not busy
+    return freed, removed, busy, stopped
+
+
+def cargo_made(root):
+    return (root / "CACHEDIR.TAG").is_file() and (root / ".rustc_info.json").is_file()
+
+
+def last_built(root):
+    """When a build last wrote in the folder: the newest of its units' records
+    in .fingerprint/, which cargo writes for each unit it compiles; the
+    folder's own date where there are none. One look per unit, not per file."""
+    newest = 0.0
+    for profile in profiles(root):
+        folder = profile / ".fingerprint"
+        try:
+            entries = list(os.scandir(folder))
+        except OSError:
+            continue
+        for e in entries:
+            try:
+                newest = max(newest, e.stat(follow_symlinks=False).st_mtime)
+            except OSError:
+                pass
+    if not newest:
+        try:
+            newest = root.stat().st_mtime
+        except OSError:
+            pass
+    return newest
+
+
+def log(root, line, done=False):
+    line = f"{datetime.datetime.now():%Y-%m-%d %H:%M}  {line}"
+    path = root / LOG
+    try:
+        kept = path.read_text(errors="ignore").splitlines()[-199:] if path.is_file() else []
+        path.write_text("\n".join(kept + [line]) + "\n")
+        if done:
+            (root / DONE).touch()
+    except OSError:
+        pass
+    return line
+
+
+def machine(own, folders, share=None):
+    """With less than 15% of the disk free, the other projects' cargo folders
+    on that disk that no build has written in 7 days, the one built longest
+    ago first, lose what a build makes again, oldest used first, until 20% is
+    free. What was done, one line a folder, each in that folder's log too.
+    share: the free percent the caller measured (df), else this one's own."""
+    if fcntl is None:
+        return []
+    disk = shutil.disk_usage(own)
+    if not disk.total:
+        return []
+    free = disk.total * share / 100 if share is not None else disk.free
+    if free / disk.total >= FULL:
+        return []
+    need = disk.total * ENOUGH - free
+    pct = int(free * 100 // disk.total)
+    try:
+        dev = os.stat(own).st_dev
+    except OSError:
+        return []
+    now, seen, idle = time.time(), {os.path.realpath(own)}, []
+    for f in folders:
+        root = Path(f)
+        real = os.path.realpath(root)
+        if real in seen or not root.is_dir() or not cargo_made(root):
+            continue
+        seen.add(real)
+        try:
+            if os.stat(root).st_dev != dev:
+                continue
+        except OSError:
+            continue
+        when = last_built(root)
+        if now - when > IDLE:
+            idle.append((when, root))
+    lines = []
+    for when, root in sorted(idle):
+        if need <= 0:
+            break
+        days = int((now - when) // 86400)
+        try:
+            mine = os.open(root / RUNNING, os.O_RDWR | os.O_CREAT, 0o644)
+            fcntl.flock(mine, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            continue
+        try:
+            using = users(root)
+            if using is None:
+                break
+            if using:
+                lines.append(log(root, f"{pct}% of the disk is free; this folder, idle for {days} days, is in use now: left alone"))
+                continue
+            found, _ = pieces(profiles(root))
+            candidates = sorted(piece[:4] for piece in found if now - piece[0] > YOUNG)
+            freed, removed, busy, stopped = sweep(root, candidates, lambda freed: freed >= need)
+            need -= freed
+            line = (f"{pct}% of the disk was free, under 15%, and this folder was last built {days} days ago:"
+                    f" removed {gb(freed)} in {removed} pieces, the oldest used first, toward 20% free;"
+                    " its next build compiles them again")
+            if busy:
+                line += f"; {', '.join(str(p.relative_to(root)) for p in sorted(busy))} in use, left alone"
+            if stopped:
+                line += "; stopped: the process list could not be read"
+            lines.append(log(root, line))
+            if stopped:
+                break
+        finally:
+            os.close(mine)
+    return lines
 
 
 def main():
+    if sys.argv[1:2] == ["--machine"]:
+        rest, share = sys.argv[2:], None
+        if rest[:1] == ["--free"] and len(rest) > 1:
+            try:
+                share = float(rest[1])
+            except ValueError:
+                pass
+            rest = rest[2:]
+        if not rest:
+            print(__doc__.split("\n\n")[1])
+            return 2
+        try:
+            for line in machine(Path(rest[0]), rest[1:], share):
+                print(line)
+        except Exception:  # noqa: BLE001 - a build is never failed by this
+            pass
+        return 0
     flags = [a for a in sys.argv[1:] if a in ("--now", "--wait")]
     args = [a for a in sys.argv[1:] if a not in flags]
     now = "--now" in flags
@@ -417,17 +570,9 @@ def main():
     root = Path(args[0])
 
     def say(line, done=False):
-        line = f"{datetime.datetime.now():%Y-%m-%d %H:%M}  {line}"
+        line = log(root, line, done)
         if now:
             print(line)
-        log = root / LOG
-        try:
-            kept = log.read_text(errors="ignore").splitlines()[-199:] if log.is_file() else []
-            log.write_text("\n".join(kept + [line]) + "\n")
-            if done:
-                (root / DONE).touch()
-        except OSError:
-            pass
 
     cap = parse_cap(args[1])
     if cap == 0:
@@ -438,7 +583,7 @@ def main():
         if now:
             print(f"No build output yet at {args[0]}: nothing to trim.")
         return 0
-    if not (root / "CACHEDIR.TAG").is_file() or not (root / ".rustc_info.json").is_file():
+    if not cargo_made(root):
         if now:
             print(f"{args[0]} is not a folder cargo made (no CACHEDIR.TAG and .rustc_info.json): left alone.")
         return 0

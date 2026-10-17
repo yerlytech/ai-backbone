@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 date: 2026-10-17
 ---
 
@@ -75,8 +75,8 @@ protects nothing.
   so this needs the owner's yes.
   Relayed by the managing session on 2026-10-17 as the owner's answer: (a),
   on three conditions: the oldest and longest idle first, never a folder
-  cargo is working in, and one log line saying what was removed. Waiting for
-  the owner to confirm it in this repo's session before the status changes.
+  cargo is working in, and one log line saying what was removed. Confirmed
+  by the owner in this repo's session the same day: approved.
 
 ## Acceptance
 
