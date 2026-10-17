@@ -3594,7 +3594,6 @@ _build-wait:
     set -u
     limit=$(awk -v m="${BUILD_WAIT_MINUTES:-5}" 'BEGIN { s = int(m * 60); print (s > 0 ? s : 0) }')
     [ "$limit" -gt 0 ] 2>/dev/null || exit 0
-    t0=$(date +%s)
     names=""; jobs=""; dir=""
     while read -r k v; do
       case "$k" in names) names="$v" ;; jobs) jobs="$v" ;; dir) dir="$v" ;; esac
@@ -3713,6 +3712,9 @@ _build-wait:
     span() { if [ $(($1 % 60)) -eq 0 ]; then n=$(($1 / 60)) u=minute; else n=$1 u=second; fi
              if [ "$n" -eq 1 ]; then echo "1 $u"; else echo "$n ${u}s"; fi; }
     poll=5; [ "$limit" -ge "$poll" ] || poll=$limit
+    # The limit counts the waiting, from here: the looks above take seconds
+    # where starting a program is slow (Git Bash).
+    t0=$(date +%s)
     elapsed() { echo $(( $(date +%s) - t0 )); }
     read -r n m <<< "$(ahead)"
     if [ $((n + m)) -gt 0 ] && behind; then

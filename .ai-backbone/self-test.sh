@@ -2786,10 +2786,12 @@ out=$(tcap 30 env AI_BACKBONE_PROJECTS="$rp" PATH="$tmp/fakedf3:$PATH" just doct
 check "and nothing when they fit" "! grep -q 'build caps of this machine' <<<\"\$out\""
 out=$(tcap off env AI_BACKBONE_PROJECTS="$rp" PATH="$tmp/fakedf2:$PATH" just doctor 2>&1)
 check "a cap that is off adds nothing" "! grep -q 'build caps of this machine' <<<\"\$out\""
-# Under 15% free, a build's trim goes into the idle sibling's folder too.
-mkcargo "$tmp/rp-target-p1"; rm -f "$tmp/tr/target/ai-backbone-trim.done"
-tcap 60 env AI_BACKBONE_PROJECTS="$rp" PATH="$tmp/fakedf:$PATH" just _build-trim auto >/dev/null 2>&1
-check "with the disk under 15% free, a build's trim also trims a project idle for a week" "grep -q 'last built 30 days ago: removed' '$tmp/rp-target-p1/ai-backbone-trim.log'"
+# Under 15% free, a build's trim goes into the idle sibling's folder too, where cargo's locks can be read.
+if "$py" -c 'import fcntl' 2>/dev/null; then
+  mkcargo "$tmp/rp-target-p1"; rm -f "$tmp/tr/target/ai-backbone-trim.done"
+  tcap 60 env AI_BACKBONE_PROJECTS="$rp" PATH="$tmp/fakedf:$PATH" just _build-trim auto >/dev/null 2>&1
+  check "with the disk under 15% free, a build's trim also trims a project idle for a week" "grep -q 'last built 30 days ago: removed' '$tmp/rp-target-p1/ai-backbone-trim.log'"
+fi
 cd "$tmp" || exit 1
 # The order and the limits, against a disk seen 10% free: an idle folder loses
 # its working set too, oldest used first; a folder built today, or one a program
