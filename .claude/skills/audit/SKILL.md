@@ -196,6 +196,16 @@ no agent starts that was not counted.
   2026-09-21), which §7 of `AGENTS.md` forbids. Every toolchain that fetches
   what it is missing does this, Flutter, Xcode and `cargo` with it. Whether the
   app builds is the rehearsal's question, step 7, where a person is watching.
+- **A reviewer who copies the repo to try a change has a build folder of its
+  own, inside `target/`.** In a Rust project: `CARGO_TARGET_DIR=target/audit-<lens>`,
+  seeded with `cp -c -R target/release target/audit-<lens>/` so it does not start
+  from nothing. A shared one mixes their builds: cargo names a workspace
+  member's output by its relative path and judges it fresh by its time, so a
+  copy in another folder took a changed copy's build as up to date, and one
+  reviewer ran another's test program (measured in a phase audit, 2026-10-15).
+  Inside `target/`, never beside it: a folder next to it is neither tracked nor
+  ignored, so the next `just save` adds gigabytes and the large-file check
+  refuses every save after it.
 - **Refuted findings are not deleted, they are counted.** Tell the maintainer
   how many were refuted. That number is the reason to keep verifying.
 - **The count said in step 3 is the count.** An agent that wants one more
