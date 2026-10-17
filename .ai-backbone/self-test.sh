@@ -2807,6 +2807,12 @@ if "$py" -c 'import fcntl' 2>/dev/null; then
   mi2="$tmp/m2/idle"; mkcargo "$mi2"
   out=$(env PATH="$bo/bin:$PATH" "$py" -c 'import collections, runpy, shutil, sys; D = collections.namedtuple("D", "total used free"); shutil.disk_usage = lambda p: D(100, 50, 50); sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name="__main__")' "$root/.ai-backbone/buildtrim.py" --machine "$mo" "$mi2" 2>&1)
   check "with the disk 15% free or more, no other folder is touched" "[ -z \"\$out\" ] && [ -e '$mi2/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && [ ! -e '$mi2/ai-backbone-trim.log' ]"
+  # A little short of 20%: the folder built longest ago gives it, and the
+  # next one is not reached.
+  ma="$tmp/m3/older"; mkcargo "$ma"; mb="$tmp/m3/newer"; mkcargo "$mb"
+  "$py" -c "import os, time; t = time.time() - 40 * 86400; os.utime('$ma/debug/.fingerprint/old-aaaaaaaaaaaaaaaa', (t, t))"
+  env PATH="$bo/bin:$PATH" "$py" -c 'import collections, runpy, shutil, sys; D = collections.namedtuple("D", "total used free"); shutil.disk_usage = lambda p: D(1700 * 1024, 1462 * 1024, 238 * 1024); sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name="__main__")' "$root/.ai-backbone/buildtrim.py" --machine "$mo" "$mb" "$ma" >/dev/null 2>&1
+  check "the one built longest ago goes first, and the trim stops at 20% free" "[ ! -e '$ma/release/deps/librel-dddddddddddddddd.rlib' ] && grep -q 'last built 40 days ago: removed' '$ma/ai-backbone-trim.log' && [ -e '$mb/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && [ ! -e '$mb/ai-backbone-trim.log' ]"
 fi
 cd "$tmp" || exit 1
 

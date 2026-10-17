@@ -1,5 +1,5 @@
 ---
-status: approved
+status: done
 date: 2026-10-17
 ---
 
@@ -80,25 +80,25 @@ protects nothing.
 
 ## Acceptance
 
-- [ ] doctor, with caps summing to more than half the disk: one warn line with
+- [x] doctor, with caps summing to more than half the disk: one warn line with
       the sum, the disk size, the project count and a cap that fits; none when
       they fit.
-- [ ] With the disk under 15% free (self-test: a fake disk size), an `auto`
+- [x] With the disk under 15% free (self-test: a fake disk size), an `auto`
       trim also trims an idle sibling's cargo folder, least recently built
       first, and stops at 20% free; a sibling built in the last 7 days, or with
       a build running in it, is left alone; each folder's log gets its line.
-- [ ] A build behind another waits at most `BUILD_WAIT_MINUTES` (default 5) in
+- [x] A build behind another waits at most `BUILD_WAIT_MINUTES` (default 5) in
       total, queue and running together, then goes on with half the cores;
       its wait line names the holding project and how long it has held.
-- [ ] `BUILD_WAIT_MINUTES=0` still switches the wait off.
-- [ ] Self-test green; no Rust build needed (stubs, as in spec 027/029).
-- [ ] Green on the three machines, released; the managing session told the
+- [x] `BUILD_WAIT_MINUTES=0` still switches the wait off.
+- [x] Self-test green; no Rust build needed (stubs, as in spec 027/029).
+- [x] Green on the three machines, released; the managing session told the
       version.
 
 ## Tasks
 
-- [ ] doctor's machine sum, with self-test cases.
-- [ ] The queue: one limit, default 5, the holder named; self-test cases.
-- [ ] The idle-folder trim under pressure; self-test cases with a fake disk.
-- [ ] docs (README's build section, the recipe comments), CHANGELOG; through
+- [x] doctor's machine sum, with self-test cases.
+- [x] The queue: one limit, default 5, the holder named; self-test cases.
+- [x] The idle-folder trim under pressure; self-test cases with a fake disk.
+- [x] docs (README's build section, the recipe comments), CHANGELOG; through
       the gate; tagged; the managing session told.
