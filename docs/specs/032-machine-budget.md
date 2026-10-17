@@ -73,6 +73,10 @@ protects nothing.
   a project untouched for a week is the cheaper price. Spec 027 approved
   removing old pieces automatically, but not an idle project's working set,
   so this needs the owner's yes.
+  Relayed by the managing session on 2026-10-17 as the owner's answer: (a),
+  on three conditions: the oldest and longest idle first, never a folder
+  cargo is working in, and one log line saying what was removed. Waiting for
+  the owner to confirm it in this repo's session before the status changes.
 
 ## Acceptance
 
