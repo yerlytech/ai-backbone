@@ -13,6 +13,21 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## 3.41.1 — 2026-10-18
+
+**`upstream.py` is quiet in the editor.** Opening it made basedpyright
+report two errors (`TextIO.reconfigure`, and `extractfile` possibly missing)
+and Ruff fourteen warnings. The newline fix now checks for a real text
+wrapper, a member the archive cannot extract is skipped, and the warnings
+are either spelled the way Ruff asks or left as they were on purpose: a
+failed command is still read from its exit code (`check=False`), and a
+Hugging Face reply that is not a list of commits is still a `ValueError`,
+because that is what the report catches. The caret and wildcard version
+checks bind the numbers they were called with. The script is executable,
+matching its shebang.
+
+Nothing to do in a project; `just template-update` brings it.
+
 ## 3.41.0 — 2026-10-18
 
 **Code waits for a yes** (spec 031). The gate carried every green push on

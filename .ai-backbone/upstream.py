@@ -40,7 +40,8 @@ from pathlib import Path
 # it says as text: "removed\r" is not "removed" (spec 020). LF on every machine;
 # the encoding is PYTHONUTF8's, which core.just sets.
 for _stream in (sys.stdout, sys.stderr):
-    if hasattr(_stream, "reconfigure"):
+    # TextIO has no reconfigure in the type stubs; the real streams are wrappers.
+    if isinstance(_stream, io.TextIOWrapper):
         _stream.reconfigure(newline="\n")
 
 LIST = Path("docs/upstream.toml")
@@ -99,7 +100,7 @@ def tags_with_git(repo, why):
     try:
         done = subprocess.run(
             ["git", "ls-remote", "--tags", "--refs", f"https://github.com/{repo}"],
-            capture_output=True, text=True, timeout=30,
+            check=False, capture_output=True, text=True, timeout=30,
             env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
         )
     except (OSError, subprocess.TimeoutExpired):
@@ -114,7 +115,7 @@ def tags_with_git(repo, why):
     # git has no flag for a prerelease, so the name says it: -rc.1, -rc1, .pre, _RC1.
     # With `\b` after the word, `-rc1` was a release: no word ends between c and 1.
     for row in rows:
-        row["prerelease"] = bool(re.search(r"[-._](rc|alpha|beta|pre|dev|preview)(?![a-z])", row["version"], re.I))
+        row["prerelease"] = bool(re.search(r"[-._](rc|alpha|beta|pre|dev|preview)(?![a-z])", row["version"], re.IGNORECASE))
     return rows
 
 
@@ -126,7 +127,7 @@ def from_github(repo):
     if shutil_which("gh"):
         done = subprocess.run(
             ["gh", "api", f"repos/{repo}/releases?per_page=50"],
-            capture_output=True, text=True, timeout=30,
+            check=False, capture_output=True, text=True, timeout=30,
         )
         if done.returncode == 0:
             releases = json.loads(done.stdout)
@@ -144,7 +145,7 @@ def from_github(repo):
                 ]
             tags = subprocess.run(
                 ["gh", "api", f"repos/{repo}/tags?per_page=30"],
-                capture_output=True, text=True, timeout=30,
+                check=False, capture_output=True, text=True, timeout=30,
             )
             if tags.returncode == 0:
                 return tag_rows(repo, json.loads(tags.stdout))
@@ -170,7 +171,7 @@ def github_one(repo, path):
     try:
         if shutil_which("gh"):
             done = subprocess.run(["gh", "api", f"repos/{repo}/{path}"],
-                                  capture_output=True, text=True, timeout=30)
+                                  check=False, capture_output=True, text=True, timeout=30)
             return json.loads(done.stdout) if done.returncode == 0 else None
         return fetch_json(f"https://api.github.com/repos/{repo}/{path}")
     except (OSError, ValueError, http.client.HTTPException, subprocess.TimeoutExpired):
@@ -233,7 +234,7 @@ def from_pypi(name):
         at = min((f.get("upload_time_iso_8601") or f.get("upload_time") or "") for f in files)[:10]
         out.append({"version": version, "at": at, "title": version, "notes": "",
                     "url": f"https://pypi.org/project/{name}/{version}/",
-                    "prerelease": bool(re.search(r"\d(a|b|rc|c|dev|pre|alpha|beta)\d*", version, re.I))})
+                    "prerelease": bool(re.search(r"\d(a|b|rc|c|dev|pre|alpha|beta)\d*", version, re.IGNORECASE))})
     out.sort(key=lambda r: r["at"], reverse=True)
     return out
 
@@ -297,7 +298,10 @@ def from_hf(repo, pin=""):
                                  + ("; HF_TOKEN was sent and is not enough" if token else "; set HF_TOKEN to read it")) from err
             raise
         if not isinstance(data, list):
-            raise ValueError(f"{repo}: Hugging Face answered something that is not a list of commits")
+            # ValueError on purpose: main() catches it and prints the sentence.
+            # TypeError would leave that handler and become a traceback.
+            raise ValueError(  # noqa: TRY004
+                f"{repo}: Hugging Face answered something that is not a list of commits")
         out += [
             {"version": (c.get("id") or "")[:12], "commit": c.get("id") or "",
              "at": (c.get("date") or "")[:10], "title": c.get("title") or "",
@@ -600,7 +604,7 @@ def checkout(exe, repo):
     for folder in (here, *here.parents):
         if (folder / ".git").exists():
             origin = said(["git", "-C", str(folder), "config", "--get", "remote.origin.url"])
-            mine = re.search(rf"github\.com[:/]{re.escape(repo)}(\.git)?/?$", origin, re.I)
+            mine = re.search(rf"github\.com[:/]{re.escape(repo)}(\.git)?/?$", origin, re.IGNORECASE)
             return str(folder) if mine else ""
     return ""
 
@@ -610,7 +614,7 @@ def said(command):
     keyboard: a binary that happens to be named like a watch must not be able
     to hold `just upstream <name>` for as long as it likes."""
     try:
-        done = subprocess.run(command, capture_output=True, text=True, timeout=5,
+        done = subprocess.run(command, check=False, capture_output=True, text=True, timeout=5,
                               stdin=subprocess.DEVNULL)
     except (OSError, subprocess.SubprocessError):
         return ""
@@ -870,8 +874,8 @@ def semver_req(req):
         lo = (a[0], a[1], a[2], pre)
         named = bool(pre)
 
-        def up(i):
-            b = a[:i] + [0] * (3 - i)
+        def up(i, base=a):
+            b = base[:i] + [0] * (3 - i)
             b[i - 1] += 1
             return (b[0], b[1], b[2], "")
 
@@ -936,7 +940,10 @@ def adv_fetch(db):
                     continue
                 target = new / "crates" / parts[2] / parts[3]
                 target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(archive.extractfile(member).read())
+                extracted = archive.extractfile(member)
+                if extracted is None:
+                    continue
+                target.write_bytes(extracted.read())
                 newest = max(newest, int(member.mtime))
         if newest == 0:
             raise ValueError("the archive held no advisory")
@@ -990,12 +997,12 @@ def adv_date(db):
 
 def adv_front(text):
     """The TOML block an advisory starts with."""
-    m = re.search(r"```toml\s*\n(.*?)\n```", text, re.S)
+    m = re.search(r"```toml\s*\n(.*?)\n```", text, re.DOTALL)
     return m.group(1) if m else None
 
 
 def adv_title(text):
-    m = re.search(r"^#\s+(.+)$", text.split("```", 2)[-1], re.M)
+    m = re.search(r"^#\s+(.+)$", text.split("```", 2)[-1], re.MULTILINE)
     return m.group(1).strip() if m else ""
 
 
@@ -1171,8 +1178,8 @@ def advisories(mode, locks):
             said = {"untriaged": "", "expired": f"; {why}, which has passed",
                     "changed": f"; {why}, and RustSec's fixed versions have moved",
                     "invalid": f"; its row in {TRIAGE} does not count: {why}"}[state]
-            lines.append(("warn", f"{lock}: {name} {ver} has {adv['id']}, {adv['title']} -> {adv_fix(adv['patched'])}"
-                                  f"{said} (https://rustsec.org/advisories/{adv['id']})"))
+            lines.append(("warn", (f"{lock}: {name} {ver} has {adv['id']}, {adv['title']} -> {adv_fix(adv['patched'])}"
+                                   f"{said} (https://rustsec.org/advisories/{adv['id']})")))
         if len(found) == triaged:
             beyond = f" beyond the {triaged} triaged in {TRIAGE}" if triaged else ""
             lines.append(("ok", f"{lock}: no RustSec advisory for its {len(crates)} crate{'' if len(crates) == 1 else 's'}{beyond}"))
