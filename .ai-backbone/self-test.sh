@@ -484,6 +484,8 @@ check "hooks-install says when it put the hook in"      "'$py' '$root/.ai-backbo
 check "and so does template-update, for a project made before the hook existed" "'$py' '$root/.ai-backbone/budget.py' hook remove .claude/settings.json >/dev/null && says 'Subagent cap: in .claude/settings.json, added' just template-update && '$py' '$root/.ai-backbone/budget.py' hook check .claude/settings.json"
 "$py" "$root/.ai-backbone/budget.py" hook add .claude/settings.json >/dev/null 2>&1 || true   # whatever the check found, the project keeps its hook
 check "the seed gives a new project the hook"           "grep -q 'agent-cap.sh' '$root/.claude/settings.json'"
+# Spec 031: nothing throws work away unasked; the list guards habits, not a boundary.
+check "the seed does not allow git checkout -- ., and denies the other rm spellings" "! grep -qF 'git checkout -- .' '$root/.claude/settings.json' && grep -qF 'Bash(rm -fr:*)' '$root/.claude/settings.json' && grep -qF 'Bash(rm -r -f:*)' '$root/.claude/settings.json' && grep -q 'It is not a security boundary' '$root/docs/how-it-works.md'"
 # Claude Code's skills are copies, never links: Git for Windows checks a link out
 # as a text file naming its target, and Claude Code found no skills (spec 020).
 check "a new project's skills are copies Claude Code reads on any machine" "[ -f .claude/skills/session/SKILL.md ] && [ ! -L .claude/skills/session ] && just _rules-check"

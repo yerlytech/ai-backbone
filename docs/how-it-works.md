@@ -99,7 +99,8 @@ flowchart TD
     test -->|"red"| build
     test -->|"green: pushed to cloud"| gate
     gate -->|"red"| build
-    gate -->|"green on all three"| ver
+    gate -->|"green on all three"| yes
+    yes["Your yes: just carry"] --> ver
     ver -->|"just template-update"| projs
 ```
 
@@ -109,7 +110,21 @@ a project, or an idea the radar brought in, becomes a one-page spec in
 `just self-test` tries it out on throwaway projects. Red means it is not saved,
 and the agent goes back to building. Green is pushed to the branch `cloud`,
 where GitHub runs the same suite on a clean Linux, Mac and Windows machine.
-When all three are green it becomes a new version on `main`, tagged, with
-an entry in `CHANGELOG.md`, and each of your projects takes it in the next time
-an agent works there. Whatever would change something you type waits for your
-yes first, as a question in the loop above.
+When all three are green, an agent you are working with tells you what changed
+and why, and on your yes it becomes a new version on `main`, tagged, with an
+entry in `CHANGELOG.md` (spec 031); each of your projects takes it in the next
+time an agent works there. Whatever would change something you type waits for
+your yes first, as a question in the loop above.
+
+## What the permission list is, and is not
+
+`.claude/settings.json` lists the commands Claude Code may run without asking
+(`just`, `git commit`, ...) and some it must never run (`git push --force`,
+`rm -rf` and its other spellings, `sudo`). It guards habits: it stops the
+command the way an agent usually writes it. It is not a security boundary.
+Claude Code matches the text of the command, so `/bin/rm -rf` or
+`bash -c 'rm -rf x'` is not the same text and is not stopped by it (Claude
+Code's own permissions page says so, read 2026-10-18). Other agents (Codex,
+Gemini CLI, Cursor, Zed's own agent) do not read this file at all. What really
+holds is elsewhere: the gate, which nothing on `cloud` can change, your yes
+before code reaches `main`, and `brain/` never leaving your machine.

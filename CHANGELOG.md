@@ -43,6 +43,11 @@ Smaller items of the same spec:
   comment lines in `core.just` (29% today).
 - The suite ends with how long each section took, slowest first, so the
   Windows run can be cut where it is slow, not where it is guessed.
+- A new project's `.claude/settings.json` no longer lets Claude Code run
+  `git checkout -- .` (it throws away every unsaved change) without asking,
+  and denies `rm -fr`, `rm -r -f` and `rm -f -r` as it denied `rm -rf`.
+  `docs/how-it-works.md` says the list guards habits and is not a security
+  boundary. An existing project keeps its own file.
 
 Nothing to do in a project. In the backbone, a release now asks the
 maintainer one word.

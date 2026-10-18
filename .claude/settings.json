@@ -15,14 +15,16 @@
       "Bash(git config:*)",
       "Bash(git tag:*)",
       "Bash(git push origin HEAD)",
-      "Bash(git push origin v:*)",
-      "Bash(git checkout -- .)"
+      "Bash(git push origin v:*)"
     ],
     "deny": [
       "Bash(git push --force:*)",
       "Bash(git push -f:*)",
       "Bash(git reset --hard:*)",
       "Bash(rm -rf:*)",
+      "Bash(rm -fr:*)",
+      "Bash(rm -r -f:*)",
+      "Bash(rm -f -r:*)",
       "Bash(brew upgrade:*)",
       "Bash(sudo:*)"
     ]

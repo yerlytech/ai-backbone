@@ -197,7 +197,16 @@ proposal 4 as decided above; proposals 2, 3, 5, 6, 7 and 8 built as written.
       the suite; the first real carry is the first push of this version).
 - [ ] The stable mark and the three recipes that read it; "ahead" when it goes
       back; the routine brief forbids it.
-- [ ] The permission list, after measuring how Claude Code matches each rule.
+- [~] The permission list, after measuring how Claude Code matches each rule.
+      Done in 3.41.0, from Claude Code's permissions page (read 2026-10-18,
+      not measured: Claude Code is not installed on the machine this was
+      built on): `git checkout -- .` left the allow list; `rm -fr`,
+      `rm -r -f` and `rm -f -r` joined the deny list; `docs/how-it-works.md`
+      says what the list is and is not. Open: `just undo` behind an `ask`
+      rule, which waits for a measurement of what the scheduled run's
+      permission mode does with an ask rule (its revert path runs
+      `just undo`), and the measurement of all of it on the pinned Claude
+      Code.
 - [x] The README without a version, and its check.
 - [x] A mode is not a yes to a count: agent-cap.sh's refusal and the audit
       skill.
