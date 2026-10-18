@@ -573,6 +573,10 @@ doctor:
         echo "  --    no version of its own yet: the first just release makes it 0.1.0, when a spec is done"
       fi
     fi
+    # Spec 031: comments short in code, the story in the spec; the share falls by attrition.
+    if [ -n "$(just _is-backbone)" ] && [ -f .ai-backbone/core.just ]; then
+      awk '{ n++ } /^[[:space:]]*#/ && !/^[[:space:]]*#!/ { c++ } END { if (n) printf "  ok    core.just: %d lines, %d of them comments (%d%%); new comments are one or two lines\n", n, c, c * 100 / n }' .ai-backbone/core.just
+    fi
     if just _rules-check >/dev/null 2>&1; then echo "  ok    rule copies match AGENTS.md"; else echo "  warn  rule copies out of date -> just sync-rules"; fi
     while read -r sd sn; do
       if [ -n "$sd" ]; then echo "  warn  skill folder .agents/skills/$sd says name: $sn in its SKILL.md; make the two the same, or it may not be found by its name"; fi

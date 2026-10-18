@@ -30,6 +30,20 @@ being tested, not green on all three machines, or built on an older `main`,
 and says which. The routine brief forbids a scheduled run to carry. A change
 to a workflow or `gate.sh` goes the same way instead of a hand push.
 
+Smaller items of the same spec:
+
+- The README named version 3.27.2 for fifteen days; it names none now, and
+  the suite fails when it names one other than line 1 of `core.just`.
+- The subagent cap's refusals and the `audit` skill say that a mode the
+  person turned on is not a yes to a number: the count is said, and a yes to
+  it waited for.
+- The `backbone-dev` skill says a new comment is one or two lines naming
+  what it guards and the spec that taught it, and that a printed path is
+  text, never a `Path`. `just doctor` in the backbone says the share of
+  comment lines in `core.just` (29% today).
+- The suite ends with how long each section took, slowest first, so the
+  Windows run can be cut where it is slow, not where it is guessed.
+
 Nothing to do in a project. In the backbone, a release now asks the
 maintainer one word.
 

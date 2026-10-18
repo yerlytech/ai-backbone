@@ -73,6 +73,10 @@ REAL_PS=$(command -v ps || echo /bin/ps); export REAL_PS
 pass=0; fail=0
 ok()    { pass=$((pass+1)); printf "  ok    %s\n" "$1"; }
 bad()   { fail=$((fail+1)); printf "  FAIL  %s\n" "$1"; }
+# How long each section took, slowest first at the end (spec 031): Windows ran
+# the suite in 26 minutes against Linux's 4, and nothing said where they went.
+sec_name="setup"; sec_start=$SECONDS; sec_times=""
+section() { sec_times="$sec_times$((SECONDS-sec_start)) $sec_name"$'\n'; sec_name="$1"; sec_start=$SECONDS; echo "== $1 =="; }
 # A FAIL shows the last lines the check and its `says` saw: a red read from a CI
 # log with nothing under it cost a guess on Windows (spec 020). Kept in files,
 # not captured, because a check runs in this shell and may change its state.
@@ -101,7 +105,7 @@ says() { local pat=$1; shift; local out; out=$( "$@" 2>&1 ); printf '%s\n' "$out
 # with something missing, and failing the suite for it teaches nobody anything.
 repo_doctor() { just doctor 2>&1 | sed -n '/^Repo:/,/^$/p'; }
 
-echo "== the suite itself =="
+section "the suite itself"
 # The guard for the line above: a pipe into grep anywhere here is the race back.
 check "no check pipes a command into grep"            "! grep -E '^[^#]*\\| *grep' '$root/.ai-backbone/self-test.sh'"
 # A recipe that takes a parameter reads it as $1 and never writes {{param}} into its
@@ -142,7 +146,7 @@ check "the suite drops the git variables a hook hands it" "git_vars_cleared"
 # next to the real backbone.
 check "nothing here updates a project from outside"   "! says 'projects-update' just -f '$root/Justfile' --summary"
 
-echo "== setup.sh =="
+section "setup.sh"
 # setup.sh asked uv once for each tool, and when a sandbox dropped that one request
 # it ended by telling the reader to retype the command that had just failed, with a
 # branch above it that could never be reached (3.20.0).
@@ -213,7 +217,7 @@ printf 'rust-just v1.58.0\n- just\n' > "$tmp/list-linux"; printf 'prek v0.5.3\n-
 check "tools-update moves a just that uv installed"   "says 'Upgraded rust-just' env UV_FAKE_LIST='$tmp/list-linux' PATH='$tmp/shim:/usr/bin:/bin' just -f '$root/Justfile' -d '$tmp/home' tools-update"
 check "and leaves a brew just alone"                  "! says 'rust-just' env UV_FAKE_LIST='$tmp/list-mac' PATH='$tmp/shim:/usr/bin:/bin' just -f '$root/Justfile' -d '$tmp/home' tools-update"
 
-echo "== a new project =="
+section "a new project"
 # On a failure the output is shown: everything below builds on this project, and
 # a red here read from a CI log with nothing under it cost a guess (spec 020).
 if np_out=$( cd "$root" && just new-project "$tmp/Deneme Projesi" tr 2>&1 ); then ok "new-project runs"; else bad "new-project runs"; printf '%s\n' "$np_out" | tail -20 | sed 's/^/        /'; fi
@@ -363,6 +367,12 @@ b1=$(hiw_boxes 1); b2=$(hiw_boxes 2)
 check "how-it-works holds two pictures GitHub can draw" "[ \"\$(grep -cE '^[12]: flowchart (TD|LR)\$' '$tmp/hiw.mmd')\" = 2 ] && ! grep -q '^3: ' '$tmp/hiw.mmd' && ! grep -qE '^[12]: +(click|style|classDef|linkStyle) |%%\\{|<[a-z]' '$tmp/hiw.mmd' && ! grep -qE '^[12]: +[a-z0-9]+[[(]+[^\"[(]' '$tmp/hiw.mmd'"
 check "and both stay small enough to follow: 14 and 8 boxes (got ${b1:-0} and ${b2:-0})" "[ ${b1:-0} -ge 2 ] && [ ${b1:-0} -le 14 ] && [ ${b2:-0} -ge 2 ] && [ ${b2:-0} -le 8 ]"
 check "README and docs/README lead to it"              "grep -q 'docs/how-it-works.md' '$root/README.md' && grep -q 'how-it-works.md' '$root/docs/README.md'"
+# It said "this is 3.27.2" for fifteen days and 107 versions (spec 031).
+v=$(sed -n '1s/.*version \([0-9][0-9.]*\).*/\1/p' "$root/.ai-backbone/core.just")
+other_versions() { V="$1" perl -ne 'while (/(?<![0-9.])(\d+\.\d+\.\d+)(?![0-9])/g) { print "$1\n" if $1 ne $ENV{V} }' "$2"; }
+printf 'this is 3.27.2, and %s\n' "$v" > "$tmp/readme-old.md"
+check "doctor in the backbone says the share of comment lines in core.just, and the skill the rule" "says '^  ok    core.just: [0-9]+ lines, [0-9]+ of them comments \([0-9]+%\)' env JUST_JUSTFILE='$root/Justfile' JUST_WORKING_DIRECTORY='$root' just doctor && grep -q 'says what the code guards and which' '$root/.agents/skills/backbone-dev/SKILL.md' && grep -q 'never a .Path.' '$root/.agents/skills/backbone-dev/SKILL.md'"
+check "README names no version, or only the one on line 1 of core.just" "[ -z \"\$(other_versions '$v' '$root/README.md')\" ] && [ \"\$(other_versions '$v' '$tmp/readme-old.md')\" = 3.27.2 ]"
 # 3.22.0 gave the scheduled agent a Sunday of its own and left the pages that
 # describe that agent as they were. The picture above draws the radar, so the
 # words beside it must exist too.
@@ -390,7 +400,7 @@ check "and whatever it grows to, the whole is cut at 9,500 and says so" "[ \${#o
 rm -f docs/specs/0[0-9][0-9]-x.md brain/01-journal/2026-01-01.md
 # What the week can take (spec 014). A fixture stands in for the transcripts and
 # for Claude Code's meter, so the real ones are never read or written by a test.
-echo "== the budget =="
+section "the budget"
 bt="$tmp/budget"; mkdir -p "$bt/projects/p1/s1/subagents" "$bt/home"
 py=$(just _py); nowz=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
 msg() { printf '{"type":"assistant","timestamp":"%s","message":{"id":"%s","model":"claude-opus-5","usage":{"input_tokens":%s,"cache_creation_input_tokens":0,"cache_read_input_tokens":%s,"output_tokens":%s}}}\n' "$nowz" "$1" "$2" "$3" "$4"; }
@@ -446,6 +456,8 @@ allowed=0; for i in 1 2 3 4 5 6 7 8; do [ -z "$(hcall s9 Agent t$i)" ] && allowe
 check "eight subagents start without a word"           "[ $allowed -eq 8 ]"
 check "the ninth is refused, with the count, the cap and the ask" "says '\"deny\"' hcall s9 Agent t9 && says '8 subagents already started this session and the cap is 8' hcall s9 Agent t9 && says 'ask the person' hcall s9 Agent t9 && says 'just _agent-cap' hcall s9 Agent t9"
 check "a workflow is gated until the person's yes"      "says 'a workflow starts many subagents on its own' hcall s9 Workflow w1 && says '\"deny\"' hcall s2 Workflow w2"
+check "and both refusals say a mode is not a yes to a count (spec 031)" "says 'a mode they turned on is not a yes to a count' hcall s9 Agent t9 && says 'a mode they turned on is not a yes to a count' hcall s9 Workflow w1"
+check "the audit skill says it too"                     "grep -q 'is not a yes to a number' '$root/.agents/skills/audit/SKILL.md'"
 check "the yes lifts the cap for that session only"     "just _agent-cap 12 '$hk/ai-backbone-agents/s9' >/dev/null && [ -z \"\$(hcall s9 Agent t10)\" ] && [ -z \"\$(hcall s9 Workflow w3)\" ] && says '\"deny\"' hcall s9 Workflow w4 || true; [ -f '$hk/ai-backbone-agents/s9/cap' ]"
 check "a refused call is not counted"                    "[ \$(wc -l < '$hk/ai-backbone-agents/s9/started' | tr -d ' ') -eq 9 ]"
 check "no usable session id: neither counted nor blocked" "[ -z \"\$(printf '{\"tool_name\":\"Agent\"}' | env TMPDIR='$hk' bash '$root/.ai-backbone/agent-cap.sh')\" ]"
@@ -515,6 +527,7 @@ check "and a Turkish sentence is still refused, quoted, bare or as the scope" "!
 check "template-check says up to date"                "says 'up to date' just template-check"
 check "doctor finds nothing missing in the repo"      "! says '^  (MISS|warn)' repo_doctor"
 check "a new project is not told to map code it has not written yet" "! says 'no code map' repo_doctor"
+check "nor about the backbone's comment share, which is the backbone's own" "! says 'of them comments' repo_doctor"
 # A settings file Claude Code would skip, and the hooks with it (spec 022): the
 # form the 2.1.281 changelog names, and a file that is not JSON. The file is
 # put back as it was after each.
@@ -726,7 +739,7 @@ check "backbone-note with no backbone nearby writes nothing"  "! AI_BACKBONE='$t
 # spec 013, save-ci-update: what save, ci, publish and template-update learned
 # while the backlog was cleared. The checks have a project of their own, so that
 # nothing planted here reaches the checks around them.
-echo "== save, ci and template-update (spec 013) =="
+section "save, ci and template-update (spec 013)"
 ( cd "$root" && just new-project "$tmp/s13" tr ) >/dev/null 2>&1
 cd "$tmp/s13" || exit 1
 # In a linked git worktree `.git` is a file, and `[ -d .git ]` sent an agent
@@ -821,7 +834,7 @@ cd "$p" || exit 1
 # in for GitHub, `bb` is the maintainer's clone of it, `agent` pushes like the
 # scheduled run. The remotes are folders, so the offline switch is lifted for
 # these lines and nothing leaves the machine.
-echo "== the backbone's clone keeps itself level =="
+section "the backbone's clone keeps itself level"
 hub="$tmp/level"; mkdir -p "$hub/seed/docs" "$hub/seed/.ai-backbone"
 ( cd "$hub" && git init -q --bare -b main remote.git && cd seed && git init -qb main \
   && cp "$root/.ai-backbone/manifest.txt" .ai-backbone/ && cp "$root/.gitattributes" . \
@@ -1034,7 +1047,7 @@ check "on cloud, publish sends to cloud and nothing reaches main" "says 'Sent to
 # the way a run does; `judge` is the promote job's checkout of main; a stand-in
 # gh answers what the run's jobs said (the log lines in the shape of
 # fixtures/gh-log-failed.txt). Nothing leaves the machine.
-echo "== the gate: what passes on cloud reaches main =="
+section "the gate: what passes on cloud reaches main"
 gt="$tmp/gate"; mkdir -p "$gt/gh"
 ( cd "$gt" && git init -q --bare -b main hub.git && git clone -q hub.git seed && cd seed \
   && mkdir -p docs .ai-backbone .github/workflows \
@@ -1132,7 +1145,7 @@ check "after which nothing waits"                       "says '^Nothing waits' i
 # tools-update moves, and the Go hooks-install fetches when prek cannot. In a
 # throwaway project of its own, so the checks around this block find the first
 # one as they left it.
-echo "== session-start, tools-update and hooks-install (spec 013) =="
+section "session-start, tools-update and hooks-install (spec 013)"
 st="$tmp/session-tools"
 ( cd "$root" && just new-project "$st" ) >/dev/null 2>&1
 cd "$st" || exit 1
@@ -1256,7 +1269,7 @@ cd "$p" || exit 1
 # code can know what a line means, so that line IS shown when the filter matches
 # it: what these checks hold is how much a stranger can say, and that nothing
 # older than the marker, nothing long and nothing but ASCII gets through.
-echo "== the radar =="
+section "the radar"
 # The routine runs every third day since 2026-10-07, and every second run looks
 # outward: the last radar five days old or more.
 rq="$tmp/radar-due"; git init -q "$rq"
@@ -1313,7 +1326,7 @@ check "the backbone ignores brain/ and refuses to commit it" "grep -qx 'brain/' 
 # workflow, and the second copy of brain/. All of it in the Turkish project made
 # above, so the sentences a person reads are matched in both languages, and all
 # of it taken away again before the next section.
-echo "== what the language needs, the update bot, the second copy =="
+section "what the language needs, the update bot, the second copy"
 # A Mac with no Flutter on it read "Everything needed is installed", and every
 # save that touched code then failed in the lint hook with "dart: command not
 # found". The language layer names its tools in `_stack-doctor`, the way it names
@@ -1408,7 +1421,7 @@ cp "$tmp/vc-AGENTS.md" AGENTS.md
 rm -rf deploy ios node_modules .env .env.example
 
 # A save must never commit code the language layer rejects (3.7.0).
-echo "== lint before save =="
+section "lint before save"
 check "a fresh project carries the lint hook"         "grep -q '_lint-if-any' .pre-commit-config.yaml"
 printf 'lint:\n    @echo "lint ok"\n' > stack.just
 check "a language layer whose lint passes saves fine" "just save 'chore: add a language layer'"
@@ -1652,7 +1665,7 @@ wait
 check "the lock is gone once the first run ends"      "[ ! -e '$lock' ]"
 git checkout -q -- .pre-commit-config.yaml
 
-echo "== a project without a language =="
+section "a project without a language"
 if ( cd "$root" && just new-project "$tmp/plain" ) >/dev/null 2>&1; then ok "new-project without lang runs"; else bad "new-project without lang runs"; fi
 check "no Turkish alias when the language is not tr"  "! grep -q '^alias yedekle' '$tmp/plain/Justfile' && grep -q 'Aliases in your own language' '$tmp/plain/Justfile'"
 # The Rust example must be true for a workspace at the root as well as in server/ (3.20.0).
@@ -1661,7 +1674,7 @@ check "stack rust finds a workspace at the root"      "says '^\.$' sh -c \"cd '$
 check "stack rust assumes server/ otherwise"          "says '^server$' sh -c \"cd '$tmp/nows' && just --evaluate server_dir\""
 check "stack rust ships fmt and test-fast"            "says 'fmt' sh -c \"cd '$tmp/nows' && just --summary\" && says 'test-fast' sh -c \"cd '$tmp/nows' && just --summary\""
 
-echo "== checks on every push =="
+section "checks on every push"
 cd "$tmp/plain" || exit 1
 # session-start's two weekly blocks reach GitHub. Stamping them keeps this
 # section offline, which is the promise the whole suite makes.
@@ -1786,7 +1799,7 @@ check "ci-why is silent for a job that ran"           "w=\$(printf '[{\"annotati
 check "and calm on nothing at all"                    "w=\$(printf '' | just _ci-why 2>&1) && [ -z \"\$w\" ]"
 cd "$p" || exit 1
 
-echo "== adopting an existing repo =="
+section "adopting an existing repo"
 a="$tmp/old-repo"; mkdir -p "$a/src"
 ( cd "$a" && echo "# My old repo" > README.md && echo "node_modules/" > .gitignore && echo "x" > src/app.js \
   && git init -qb main && git add -A && git commit -qm "chore: init" ) >/dev/null 2>&1
@@ -1803,7 +1816,7 @@ check "adopted: the lint hook came with the backbone" "grep -q '_lint-if-any' .p
 check "adopted: second adopt changes nothing"         "cd '$root' && says 'already on the backbone' just adopt '$a'"
 
 # ── spec 015: build output on a machine that builds several projects at once ──
-echo "== build output (spec 015) =="
+section "build output (spec 015)"
 # One throwaway project on the Rust layer, its workspace at the root, and two
 # fakes first on PATH: a cargo that says what it was asked and with how many
 # jobs, and a ps that lists a few programs and, for its first PS_BUSY calls, a
@@ -1990,7 +2003,7 @@ check "the session skill says to wait for a build already running" "grep -q '^##
 # asked and in which folder. What is checked is what the layer asks of them,
 # never a build. Every run that could reach a flutter goes through `fx`, so a
 # slip in the layer can only ever reach the stand-in.
-echo "== the Flutter layer (spec 015) =="
+section "the Flutter layer (spec 015)"
 fl="$tmp/fl"; mkdir -p "$fl/fakes" "$fl/shim" "$fl/linux" "$fl/ws"
 cat > "$fl/fakes/flutter" <<'EOF'
 #!/bin/sh
@@ -2153,7 +2166,7 @@ cd "$tmp" || exit 1
 # hook: the backlog lines of 2026-09-22 (one Flutter project, three) and 2026-09-23 (the same,
 # one). A throwaway project of its own; the commits planted below skip the
 # hooks, which are not what is tested, and prek is a stand-in where hooks are.
-echo "== spec 015: the other ideas =="
+section "spec 015: the other ideas"
 o="$tmp/s15"
 ( cd "$root" && just new-project "$o" ) >/dev/null 2>&1
 cd "$o" || exit 1
@@ -2269,7 +2282,7 @@ touch .git/hooks/pre-push
 check "and nothing once it is there"                   "! says 'pre-push hook and git will not' repo_doctor"
 cd "$p" || exit 1
 
-echo "== notes between projects (spec 022) =="
+section "notes between projects (spec 022)"
 # Two projects made the way a person makes them, next to a stand-in backbone,
 # so the search never reaches this machine's own folders.
 pn="$tmp/pn"; mkdir -p "$pn/ai-backbone/.ai-backbone"
@@ -2320,7 +2333,7 @@ check "and a project that does not keep brain/ out of git gets nothing" "! pnote
 # from the kinds of the commits since the last one, written into CHANGELOG.md,
 # tagged, and carried to GitHub with the backup. A throwaway project; the
 # commits planted below skip the hooks, the release commit does not.
-echo "== project versions (spec 016) =="
+section "project versions (spec 016)"
 pv="$tmp/pv"
 ( cd "$root" && just new-project "$pv" ) >/dev/null 2>&1
 cd "$pv" || exit 1
@@ -2457,7 +2470,7 @@ out=$(rl 2>&1)
 check "a draft keeps a subject's own letters" "grep -qx \"  - 'Amiral Battı' opens again\" <<<\"\$out\" && [ \"\$(unrel)\" = \"\$(printf \"### Fixed\\n- 'Amiral Battı' opens again\")\" ]"
 cd "$tmp" || exit 1
 
-echo "== the backlog of 2026-10-06 (spec 026) =="
+section "the backlog of 2026-10-06 (spec 026)"
 s26="$tmp/s26"
 ( cd "$root" && just new-project "$s26" ) >/dev/null 2>&1
 cd "$s26" || exit 1
@@ -2559,7 +2572,7 @@ check "and says nothing when there is nothing to mend" "[ -z \"\$(just _backlog-
 cd "$tmp" || exit 1
 
 # ── spec 027: the backlog of 2026-10-10 ──
-echo "== the backlog of 2026-10-10 (spec 027) =="
+section "the backlog of 2026-10-10 (spec 027)"
 # A Hugging Face model pinned by its commit: the commits above the pin are newer.
 # From a fixture, with every other address refused, the whole script running.
 hf="$tmp/hf"; mkdir -p "$hf/docs" "$hf/.git"
@@ -2841,7 +2854,7 @@ if "$py" -c 'import fcntl' 2>/dev/null; then
 fi
 cd "$tmp" || exit 1
 
-echo "== the backlog of 2026-10-13 (spec 028) =="
+section "the backlog of 2026-10-13 (spec 028)"
 # A folder the person made and opened first is taken while it is empty.
 mkdir -p "$tmp/s28" "$tmp/s28-full"; : > "$tmp/s28-full/x.txt"
 check "new-project takes a folder that is there and empty" "( cd '$root' && just new-project '$tmp/s28' ) >/dev/null 2>&1 && [ -f '$tmp/s28/AGENTS.md' ] && [ -n \"\$(git -C '$tmp/s28' log --oneline 2>/dev/null)\" ]"
@@ -2882,7 +2895,7 @@ check "and doctor then says it ran" "grep -q 'session-start hook ran here, last 
 check "and nothing about the version once the layer has _set-version" "! grep -q 'does not move the version' <<<\"\$doc28\""
 cd "$tmp" || exit 1
 
-echo "== the backlog of 2026-10-14 (spec 029) =="
+section "the backlog of 2026-10-14 (spec 029)"
 # RustSec: an advisory database in the archive's own layout, and a Cargo.lock.
 adb="$tmp/s29-adb/advisory-db-main/crates"; mkdir -p "$adb/foo" "$adb/bar" "$adb/old"
 adv29() { printf '```toml\n[advisory]\nid = "%s"\npackage = "%s"\ndate = "2099-01-01"\n%s\n[versions]\npatched = [%s]\nunaffected = [%s]\n```\n\n# %s\n\nText.\n' "$@"; }
@@ -2979,7 +2992,7 @@ PY
 fi
 check "the night section says what a series does next, and what an unmet dependency does" "grep -q 'approved several night specs at once as a series' '$root/.agents/skills/spec/SKILL.md' && grep -q 'is skipped, never half' '$root/.agents/skills/spec/SKILL.md'"
 
-echo "== an advisory looked at, written down (spec 030) =="
+section "an advisory looked at, written down (spec 030)"
 # The project of spec 029, its database, and two more advisories: a second one
 # for foo, and one for baz with no fix.
 if "$py" -c 'import tomllib' 2>/dev/null && cd "$tmp/s29"; then
@@ -3045,6 +3058,10 @@ else
 fi
 cd "$tmp" || exit 1
 
+sec_times="$sec_times$((SECONDS-sec_start)) $sec_name"$'\n'
+echo
+echo "== time by section, slowest first (${SECONDS}s in all) =="
+printf '%s' "$sec_times" | sort -rn | head -8 | awk '{ t = $1; $1 = ""; printf "  %4ds %s\n", t, substr($0, 2) }'
 echo
 echo "$pass ok, $fail failed"
 [ "$fail" -eq 0 ]

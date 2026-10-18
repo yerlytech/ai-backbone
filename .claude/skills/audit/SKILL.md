@@ -48,8 +48,11 @@ both at the end of a phase; the rehearsal is step 7 below.
    that each lens is one agent, plus one for step 5, and what that is against
    the week (`just session-start` printed the line). "This audit is 9 agents,
    about a day's share; go?" A yes raises this session's cap for exactly that
-   many (`just _agent-cap`); without one, nothing starts. A lens more than about
-   eight is a lens too many: merge two.
+   many (`just _agent-cap`); without one, nothing starts. A mode the person
+   turned on (max, ultra, a "go wide" setting) is not a yes to a number: say
+   the count and its share anyway, and wait for a yes to that number (spec
+   031: such a mode was once read as consent to about fifty agents). A lens
+   more than about eight is a lens too many: merge two.
 4. **Run the lenses in parallel, and each lens verifies its own findings.** One
    agent each, reading real code. Cap the findings per lens at about six and
    demand a concrete failure scenario, inputs or state and then the wrong

@@ -93,6 +93,17 @@ program, which catches SIGALRM and does nothing with it (go1.27.1,
 `src/os/signal/doc.go:44-45`); SIGTERM ends it. Met with `docker info` against
 a half-started Docker Desktop, 2026-09-27.
 
+A comment in code you write or touch says what the code guards and which
+spec or version taught it, in one or two lines; the story goes to the spec or
+the CHANGELOG (spec 031). Never rewrite old comments in one go: the measured
+lessons in them are what stops a regression. `just doctor` in the backbone
+says the share of comment lines in `core.just`, which should fall by attrition.
+
+A path printed for a person or compared as text is text: `as_posix()` in
+Python, never a `Path` (spec 031). A `pathlib.Path` prints with backslashes
+on Windows, and the one bug of 2026-10-15 showed only there, found last by
+the slowest machine.
+
 1. Finish or save the project work you are in the middle of.
 2. Go to the backbone (`../ai-backbone`, or wherever `AI_BACKBONE` points).
    The work travels on the branch `cloud` (spec 017): `git checkout -B cloud

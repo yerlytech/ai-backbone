@@ -171,7 +171,7 @@ proposal 4 as decided above; proposals 2, 3, 5, 6, 7 and 8 built as written.
       goes through Claude Code's own prompt, and `rm -r -f` and `rm -fr` are
       denied, each rule measured on the pinned Claude Code; a scheduled run
       still finishes; `docs/how-it-works.md` says what the list is and is not.
-- [ ] `README.md` names no version, and the suite fails when it names one other
+- [x] `README.md` names no version, and the suite fails when it names one other
       than line 1 of `core.just`.
 - [ ] The stable mark: a project's `session-start` and `template-check` say
       "behind" only below it and "ahead" above it; `template-update` goes to
@@ -180,12 +180,12 @@ proposal 4 as decided above; proposals 2, 3, 5, 6, 7 and 8 built as written.
 - [ ] A count of the recipes this machine's projects ran in the last month,
       from local session records only, written into a follow-up spec; no
       recipe is removed in this one.
-- [ ] The comment rule is in the backbone-dev skill, and `just doctor` in the
+- [x] The comment rule is in the backbone-dev skill, and `just doctor` in the
       backbone says the share of comment lines in `core.just`.
 - [ ] The suite says how long each section took; the slowest sections on
       Windows are named and the worst is cut, measured before and after; the
       backbone-dev skill says a printed path is text, never a `Path`.
-- [ ] The agent-cap refusal and the audit skill say that a mode the person
+- [x] The agent-cap refusal and the audit skill say that a mode the person
       turned on is not a yes to a count.
 - [ ] Green on the three machines, released, and the managing session told.
 
@@ -198,11 +198,12 @@ proposal 4 as decided above; proposals 2, 3, 5, 6, 7 and 8 built as written.
 - [ ] The stable mark and the three recipes that read it; "ahead" when it goes
       back; the routine brief forbids it.
 - [ ] The permission list, after measuring how Claude Code matches each rule.
-- [ ] The README without a version, and its check.
-- [ ] A mode is not a yes to a count: agent-cap.sh's refusal and the audit
+- [x] The README without a version, and its check.
+- [x] A mode is not a yes to a count: agent-cap.sh's refusal and the audit
       skill.
-- [ ] Section timings in the suite; the slowest Windows section cut; the
-      path-as-text rule.
-- [ ] The comment rule and doctor's line.
+- [~] Section timings in the suite; the slowest Windows section cut; the
+      path-as-text rule. (Timings and the rule in 3.41.0; the cut waits for
+      the first Windows run that prints them.)
+- [x] The comment rule and doctor's line.
 - [ ] The recipe count from local session records, into a follow-up spec.
 - [ ] Through the gate on the three machines; the managing session told.

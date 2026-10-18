@@ -177,9 +177,9 @@ How the pieces fit together, in two pictures and no code:
 [`docs/how-it-works.md`](docs/how-it-works.md). The full walkthrough, from the
 installer to the scheduled agent, the gate and the budget line:
 [`docs/01-getting-started.md`](docs/01-getting-started.md). Every version and
-why: [`CHANGELOG.md`](CHANGELOG.md) — this is 3.27.2, and the history was
-squashed to one commit on 2026-09-24 when the repository went public. Every
-idea before it was built: [`docs/specs/`](docs/specs/).
+why: [`CHANGELOG.md`](CHANGELOG.md), newest first; the git history was
+squashed when the repository went public, so the changelog is the record.
+Every idea before it was built: [`docs/specs/`](docs/specs/).
 
 Found a gap? Open an issue. Inside the backbone, work travels on the `cloud`
 branch; the gate tests it, and code reaches `main` on the maintainer's yes

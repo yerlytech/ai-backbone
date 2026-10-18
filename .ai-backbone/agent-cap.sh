@@ -34,11 +34,11 @@ case "$cap" in ""|*[!0-9]*|???????*) cap=8 ;; esac
 n=0; [ -f "$dir/started" ] && n=$(wc -l < "$dir/started" | tr -d ' ')
 if [ "$(field tool_name)" = "Workflow" ]; then
   [ -f "$dir/cap" ] && exit 0
-  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"AGENT CAP: a workflow starts many subagents on its own (%s started this session, cap %s). Stop and ask the person, saying roughly how many agents it would run; only if they say yes, run: just _agent-cap <cap> %s and launch it again."}}\n' "$n" "$cap" "$dir"
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"AGENT CAP: a workflow starts many subagents on its own (%s started this session, cap %s). Stop and ask the person, saying roughly how many agents it would run; a mode they turned on is not a yes to a count. Only if they say yes to that number, run: just _agent-cap <cap> %s and launch it again."}}\n' "$n" "$cap" "$dir"
   exit 0
 fi
 if [ "$n" -ge "$cap" ]; then
-  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"AGENT CAP: %s subagents already started this session and the cap is %s. Stop and ask the person before starting more; only if they say yes, run: just _agent-cap <cap> %s (for every session on this machine: git config --global ai-backbone.agent-cap <cap>)."}}\n' "$n" "$cap" "$dir"
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"AGENT CAP: %s subagents already started this session and the cap is %s. Stop and ask the person, saying how many more and why; a mode they turned on is not a yes to a count. Only if they say yes to that number, run: just _agent-cap <cap> %s (for every session on this machine: git config --global ai-backbone.agent-cap <cap>)."}}\n' "$n" "$cap" "$dir"
   exit 0
 fi
 id=$(field tool_use_id); grep -qxF "$id" "$dir/started" 2>/dev/null || printf '%s\n' "$id" >> "$dir/started"
