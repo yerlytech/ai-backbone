@@ -214,8 +214,12 @@ proposal 4 as decided above; proposals 2, 3, 5, 6, 7 and 8 built as written.
 - [x] A mode is not a yes to a count: agent-cap.sh's refusal and the audit
       skill.
 - [~] Section timings in the suite; the slowest Windows section cut; the
-      path-as-text rule. (Timings and the rule in 3.41.0; the cut waits for
-      the first Windows run that prints them.)
+      path-as-text rule. (Timings and the rule in 3.41.0. First Windows run
+      that prints them, 39091792611 on 2026-10-18: 1497s in all, 771 checks;
+      slowest "the budget" 203s (a section of 120 checks that runs on to
+      the next heading), "the backbone's clone keeps itself level" 139s,
+      "build output" and "the backlog of 2026-10-06" 128s each, "checks on
+      every push" 124s. Linux 4m45s, macOS 12m. The cut is still to do.)
 - [x] The comment rule and doctor's line.
 - [ ] The recipe count from local session records, into a follow-up spec.
       Measured 2026-10-18 on the maintainer's machine: there is no month of
