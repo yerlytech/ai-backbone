@@ -13,6 +13,26 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## 3.41.0 — 2026-10-18
+
+**Code waits for a yes** (spec 031). The gate carried every green push on
+`cloud` to `main`, and from there into every project at its next update, so
+code a scheduled run wrote, shaped perhaps by a stranger's changelog, could
+reach them without anyone looking. Now the gate carries on its own only a
+push that changes the routine's own files (its log, the backlog, the radar's
+markers, a spec). A push with code stays on `cloud`, tested and green, and
+its `gate:` line says it waits for an attended carry and names the files.
+`just session-start` in the backbone says so; `just carry` lists what waits
+and, when it is green, the commit to carry; `just carry <commit>` takes it to
+`main` with `main`'s own `gate.sh` (a fast-forward or nothing) and tags the
+version in the same push. It refuses a commit that is not on `cloud`, still
+being tested, not green on all three machines, or built on an older `main`,
+and says which. The routine brief forbids a scheduled run to carry. A change
+to a workflow or `gate.sh` goes the same way instead of a hand push.
+
+Nothing to do in a project. In the backbone, a release now asks the
+maintainer one word.
+
 ## 3.40.0 — 2026-10-17
 
 **One disk, many projects; one queue, many builds** (spec 032). Each Rust

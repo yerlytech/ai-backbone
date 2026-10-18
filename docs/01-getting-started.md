@@ -206,9 +206,11 @@ You never have to think about the backbone. Two things happen on their own
   writes a line into the backbone's `docs/backlog.md` on GitHub
   (`just backbone-note`) or fixes it there right away, tests it, publishes it to the backbone's
   `cloud` branch — where a gate on GitHub tests it again on a clean Linux, Mac
-  and Windows machine and carries it to `main` — and then updates your
-  project. It tells you in one sentence. It asks only when the fix would change
-  what you type or must do by hand.
+  and Windows machine. When it is green the agent tells you in two plain
+  sentences what changed and why, and on your yes carries it to `main`
+  (`just carry`, spec 031) and updates your project. That yes is the one
+  word a release asks of you; otherwise it asks only when the fix would
+  change what you type or must do by hand.
 - Once a week `just session-start` checks whether just, prek, graphify
   and the secret scanner have new releases. When one is behind, the agent runs
   `just tools-update` and saves. No question. What your own project is built
@@ -289,12 +291,16 @@ pushes to the branch `cloud`, never to `main`. Every push there is tested by
 GitHub on a clean Linux, a clean Mac and a clean Windows machine
 (`checks.yml`); all three decide (Windows since spec 020); a push that
 changes only the agent's own files (its log, the
-backlog, the radar's markers, a spec) is carried without the suite. What
-passes is carried to `main` and tagged by `promote.yml`, which runs from
+backlog, the radar's markers, a spec) is carried without the suite. Such a
+push, once it passes, is carried to `main` by `promote.yml`, which runs from
 `main`'s own copy of itself and of `.ai-backbone/gate.sh`, so a run can change
-what is tested and never how it is judged. A red gate writes one `gate:` line
-at the end of `docs/routine-log.md` on `cloud`, and the next run reads it
-first. The agent's sandbox keeps nothing, so it writes one line per run at the
+what is tested and never how it is judged. A push that changes code waits on
+`cloud`, green, until a session you are in carries it (spec 031): the agent
+tells you what changed and why, and on your yes runs `just carry <commit>`,
+which uses `main`'s own `gate.sh` and tags the version. `just carry` alone
+lists what waits, and `just session-start` in the backbone says so. A red
+gate, or code that waits, writes one `gate:` line at the end of
+`docs/routine-log.md` on `cloud`, and the next run reads it first. The agent's sandbox keeps nothing, so it writes one line per run at the
 end of that same file, and `just session-start` in the backbone prints the
 last two. What is the maintainer's to decide waits in `docs/backlog.md` as a `- [?]`
 line, never more than three, and Sunday's report asks the oldest one as a

@@ -1,15 +1,22 @@
 #!/usr/bin/env bash
-# The gate (spec 017): what reaches main is what passed on a clean Linux and a
-# clean Mac. Two verbs, run by the workflows in .github/ and by just self-test.
+# The gate (spec 017): what reaches main is what passed on a clean Linux, Mac
+# and Windows. Since spec 031 code also waits for a person: the gate carries a
+# push on its own only when it changes nothing but the routine's own files.
 #
 #   gate.sh look [commit]   in a checkout of the pushed commit: prints `suite`
 #                           when the suite must run for it, `docs-only` when
 #                           nothing but the routine's own files differ from main
 #   gate.sh carry           in a checkout of main with the whole history, given
 #                           the finished run in GATE_SHA, GATE_ENDED and
-#                           GATE_RUN: carries the tested commit to main and tags
-#                           its version, or writes why not where the next run
-#                           reads (the last line of docs/routine-log.md on cloud)
+#                           GATE_RUN: carries a docs-only commit to main, or
+#                           writes why not, or that code waits for an attended
+#                           carry, where the next run reads (the last line of
+#                           docs/routine-log.md on cloud)
+#   gate.sh attend <commit> on the maintainer's machine, from main's copy of
+#                           this file (just carry): carries a commit that is on
+#                           cloud and green on all three machines to main and
+#                           tags its version. The person said yes first; nothing
+#                           here can tell, so the routine brief forbids it.
 #
 # promote.yml runs from main's copy of itself and of this file, so a push to
 # cloud can change what is tested, never how it is judged. Nothing here merges:
@@ -57,6 +64,17 @@ jobs_of() {
   gh run view "$1" --json jobs --jq '.jobs[] | "\(.databaseId)\t\(.name)\t\(.conclusion)"' 2>/dev/null
 }
 
+# The files a commit changes outside the routine's own, at most three named.
+code_of() {
+  local f n=0 out=""
+  while IFS= read -r f; do
+    [ -n "$f" ] && ! own "$f" || continue
+    n=$((n+1)); [ "$n" -gt 3 ] || out="$out${out:+, }$f"
+  done < <(git diff --name-only origin/main "$1" 2>/dev/null)
+  [ "$n" -le 3 ] || out="$out and $((n-3)) more"
+  printf '%s' "$out"
+}
+
 # Green on the machines that decide: Linux, macOS and, since spec 020 made it
 # green, Windows. The maintainer chose it on 2026-09-24, knowing a carry now
 # waits the Windows job's seventeen minutes instead of the Mac's five.
@@ -96,7 +114,7 @@ red() {
 carry() {
   # No apostrophe inside these braces: /bin/bash 3.2 reads one as a quote.
   : "${GATE_SHA:?the tested commit}" "${GATE_ENDED:?the conclusion of the run}"
-  local sha="$GATE_SHA" run="${GATE_RUN:-}" why="" short="${GATE_SHA:0:7}"
+  local sha="$GATE_SHA" run="${GATE_RUN:-}" why="" short="${GATE_SHA:0:7}" verdict="cloud not promoted"
   git config user.name "github-actions[bot]"
   git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
   if ! git fetch -q origin +refs/heads/main:refs/remotes/origin/main +refs/heads/cloud:refs/remotes/origin/cloud 2>/dev/null; then
@@ -127,9 +145,15 @@ carry() {
   elif ! git merge-base --is-ancestor origin/main "$sha" 2>/dev/null; then
     why="main moved ($(git rev-list --count "$sha..origin/main" 2>/dev/null || echo '?') commit(s) cloud does not have); the next run merges origin/main into cloud and pushes"
   elif ! git diff --quiet origin/main "$sha" -- .github/workflows .ai-backbone/gate.sh 2>/dev/null; then
-    why="the push changes .github/workflows or gate.sh, which only an attended session carries to main (git push origin <commit>:main after green checks); an unattended run puts main's copy back"
+    why="the push changes .github/workflows or gate.sh, which only an attended carry takes to main (just carry $short after green checks, on the maintainer's yes); an unattended run puts main's copy back"
   elif [ "$(look "$sha" 2>/dev/null)" = suite ] && ! suite_green "$run"; then
     why="the suite was due for this push and the run has no green suite job for Linux, macOS and Windows"
+  elif [ "$(look "$sha" 2>/dev/null)" = suite ]; then
+    # Spec 031: green is not enough for code. A changelog a stranger wrote can
+    # shape what a scheduled run builds, so code reaches the projects only
+    # after somebody said yes to it.
+    verdict="$short waits for an attended carry"
+    why="green on Linux, macOS and Windows; it changes code ($(code_of "$sha")): an attended session says what changed and why, and on the maintainer's yes runs just carry $short"
   else
     git checkout -q -B main origin/main 2>/dev/null
     if git merge -q --ff-only "$sha" >/dev/null 2>&1; then
@@ -160,25 +184,90 @@ carry() {
   # the last two), on cloud, on top of whatever landed there meanwhile. A push
   # by this token starts no workflow, so the line rides the next real push.
   local line try
-  line="- $(date -u +%Y-%m-%d) gate: cloud not promoted — $(printf '%s' "$why" | tr '\n\r\t' '   ' | cut -c1-400)"
+  line="- $(date -u +%Y-%m-%d) gate: $verdict — $(printf '%s' "$why" | tr '\n\r\t' '   ' | cut -c1-400)"
   for try in 1 2 3; do
     git fetch -q origin +refs/heads/cloud:refs/remotes/origin/cloud 2>/dev/null || break
     git checkout -q --detach origin/cloud 2>/dev/null || break
     mkdir -p docs
     [ ! -s docs/routine-log.md ] || [ -z "$(tail -c1 docs/routine-log.md)" ] || echo >> docs/routine-log.md
     printf '%s\n' "$line" >> docs/routine-log.md
-    if git add docs/routine-log.md && git commit -q -m "docs: gate — cloud not promoted" >/dev/null 2>&1 \
+    if git add docs/routine-log.md && git commit -q -m "docs: gate — $verdict" >/dev/null 2>&1 \
        && git push -q origin HEAD:cloud 2>/dev/null; then
-      echo "gate: not promoted: $why"; return 0
+      echo "gate: $verdict: $why"; return 0
     fi
     git reset -q --hard origin/cloud 2>/dev/null || true
   done
-  echo "gate: not promoted: $why (and the verdict could not be written on cloud: the next run sees cloud ahead of main with no line for it)"
+  echo "gate: $verdict: $why (and the verdict could not be written on cloud: the next run sees cloud ahead of main with no line for it)"
   return 1
 }
 
+# The newest checks run of a commit: id, status, conclusion. Through gh, as
+# jobs_of; GATE_RUN names one instead.
+run_of() {
+  if [ -n "${GATE_RUN:-}" ]; then printf '%s\tcompleted\t\n' "$GATE_RUN"; return 0; fi
+  command -v gh >/dev/null 2>&1 || return 1
+  GH_PAGER=cat gh run list --workflow checks.yml --commit "$1" --limit 5 \
+    --json databaseId,status,conclusion -q '.[0] | select(. != null) | [.databaseId, .status, .conclusion] | @tsv' 2>/dev/null
+}
+
+# The attended carry (spec 031). It runs in the person's own clone, so it
+# never checks anything out and never sets an identity: it pushes the tested
+# commit itself to main, a fast-forward or nothing, with its tag in the same
+# atomic push. Refusing writes nothing on cloud: the person is here to read it.
+attend() {
+  local at="${1:-}" sha short run st concl rails v refs tagged="" stood=""
+  [ -n "$at" ] || { echo "carry: which commit? The gate's line names it (just carry lists what waits)."; return 2; }
+  if ! git fetch -q origin +refs/heads/main:refs/remotes/origin/main +refs/heads/cloud:refs/remotes/origin/cloud 2>/dev/null; then
+    echo "carry: GitHub could not be fetched; nothing was carried."; return 1
+  fi
+  if ! sha=$(git rev-parse -q --verify "$at^{commit}" 2>/dev/null); then
+    echo "carry: $at is not a commit this clone knows; nothing was carried."; return 1
+  fi
+  short="${sha:0:7}"
+  if git merge-base --is-ancestor "$sha" origin/main 2>/dev/null; then
+    echo "carry: $short is on main already; nothing to carry."; return 0
+  fi
+  if ! git merge-base --is-ancestor "$sha" origin/cloud 2>/dev/null; then
+    echo "carry: $short is not on cloud, so no gate ran on it; nothing was carried."; return 1
+  fi
+  if ! git merge-base --is-ancestor origin/main "$sha" 2>/dev/null; then
+    echo "carry: main moved past what $short was built on; merge origin/main into cloud, publish, and carry that commit after its green run."; return 1
+  fi
+  IFS=$'\t' read -r run st concl <<<"$(run_of "$sha")"
+  if [ -z "${run:-}" ]; then
+    echo "carry: no checks run was found for $short (just ci); nothing was carried."; return 1
+  fi
+  if [ "$st" != completed ]; then
+    echo "carry: the checks for $short are still going (just ci); nothing was carried."; return 1
+  fi
+  if ! suite_green "$run"; then
+    echo "carry: $short is not green on Linux, macOS and Windows (run $run${concl:+, $concl}); nothing was carried."; return 1
+  fi
+  # No apostrophe inside a ${x:+...}: /bin/bash 3.2 reads one as a quote.
+  rails=$(git diff --name-only origin/main "$sha" -- .github/workflows .ai-backbone/gate.sh 2>/dev/null | tr '\n' ' ' | sed 's/ $//')
+  [ -z "$rails" ] || rails="; it changed the gate's own files: $rails"
+  refs="$sha:refs/heads/main"
+  v=$(MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' git show "$sha:.ai-backbone/core.just" 2>/dev/null | head -1 | grep -oE 'version [0-9]+\.[0-9]+\.[0-9]+' | awk '{print $2}')
+  if [ -n "$v" ]; then
+    if [ -n "$(git ls-remote --tags origin "refs/tags/v$v" 2>/dev/null)" ]; then
+      stood="v$v"
+    elif [ "$(git rev-parse -q --verify "refs/tags/v$v^{commit}" 2>/dev/null || echo "$sha")" = "$sha" ]; then
+      git tag -f "v$v" "$sha" >/dev/null 2>&1 && { refs="$refs refs/tags/v$v"; tagged="v$v"; }
+    fi
+  fi
+  # shellcheck disable=SC2086
+  if git push -q --atomic origin $refs 2>/dev/null \
+     || { [ -n "$tagged" ] && git push -q origin "$sha:refs/heads/main" 2>/dev/null && tagged=""; }; then
+    echo "carry: carried $short to main${tagged:+ and tagged $tagged}${stood:+; $stood was tagged before}$rails"
+    return 0
+  fi
+  [ -z "$tagged" ] || git tag -d "$tagged" >/dev/null 2>&1 || true
+  echo "carry: GitHub would not take main at $short; nothing was carried."; return 1
+}
+
 case "${1:-}" in
-  look)  look "${2:-HEAD}" ;;
-  carry) carry ;;
-  *) echo "usage: gate.sh look [commit] | gate.sh carry" >&2; exit 2 ;;
+  look)   look "${2:-HEAD}" ;;
+  carry)  carry ;;
+  attend) attend "${2:-}" ;;
+  *) echo "usage: gate.sh look [commit] | gate.sh carry | gate.sh attend <commit>" >&2; exit 2 ;;
 esac

@@ -1046,23 +1046,29 @@ gt="$tmp/gate"; mkdir -p "$gt/gh"
 cat > "$gt/gh/gh" <<'EOF'
 #!/bin/sh
 case "$*" in
+  *"run list"*) printf '%s\n' "${FAKE_RUN:-}" ;;
   *"--json jobs"*) printf '%s\n' "${FAKE_JOBS:-}" | tr '|' '\n' ;;
   *"--log-failed"*) printf '%s\n' "${FAKE_LOG:-}" | tr '|' '\n' ;;
 esac
 EOF
 chmod +x "$gt/gh/gh"
+TAB=$'\t'
 gate()     { ( cd "${1:-$gt/work}" && bash "$root/.ai-backbone/gate.sh" look 2>/dev/null | tail -1 ); }
 pushed()   { ( cd "$gt/work" && eval "$1" >/dev/null && git add -A && git commit -qm "${2:-feat: on cloud}" && git push -q origin HEAD:cloud && git rev-parse HEAD ) 2>/dev/null; }
 judge()    { ( cd "$gt/judge" && env PATH="$gt/gh:$PATH" FAKE_JOBS="${3:-}" FAKE_LOG="${4:-}" GATE_SHA="$1" GATE_ENDED="$2" GATE_RUN=77 bash "$root/.ai-backbone/gate.sh" carry ); }
+# The attended carry (spec 031), from the person's clone; FAKE_RUN is the
+# newest checks run of the commit, the way gh run list prints it.
+attend()   { ( cd "$gt/work" && env -u GATE_RUN PATH="$gt/gh:$PATH" FAKE_JOBS="${2:-}" FAKE_RUN="${3-77${TAB}completed${TAB}success}" bash "$root/.ai-backbone/gate.sh" attend "$1" ); }
 hubmain()  { git -C "$gt/hub.git" rev-parse main; }
 hubtag()   { git -C "$gt/hub.git" rev-parse -q --verify "refs/tags/$1" 2>/dev/null; }
 cloudlog() { git -C "$gt/hub.git" show cloud:docs/routine-log.md; }
 loglines() { awk 'END { print NR }' <<<"$(cloudlog)"; }
 synced()   { git -C "$gt/work" pull -q --no-rebase origin cloud >/dev/null 2>&1; }
-TAB=$'\t'
 GREEN="1${TAB}look${TAB}success|2${TAB}suite (ubuntu-latest)${TAB}success|3${TAB}suite (macos-latest)${TAB}success|4${TAB}suite (windows-latest)${TAB}success"
+WINRED="1${TAB}look${TAB}success|2${TAB}suite (ubuntu-latest)${TAB}success|3${TAB}suite (macos-latest)${TAB}success|4${TAB}suite (windows-latest)${TAB}failure"
 s=$(pushed "echo '- a log line' >> docs/routine-log.md && echo '- [ ] a note' >> docs/backlog.md && echo z > docs/radar.toml && mkdir -p docs/specs && echo s > docs/specs/099-x.md" "docs: the routine's own files")
 check "look: a push that changes only the routine's own files is docs-only" "[ \"\$(gate)\" = docs-only ]"
+check "carry: and the gate carries it to main on its own" "says 'carried .* to main' judge $s success '1${TAB}look${TAB}success' && [ \$(hubmain) = $s ]"
 git clone -q --depth 1 -b cloud "$gt/hub.git" "$gt/shallow" >/dev/null 2>&1
 check "and a checkout of depth one answers the same"   "[ \"\$(gate '$gt/shallow')\" = docs-only ]"
 s=$(pushed "echo g > docs/01-getting-started.md" "docs: a page the suite reads")
@@ -1071,8 +1077,18 @@ check "look: any other page under docs/ runs the suite" "[ \"\$(gate)\" = suite 
 check "in a checkout of depth one too"                  "[ \"\$(gate '$gt/shallow')\" = suite ]"
 s=$(pushed "printf '# .ai-backbone/core.just — recipes, version 1.0.1\n' > .ai-backbone/core.just" "feat: 1.0.1")
 check "look: code runs the suite"                       "[ \"\$(gate)\" = suite ]"
-check "carry: a green run is carried to main and its version tagged, in one push" "says 'carried .* to main and tagged v1.0.1' judge $s success '$GREEN' && [ \$(hubmain) = $s ] && [ \"\$(hubtag v1.0.1)\" = $s ]"
+# Spec 031: green code is not carried on its own; it waits for a person's yes.
 lines=$(loglines)
+check "carry: green code is not carried on its own, and the line on cloud says it waits and names the file" "says 'waits for an attended carry' judge $s success '$GREEN' && [ \$(hubmain) != $s ] && [ -z \"\$(hubtag v1.0.1)\" ] && [ \$(loglines) -eq $((lines+1)) ] && says '^- [0-9-]+ gate: ${s:0:7} waits for an attended carry — green on Linux, macOS and Windows; it changes code \(\.ai-backbone/core\.just, docs/01-getting-started\.md\)' cloudlog"
+check "and the backbone's session start names what waits" "git -C '$gt/work' fetch -q origin && says '^Gate: cloud holds code main does not have.*-> just carry\$' env JUST_JUSTFILE='$root/Justfile' JUST_WORKING_DIRECTORY='$gt/work' just _gate-waits"
+check "attend: a commit still being tested is refused" "says 'still going' attend $s '$GREEN' '77${TAB}in_progress${TAB}' && [ \$(hubmain) != $s ]"
+check "attend: one not green on all three machines is refused, and says why" "says 'not green on Linux, macOS and Windows' attend $s '$WINRED' && [ \$(hubmain) != $s ]"
+check "attend: one with no checks run is refused" "says 'no checks run was found' attend $s '$GREEN' '' && [ \$(hubmain) != $s ]"
+check "attend: a commit that is not on cloud is refused" "says 'not on cloud' attend \$(cd '$gt/work' && git commit -q --allow-empty -m local && git rev-parse HEAD) '$GREEN'"
+( cd "$gt/work" && git reset -q --hard origin/cloud ) >/dev/null 2>&1
+check "attend: a green commit on cloud is carried to main and its version tagged, in one push" "says 'carried ${s:0:7} to main and tagged v1.0.1' attend $s '$GREEN' && [ \$(hubmain) = $s ] && [ \"\$(hubtag v1.0.1)\" = $s ]"
+check "and once there, the session start is quiet about it" "git -C '$gt/work' fetch -q origin && [ -z \"\$(env JUST_JUSTFILE='$root/Justfile' JUST_WORKING_DIRECTORY='$gt/work' just _gate-waits)\" ]"
+synced; lines=$(loglines)
 check "carried again, it says so and writes nothing"    "says 'on main already' judge $s success '$GREEN' && [ \$(loglines) -eq $lines ]"
 s=$(pushed "echo y >> README.md" "feat: red")
 check "a cancelled run is not judged"                   "says 'was cancelled' judge $s cancelled && [ \$(hubmain) != $s ] && [ \$(loglines) -eq $lines ]"
@@ -1081,11 +1097,11 @@ check "a cancelled run is not judged"                   "says 'was cancelled' ju
 CUT="1${TAB}look${TAB}success|2${TAB}suite (ubuntu-latest)${TAB}success|3${TAB}suite (macos-latest)${TAB}success|4${TAB}suite (windows-latest)${TAB}cancelled"
 s=$(pushed "echo cut >> README.md" "feat: windows cut by its cap")
 check "one cancelled by the Windows cap is not carried: Windows decides too" "says 'was cancelled' judge $s cancelled '$CUT' && [ \$(hubmain) != $s ]"
-WINRED="1${TAB}look${TAB}success|2${TAB}suite (ubuntu-latest)${TAB}success|3${TAB}suite (macos-latest)${TAB}success|4${TAB}suite (windows-latest)${TAB}failure"
 WINLOG="suite (windows-latest)${TAB}the suite${TAB}2026-01-02T03:00:02Z   FAIL  a windows check"
 check "and a red Windows job with the other two green is not carried, and is named" "says 'not promoted' judge $s failure '$WINRED' '$WINLOG' && [ \$(hubmain) != $s ] && says 'suite \(windows-latest\) failure FAIL: a windows check' cloudlog"
 GHOST="1${TAB}look${TAB}success|2${TAB}suite (ubuntu-latest)${TAB}success|3${TAB}suite (macos-latest)${TAB}success|4${TAB}suite (windows-latest)${TAB}success|5${TAB}something else${TAB}cancelled"
-check "a run cancelled by a job that is not a suite job, all three suites green, is carried" "o=\$(judge $s cancelled '$GHOST' 2>&1); grep -q 'every suite job was green: they decide' <<<\"\$o\" && grep -qE 'carried .* to main' <<<\"\$o\" && [ \$(hubmain) = $s ]"
+check "a run cancelled by a job that is not a suite job, all three suites green, is judged green: it waits for its carry" "o=\$(judge $s cancelled '$GHOST' 2>&1); grep -q 'every suite job was green: they decide' <<<\"\$o\" && grep -q 'waits for an attended carry' <<<\"\$o\" && [ \$(hubmain) != $s ]"
+check "attend: and an attended carry takes it"            "says 'carried .* to main' attend $s '$GHOST' && [ \$(hubmain) = $s ]"
 synced; lines=$(loglines); s=$(pushed "echo y2 >> README.md" "feat: red again")   # synced and counted again: the red Windows line above moved cloud
 RED="1${TAB}look${TAB}success|2${TAB}suite (ubuntu-latest)${TAB}success|9${TAB}suite (macos-latest)${TAB}failure|10${TAB}suite (windows-latest)${TAB}failure"
 LOG="suite (macos-latest)${TAB}the suite${TAB}2026-01-02T03:00:00Z   FAIL  a mac check|suite (macos-latest)${TAB}the suite${TAB}2026-01-02T03:00:01Z   FAIL  another one|suite (windows-latest)${TAB}the suite${TAB}2026-01-02T03:00:02Z   FAIL  windows noise"
@@ -1098,11 +1114,20 @@ synced; s=$(pushed "git checkout origin/main -- .ai-backbone/gate.sh && echo w >
 check "a green run whose suite never ran is refused: a look weakened on cloud passes no code" "says 'suite was due' judge $s success '1${TAB}look${TAB}success' && [ \$(hubmain) != $s ]"
 ( cd "$gt" && git clone -q hub.git other && cd other && echo '- [ ] 2026-01-03, p: a note' >> docs/backlog.md && git add -A && git commit -qm "docs: backlog note from p" && git push -q origin main ) >/dev/null 2>&1
 check "main that moved is not fast-forwarded, and the line says what joins them" "says 'main moved' judge $s success '$GREEN' && [ \$(hubmain) != $s ] && says 'the next run merges origin/main into cloud' cloudlog"
+check "attend: a commit main has moved past is refused, and says to merge" "says 'merge origin/main into cloud' attend $s '$GREEN' && [ \$(hubmain) != $s ]"
 synced; s=$( cd "$gt/work" && git fetch -q origin main && git merge -q --no-edit origin/main >/dev/null 2>&1 && git push -q origin HEAD:cloud && git rev-parse HEAD )
-check "after the run merged main into cloud, the same work is carried" "says 'carried .* to main' judge $s success '$GREEN' && [ \$(hubmain) = $s ]"
+check "after the run merged main into cloud, the same work waits, and an attended carry takes it" "says 'waits for an attended carry' judge $s success '$GREEN' && [ \$(hubmain) != $s ] && says 'carried .* to main' attend $s '$GREEN' && [ \$(hubmain) = $s ]"
 git -C "$gt/hub.git" tag v1.0.2 "$(git -C "$gt/hub.git" rev-parse 'main~2')" >/dev/null 2>&1
-s=$(pushed "printf '# .ai-backbone/core.just — recipes, version 1.0.2\n' > .ai-backbone/core.just" "feat: 1.0.2")
-check "a tag GitHub has elsewhere is left alone and main is carried on its own" "says 'carried .* to main; v1.0.2 was tagged before' judge $s success '$GREEN' && [ \$(hubmain) = $s ] && [ \"\$(hubtag v1.0.2)\" != $s ]"
+synced; s=$(pushed "printf '# .ai-backbone/core.just — recipes, version 1.0.2\n' > .ai-backbone/core.just" "feat: 1.0.2")
+check "a tag GitHub has elsewhere is left alone and main is carried on its own" "says 'carried .* to main; v1.0.2 was tagged before' attend $s '$GREEN' && [ \$(hubmain) = $s ] && [ \"\$(hubtag v1.0.2)\" != $s ]"
+synced; s=$(pushed "echo '# changed' >> .ai-backbone/gate.sh" "ci: the gate itself")
+inwork()   { env PATH="$gt/gh:$PATH" JUST_JUSTFILE="$root/Justfile" JUST_WORKING_DIRECTORY="$gt/work" "$@"; }
+check "just carry is the backbone's own: no project gets it" "grep -q '^carry ' '$root/Justfile' && ! grep -q '^carry ' '$root/.ai-backbone/core.just' '$root/.ai-backbone/seed/Justfile'"
+check "attend: a green change to gate.sh is carried too, and named" "says 'changes .github/workflows or gate.sh' judge $s success '$GREEN' && says 'carried .* to main.*; it changed the gate.s own files: \.ai-backbone/gate\.sh\$' attend $s '$GREEN' && [ \$(hubmain) = $s ]"
+synced; s=$(pushed "echo '# readme' > README.md" "feat: the backbone's own readme")
+check "just carry lists the code that waits and, when it is green, the commit to carry" "says 'waiting for the maintainer.s yes' inwork just carry && says \"  ${s:0:7} feat: the backbone's own readme\" inwork just carry && says '^Checks: ${s:0:7} is green.*-> just carry ${s:0:7}\$' inwork env FAKE_RUN='completed success' just carry"
+check "and just carry <commit> takes it to main with main's own gate.sh" "says 'carried ${s:0:7} to main' inwork env FAKE_RUN='77${TAB}completed${TAB}success' FAKE_JOBS='$GREEN' just carry $s && [ \$(hubmain) = $s ]"
+check "after which nothing waits"                       "says '^Nothing waits' inwork just carry"
 # spec 013, session-tools: what session-start says and what it remembers, the pin
 # tools-update moves, and the Go hooks-install fetches when prek cannot. In a
 # throwaway project of its own, so the checks around this block find the first

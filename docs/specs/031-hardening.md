@@ -10,7 +10,9 @@ checked against the code, and from what the same day's work showed. They are
 the maintainer's to choose; none is built before that. Written by one agent
 without subagents, on the maintainer's word, to spare the week's limit.
 Approved by the maintainer on 2026-10-15, all eight proposals; the building
-waits until the weekly limit resets (2026-10-19). Ordered by what each
+waited until the weekly limit reset (2026-10-19). On 2026-10-18 the
+maintainer lifted that wait (the weekly limit no longer applies; the project
+is built with several models) and building began. Ordered by what each
 protects.
 
 ## What
@@ -157,12 +159,12 @@ proposal 4 as decided above; proposals 2, 3, 5, 6, 7 and 8 built as written.
 
 ## Acceptance
 
-- [ ] A push to `cloud` that changes code is not carried by the gate on its
+- [x] A push to `cloud` that changes code is not carried by the gate on its
       own: the gate's line says it waits for an attended carry, and
       `just session-start` in the backbone names what waits.
-- [ ] A push that changes only docs, specs, the backlog or the log is still
+- [x] A push that changes only docs, specs, the backlog or the log is still
       carried on its own.
-- [ ] An attended carry takes a waiting commit to `main` with `main`'s own copy
+- [x] An attended carry takes a waiting commit to `main` with `main`'s own copy
       of the carry, only when all three machines were green for that commit,
       and tags it; it refuses anything else and says why.
 - [ ] `.claude/settings.json` no longer allows `git checkout -- .`, `just undo`
@@ -189,8 +191,10 @@ proposal 4 as decided above; proposals 2, 3, 5, 6, 7 and 8 built as written.
 
 ## Tasks
 
-- [ ] The gate waits for an attended carry when a push changes code; the
-      attended carry; the routine brief and `docs/` with it.
+- [x] The gate waits for an attended carry when a push changes code; the
+      attended carry; the routine brief and `docs/` with it (3.41.0;
+      `gate.sh attend`, `just carry`, checked against a bare repository in
+      the suite; the first real carry is the first push of this version).
 - [ ] The stable mark and the three recipes that read it; "ahead" when it goes
       back; the routine brief forbids it.
 - [ ] The permission list, after measuring how Claude Code matches each rule.

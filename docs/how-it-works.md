@@ -33,7 +33,8 @@ flowchart TD
     news -->|"every second run: the radar"| todo
     todo -->|"one item a day"| agent
     agent -->|"pushes to cloud"| gate
-    gate -->|"green: carried to main, tagged"| ver
+    gate -->|"green code: waits for your yes"| ask
+    you -->|"yes: just carry"| ver
     gate -->|"red: a line for the next run"| agent
     ver -->|"next session"| folder
     folder -->|"just template-update"| proj
@@ -57,9 +58,11 @@ spec number, no commit hash, no test name or log line from its CI, no list of it
 no set of its pins). A scheduled agent takes one item from that list every
 day, builds it, tests it and pushes it to the branch `cloud`. A gate on GitHub
 tests that push again on a clean Linux, a clean Mac and a clean Windows
-machine, and all three decide (Windows since spec 020). Green is
-carried to `main` and becomes a new version, tagged; red leaves one line that
-the next run reads first and fixes. Before the list, each run checks
+machine, and all three decide (Windows since spec 020). Green docs (a note, a
+log line, a spec) go to `main` on their own. Green code waits on `cloud` until
+an agent you are working with tells you what changed and why, and on your yes
+carries it with `just carry`; then it becomes a new version, tagged (spec
+031). Red leaves one line that the next run reads first and fixes. Before the list, each run checks
 the tools the backbone is built on: when one has a new release, the run moves
 to it, and the gate tests it on the three machines before it reaches `main`.
 Every second run the agent looks outward instead: the radar reads what the

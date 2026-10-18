@@ -1,9 +1,9 @@
 # Every push to cloud: the same checks a person runs before saving work, on the
 # three kinds of machine a project can live on (spec 017). All three decide
 # (Windows since spec 020; before it, report-only). What
-# passes is carried to main by promote.yml, which runs from main's own copy of
-# itself and of .ai-backbone/gate.sh, so nothing pushed here can change how it
-# is judged, only what is tested.
+# passes is judged by promote.yml, which runs from main's own copy of itself
+# and of .ai-backbone/gate.sh, so nothing pushed here can change how it is
+# judged, only what is tested; code then waits for an attended carry (spec 031).
 #
 # This file is the backbone's own gate; a project's starter is in
 # .ai-backbone/examples/ (just ci-init). Two of its lessons hold here too:

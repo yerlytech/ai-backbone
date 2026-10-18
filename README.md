@@ -182,4 +182,5 @@ squashed to one commit on 2026-09-24 when the repository went public. Every
 idea before it was built: [`docs/specs/`](docs/specs/).
 
 Found a gap? Open an issue. Inside the backbone, work travels on the `cloud`
-branch and the gate carries it to `main`. License: MIT.
+branch; the gate tests it, and code reaches `main` on the maintainer's yes
+(`just carry`). License: MIT.

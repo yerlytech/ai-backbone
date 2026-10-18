@@ -116,19 +116,22 @@ a half-started Docker Desktop, 2026-09-27.
    new recipe or file).
 5. `just save "..."`. The hook runs `just self-test`; red means not saved.
    Then `just publish`: it goes to `cloud`, and the gate on GitHub tests it on
-   a clean Linux, Mac and Windows, carries it to `main` when all three are
-   green (about twenty-five minutes, the Windows job's), and tags the version (`just ci` shows the run; a red gate
-   writes a `gate:` line into `docs/routine-log.md` on `cloud`). Then
+   a clean Linux, Mac and Windows (about twenty-five minutes, the Windows
+   job's; `just ci` shows the run; a red gate writes a `gate:` line into
+   `docs/routine-log.md` on `cloud`). Docs alone it carries to `main` itself.
+   Code waits there, green (spec 031): tell the maintainer in two plain
+   sentences what changed and why, and on their yes run `just carry` (it
+   lists what waits) and `just carry <commit>`, which takes it to `main` with
+   `main`'s own `gate.sh` and tags the version; a change to
+   `.github/workflows/` or `gate.sh` goes the same way. This is the one
+   question the loop asks: one word per release. Then
    `git checkout main`: what projects copy is `main`, and a sibling left on
-   `cloud` blocks every project's update. A change to `.github/workflows/`
-   or `gate.sh` is the one thing the gate refuses to carry: after green
-   checks, `git push origin cloud:main` by hand. Never try `just save` out in
+   `cloud` blocks every project's update. Never try `just save` out in
    a real repository to see what it does: it commits everything there under
    your test message. The self-test's throwaway projects are where a save is
    tried.
 6. Remove the backlog line: the CHANGELOG entry is its record (spec 024).
-   Back in the project, once the gate has carried the
-   version to `main` (a few minutes; `just session-start` there says so):
+   Back in the project, once the version is on `main` (a few minutes; `just session-start` there says so):
    `just template-update`, `just sync-rules`,
    `just save "chore: backbone <version>"`.
 7. Tell the maintainer in one sentence, in their language, what got better.

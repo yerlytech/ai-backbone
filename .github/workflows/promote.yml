@@ -4,10 +4,11 @@
 # judging is .ai-backbone/gate.sh, read from main too, and tried by
 # just self-test against a bare repository before any run exists.
 #
-# gate.sh moves main forward to the tested commit (never a merge on a runner),
-# tags the version on line 1 of core.just in the same atomic step, and when it
-# cannot carry, appends one `gate:` line to docs/routine-log.md on cloud, which
-# the next scheduled run reads first. The word that starts every git upload is
+# gate.sh moves main forward to the tested commit (never a merge on a runner)
+# when it changes only the routine's own files; since spec 031 a push with code
+# waits on cloud for an attended carry (just carry, which tags the version).
+# When it does not carry, it appends one `gate:` line to docs/routine-log.md on
+# cloud, which the next scheduled run reads first. The word that starts every git upload is
 # not written in this file outside comments: just ci-check keys any workflow
 # that says it on the commit, and a carry must be one queue of one.
 

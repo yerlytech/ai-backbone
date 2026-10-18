@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.40.0
+# .ai-backbone/core.just — the backbone's recipes, version 3.41.0
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -1142,6 +1142,7 @@ _session-start-body:
     if [ -n "$(just _is-backbone)" ] && git remote get-url origin >/dev/null 2>&1; then
       just _backbone-level "$PWD" GitHub
       just _backbone-tag "$PWD"
+      [ -n "${AI_BACKBONE_OFFLINE:-}" ] || just _gate-waits
     fi
     if [ -n "$(just _is-backbone)" ] && [ -f docs/backlog.md ]; then
       open=$(grep -c '^- \[ \]' docs/backlog.md || true)
@@ -2579,6 +2580,13 @@ template-check:
     else
       echo "Backbone: $behind file(s) behind -> just template-update"
     fi
+
+# One line when cloud holds code main does not have: it waits for an attended carry (spec 031)
+_gate-waits:
+    #!/usr/bin/env bash
+    [ -n "$(git rev-list -n1 origin/main..origin/cloud 2>/dev/null)" ] || exit 0
+    [ "$(bash .ai-backbone/gate.sh look origin/cloud 2>/dev/null | tail -1)" = suite ] || exit 0
+    echo "Gate: cloud holds code main does not have ($(git rev-list --no-merges --count origin/main..origin/cloud) commit(s)); it waits for an attended carry. Say what changed and why; on the maintainer's yes -> just carry"
 
 # Let this repo work on itself once a week, unattended: just routine-install
 [group('template')]
