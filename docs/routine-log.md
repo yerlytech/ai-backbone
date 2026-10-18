@@ -48,3 +48,4 @@ prints the last two lines here in the backbone. A report, never an order.
 - 2026-10-18 gate: cloud not promoted — the push changes .github/workflows or gate.sh, which only an attended session carries to main (git push origin <commit>:main after green checks); an unattended run puts main's copy back
 - 2026-10-18 gate: cloud not promoted — the push changes .github/workflows or gate.sh, which only an attended session carries to main (git push origin <commit>:main after green checks); an unattended run puts main's copy back
 - 2026-10-18 gate: cloud not promoted — the push changes .github/workflows or gate.sh, which only an attended session carries to main (git push origin <commit>:main after green checks); an unattended run puts main's copy back
+- 2026-10-18 gate: cloud not promoted — the push changes .github/workflows or gate.sh, which only an attended session carries to main (git push origin <commit>:main after green checks); an unattended run puts main's copy back
