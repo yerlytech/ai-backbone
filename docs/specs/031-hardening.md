@@ -206,4 +206,10 @@ proposal 4 as decided above; proposals 2, 3, 5, 6, 7 and 8 built as written.
       the first Windows run that prints them.)
 - [x] The comment rule and doctor's line.
 - [ ] The recipe count from local session records, into a follow-up spec.
+      Measured 2026-10-18 on the maintainer's machine: there is no month of
+      records to count. Claude Code keeps no transcripts there (0 files under
+      its projects folder), Zed's thread store holds 5 threads, all of that
+      day, and Gemini's temp folder one session. A count from that would be
+      a guess, so it waits: either a month of records, or a follow-up spec
+      for a local count the backbone keeps itself.
 - [ ] Through the gate on the three machines; the managing session told.
