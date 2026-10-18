@@ -12,12 +12,16 @@ The backbone owns only the files listed in the `[project]` section of
 
 1. Finish and save unrelated work first. Never update in the middle of something.
 2. `just template-check` says whether there is anything to pull and which
-   version is available.
+   version is available. Since 3.41.0 that is the version marked stable in
+   the backbone (its `STABLE` file), not every version: a project says
+   "behind" only below it, and "ahead" when it is past it, which is fine.
+   `just template-update newest` goes past the mark; do it only when the
+   maintainer or a backbone fix this project needs asks for it.
 3. `just template-update` copies the owned files. It looks for the backbone in
    `AI_BACKBONE`, then in a sibling `ai-backbone` folder up to three levels
    up, then clones it from GitHub. At the end it prints the CHANGELOG entries
    between the old and the new version, and says when one of them names
-   `AGENTS.md`.
+   `AGENTS.md`. It never moves a project down to an older version.
 4. Explain to the maintainer in one paragraph, in their language, what changed
    and why. Plain words.
 5. `just sync-rules` regenerates the rule copies and skill copies.

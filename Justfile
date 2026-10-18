@@ -27,6 +27,27 @@ self-test:
 projects:
     @bash .ai-backbone/projects.sh
 
+# Mark a version stable: projects hear "behind" only below it (spec 031) · just stable 3.41.0
+[positional-arguments]
+stable version:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    # The rule, from spec 031: green on the three machines, then one day of
+    # clean use in the pilot project; a security fix the same day. Only an
+    # attended session runs this; the routine brief forbids it. The mark is a
+    # file with a history, never a tag, and taking it back is one more run.
+    v="$1"
+    [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Say a version: just stable 3.41.0"; exit 1; }
+    git fetch -q origin +refs/heads/main:refs/remotes/origin/main --tags 2>/dev/null || { echo "GitHub could not be reached; nothing marked."; exit 1; }
+    c=$(git rev-parse -q --verify "refs/tags/v$v^{commit}" 2>/dev/null) || { echo "No tag v$v: only a version that reached main is marked."; exit 1; }
+    git merge-base --is-ancestor "$c" origin/main || { echo "v$v is not on main; nothing marked."; exit 1; }
+    printf '%s %s\n' "$v" "$c" > STABLE
+    echo "STABLE now says $v ($c). Save it, publish to cloud, and carry it (just carry): the gate never takes this file on its own."
+
+# The backbone's root holds its stable mark too
+_root-allow:
+    @echo STABLE
+
 # What code waits on cloud for a yes · just carry <commit> takes it to main
 [positional-arguments]
 carry commit="":

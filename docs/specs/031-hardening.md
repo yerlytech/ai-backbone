@@ -173,7 +173,7 @@ proposal 4 as decided above; proposals 2, 3, 5, 6, 7 and 8 built as written.
       still finishes; `docs/how-it-works.md` says what the list is and is not.
 - [x] `README.md` names no version, and the suite fails when it names one other
       than line 1 of `core.just`.
-- [ ] The stable mark: a project's `session-start` and `template-check` say
+- [x] The stable mark: a project's `session-start` and `template-check` say
       "behind" only below it and "ahead" above it; `template-update` goes to
       it unless asked for the newest; the gate never carries a change to it on
       its own, and the routine brief forbids touching it.
@@ -195,8 +195,11 @@ proposal 4 as decided above; proposals 2, 3, 5, 6, 7 and 8 built as written.
       attended carry; the routine brief and `docs/` with it (3.41.0;
       `gate.sh attend`, `just carry`, checked against a bare repository in
       the suite; the first real carry is the first push of this version).
-- [ ] The stable mark and the three recipes that read it; "ahead" when it goes
-      back; the routine brief forbids it.
+- [x] The stable mark and the three recipes that read it; "ahead" when it goes
+      back; the routine brief forbids it. (3.41.0: `STABLE` holds the
+      version and its commit, so a moved tag cannot move the mark; offline
+      it is not read, as `template-update` compares nothing with GitHub
+      there.)
 - [~] The permission list, after measuring how Claude Code matches each rule.
       Done in 3.41.0, from Claude Code's permissions page (read 2026-10-18,
       not measured: Claude Code is not installed on the machine this was

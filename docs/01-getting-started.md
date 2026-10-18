@@ -284,7 +284,12 @@ it: it is the bridge your projects' notes cross, and where `new-project`,
 the gate the moment it carries a green push to `main`; this machine keeps only
 a backstop for the days the gate is off. Your projects are never touched by
 the scheduled agent; they pick up a new version with `just template-update`
-when an agent working in them sees "behind".
+when an agent working in them sees "behind". "Behind" means behind the
+version marked stable (the backbone's `STABLE` file, spec 031), not behind
+every version: a version is marked after it was green on the three machines
+and used for a day in one pilot project, a security fix the same day. A
+project past the mark hears "ahead", never "broken", and is never moved
+down; `just template-update newest` goes past the mark when one is needed.
 
 The backbone's own scheduled agent is a Claude Code routine, once a day. It
 pushes to the branch `cloud`, never to `main`. Every push there is tested by

@@ -1143,6 +1143,43 @@ synced; s=$(pushed "echo '# readme' > README.md" "feat: the backbone's own readm
 check "just carry lists the code that waits and, when it is green, the commit to carry" "says 'waiting for the maintainer.s yes' inwork just carry && says \"  ${s:0:7} feat: the backbone's own readme\" inwork just carry && says '^Checks: ${s:0:7} is green.*-> just carry ${s:0:7}\$' inwork env FAKE_RUN='completed success' just carry"
 check "and just carry <commit> takes it to main with main's own gate.sh" "says 'carried ${s:0:7} to main' inwork env FAKE_RUN='77${TAB}completed${TAB}success' FAKE_JOBS='$GREEN' just carry $s && [ \$(hubmain) = $s ]"
 check "after which nothing waits"                       "says '^Nothing waits' inwork just carry"
+synced; s=$(pushed "echo '1.0.0 0000000' > STABLE" "chore: mark 1.0.0 stable")
+check "a push that moves the stable mark is never carried on its own" "says 'waits for an attended carry' judge $s success '$GREEN' && [ \$(hubmain) != $s ] && says 'it changes code \(STABLE\)' cloudlog"
+
+# spec 031: projects move on a stable version. A bare folder stands in for
+# GitHub with two tagged versions; bb is the backbone next to the project.
+section "the stable mark (spec 031)"
+sm="$tmp/stable"; mkdir -p "$sm/seed"
+( cd "$root" && git ls-files -z | xargs -0 tar -cf - 2>/dev/null ) | tar -xf - -C "$sm/seed" 2>/dev/null
+setv() { perl -0pi -e "s/version [0-9]+\\.[0-9]+\\.[0-9]+/version \$ENV{V}/" "$sm/seed/.ai-backbone/core.just"; }
+( cd "$sm" && git init -q --bare -b main hub.git && cd seed && git init -qb main && V=1.0.0 setv && git add -A && git commit -qm "chore: 1.0.0" --no-verify && git tag v1.0.0 \
+  && echo '<!-- 1.0.1 -->' >> .ai-backbone/templates/spec.md && V=1.0.1 setv && git commit -qam "feat: 1.0.1" --no-verify && git tag v1.0.1 \
+  && git remote add origin ../hub.git && git push -q origin main --tags && git push -q origin main:cloud && cd .. && git clone -q hub.git bb ) >/dev/null 2>&1
+( cd "$sm/bb" && git checkout -q v1.0.0 && just new-project "$sm/proj" && git checkout -q main ) >/dev/null 2>&1
+( cd "$sm/proj" && git add -A && git commit -qm "chore: start" --no-verify ) >/dev/null 2>&1
+smon()   { ( cd "$sm/proj" && env -u AI_BACKBONE_OFFLINE AI_BACKBONE="$sm/bb" "$@" ); }
+mark()   { ( cd "$sm/seed" && printf '%s %s\n' "$1" "$(git rev-parse "${2:-v$1}")" > STABLE && git add STABLE && git commit -qm "chore: stable $1" --no-verify && git push -q origin main ) >/dev/null 2>&1; }
+projv()  { sed -n '1s/.*version \([0-9][0-9.]*\).*/\1/p' "$sm/proj/.ai-backbone/core.just"; }
+check "with no mark, a project hears behind the newest, as before" "[ \"\$(projv)\" = 1.0.0 ] && says '^Backbone: 1\.0\.0 -> 1\.0\.1, [0-9]+ file\(s\) behind' smon just template-check"
+mark 1.0.0
+check "marked stable below the newest, it is up to date and says what is newer" "says '^Backbone: up to date \(1\.0\.0; 1\.0\.1 is newer, not marked stable yet\)' smon just template-check"
+check "and template-update goes to the mark, copying nothing newer" "says 'To 1\.0\.0, the version marked stable' smon just template-update && [ \"\$(projv)\" = 1.0.0 ] && ! grep -q '1.0.1 -->' '$sm/proj/.ai-backbone/templates/spec.md'"
+check "template-update newest goes past it"            "smon just template-update newest >/dev/null 2>&1; [ \"\$(projv)\" = 1.0.1 ] && grep -q '1.0.1 -->' '$sm/proj/.ai-backbone/templates/spec.md'"
+( cd "$sm/proj" && git add -A && git commit -qm "chore: backbone 1.0.1" --no-verify ) >/dev/null 2>&1
+check "a project past the mark is told it is ahead, never behind or broken" "says '^Backbone: 1\.0\.1, ahead of 1\.0\.0, the version marked stable' smon just template-check"
+check "and template-update never takes it back down"   "says 'Already past 1\.0\.0' smon just template-update && [ \"\$(projv)\" = 1.0.1 ]"
+mark 1.0.0 v1.0.1
+check "a mark whose commit does not carry its version is not read" "says '^Backbone: up to date \(1\.0\.1\)' smon just template-check"
+( cd "$sm/proj" && git reset -q --hard HEAD~1 ) >/dev/null 2>&1
+mark 1.0.1
+check "once the newest is marked, behind means behind it" "says '^Backbone: 1\.0\.0 -> 1\.0\.1, [0-9]+ file\(s\) behind' smon just template-check"
+( cd "$sm/seed" && echo '<!-- 1.0.2 -->' >> .ai-backbone/templates/adr.md && V=1.0.2 setv && git commit -qam "feat: 1.0.2" --no-verify && git tag v1.0.2 && git push -q origin main --tags ) >/dev/null 2>&1
+check "a project below the mark hears behind the mark, not the newest" "says '^Backbone: 1\.0\.0 -> 1\.0\.1 \(stable\), [0-9]+ file\(s\) behind' smon just template-check"
+check "and template-update takes it to the mark exactly" "smon just template-update >/dev/null 2>&1; [ \"\$(projv)\" = 1.0.1 ] && grep -q '1.0.1 -->' '$sm/proj/.ai-backbone/templates/spec.md' && ! grep -q '1.0.2 -->' '$sm/proj/.ai-backbone/templates/adr.md'"
+( cd "$sm/proj" && git checkout -q -- . && git clean -qfd ) >/dev/null 2>&1
+mark 1.0.0
+check "offline, no mark is read: behind the newest"     "says '^Backbone: 1\.0\.0 -> 1\.0\.2, ' smon env AI_BACKBONE_OFFLINE=1 just template-check"
+check "just stable writes the mark from the version's tag, and refuses one that never reached main" "( cd '$sm/bb' && git fetch -q origin && git checkout -q -B main origin/main ) >/dev/null 2>&1; says 'STABLE now says 1\.0\.1' env -u AI_BACKBONE_OFFLINE JUST_JUSTFILE='$root/Justfile' JUST_WORKING_DIRECTORY='$sm/bb' just stable 1.0.1 && [ \"\$(cat '$sm/bb/STABLE')\" = \"1.0.1 \$(git -C '$sm/bb' rev-parse v1.0.1)\" ] && says 'No tag v9\.9\.9' env -u AI_BACKBONE_OFFLINE JUST_JUSTFILE='$root/Justfile' JUST_WORKING_DIRECTORY='$sm/bb' just stable 9.9.9 && grep -q 'Never write .STABLE.' '$root/.ai-backbone/routine.md'"
 # spec 013, session-tools: what session-start says and what it remembers, the pin
 # tools-update moves, and the Go hooks-install fetches when prek cannot. In a
 # throwaway project of its own, so the checks around this block find the first

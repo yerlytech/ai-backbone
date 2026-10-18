@@ -2421,16 +2421,20 @@ stale:
 
 # ─────────────────────────── template ────────────────────────
 
-# Pull backbone updates from ai-backbone (only files it owns; yours are never touched)
+# Pull backbone updates from ai-backbone (only files it owns; yours are never touched) · just template-update newest: past the version marked stable
 [group('template')]
-template-update:
+[positional-arguments]
+template-update to="":
     #!/usr/bin/env bash
     set -euo pipefail
     if [ -n "$(just _is-backbone)" ]; then echo "This repo IS the backbone. Nothing to pull."; exit 0; fi
-    tmp=""
+    case "${1:-}" in ""|newest) ;; *) echo "Say nothing, or newest: just template-update newest"; exit 1 ;; esac
+    tmp=""; pinned=""
+    trap '[ -z "$pinned" ] || rm -rf "$pinned"' EXIT
     if ! src=$(just _backbone 2>/dev/null); then
       tmp=$(mktemp -d)
-      if ! git clone --depth 1 -q https://github.com/yerlytech/ai-backbone.git "$tmp/t" 2>/dev/null; then
+      # Whole, not shallow: the stable mark is checked against main's history.
+      if ! git clone -q https://github.com/yerlytech/ai-backbone.git "$tmp/t" 2>/dev/null; then
         rm -rf "$tmp"
         echo "Cannot reach the backbone. Point AI_BACKBONE at a local copy:"
         echo "  AI_BACKBONE=../ai-backbone just template-update"
@@ -2449,9 +2453,22 @@ template-update:
       fi
     fi
     [ -z "$tmp" ] && just _backbone-refresh "$src"
+    ver() { grep -m1 -oE 'version [0-9]+\.[0-9]+(\.[0-9]+)?' "$1" 2>/dev/null | awk '{print $2}'; }
+    # Spec 031: to the version marked stable, unless asked for the newest, and
+    # never down: a project past the mark is ahead, not broken.
+    st=""; [ "${1:-}" = newest ] || st=$(just _stable "$src")
+    newest=$(ver "$src/.ai-backbone/core.just")
+    if [ -n "$st" ] && [ "${st%% *}" != "$newest" ]; then
+      now=$(git show HEAD:.ai-backbone/core.just 2>/dev/null | sed -n '1s/.*version \([0-9][0-9.]*\).*/\1/p' || true)
+      [ -n "$now" ] || now=$(ver .ai-backbone/core.just || true)
+      if just _newer "$now" "${st%% *}"; then
+        echo "Already past ${st%% *}, the version marked stable: nothing copied. The newest ($newest): just template-update newest"; exit 0
+      fi
+      pinned=$(just _stable-tree "$src" "${st#* }"); src="$pinned"
+      echo "To ${st%% *}, the version marked stable ($newest is newer and not marked yet: just template-update newest)."
+    fi
     man="$src/.ai-backbone/manifest.txt"
     if [ ! -f "$man" ]; then echo "No .ai-backbone/manifest.txt in $src. Is that really the backbone?"; exit 1; fi
-    ver() { grep -m1 -oE 'version [0-9]+\.[0-9]+(\.[0-9]+)?' "$1" 2>/dev/null | awk '{print $2}'; }
     theirs=$(ver "$src/.ai-backbone/core.just")
     # The version this project is ON is the one in its last save, not the one on
     # disk. An update that was copied and never saved left four projects with
@@ -2572,18 +2589,58 @@ template-check:
     ver() { grep -m1 -oE 'version [0-9]+\.[0-9]+(\.[0-9]+)?' "$1" 2>/dev/null | awk '{print $2}'; }
     theirs=$(ver "$src/.ai-backbone/core.just")
     mine=$(ver .ai-backbone/core.just)
+    # Spec 031: "behind" only below the version marked stable, "ahead" above it.
+    note=""; st=$(just _stable "$src")
+    if [ -n "$st" ] && [ "${st%% *}" != "$theirs" ]; then
+      if just _newer "$mine" "${st%% *}"; then
+        echo "Backbone: $mine, ahead of ${st%% *}, the version marked stable (newest: $theirs). Nothing to do."; exit 0
+      fi
+      note="; $theirs is newer, not marked stable yet"
+      tree=$(just _stable-tree "$src" "${st#* }") && trap 'rm -rf "$tree"' EXIT && src="$tree" && theirs="${st%% *}"
+    fi
     behind=0
     while IFS=$'\t' read -r from to; do
       [ -f "$src/$from" ] || continue
       if [ ! -f "$to" ] || ! cmp -s "$src/$from" "$to"; then behind=$((behind+1)); fi
     done < <(just _manifest "$src/.ai-backbone/manifest.txt" project)
     if [ "$behind" -eq 0 ]; then
-      echo "Backbone: up to date (${theirs:-?})."
+      echo "Backbone: up to date (${theirs:-?}$note)."
     elif [ -n "$theirs" ] && [ "$mine" != "$theirs" ]; then
-      echo "Backbone: ${mine:-?} -> $theirs, $behind file(s) behind -> just template-update"
+      echo "Backbone: ${mine:-?} -> $theirs${note:+ (stable)}, $behind file(s) behind -> just template-update"
     else
       echo "Backbone: $behind file(s) behind -> just template-update"
     fi
+
+# The version marked stable (spec 031), as "version commit": the file STABLE on
+# GitHub's main in the backbone clone. Nothing offline, with no mark, or with a
+# mark whose commit is not on main or does not carry that version.
+[positional-arguments]
+_stable src:
+    #!/usr/bin/env bash
+    [ -z "${AI_BACKBONE_OFFLINE:-}" ] || exit 0
+    g() { MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' git -C "$1" "${@:2}"; }
+    read -r v c _ <<<"$(g "$1" show origin/main:STABLE 2>/dev/null | sed -n 1p)"
+    [[ "${v:-}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && [[ "${c:-}" =~ ^[0-9a-f]{7,40}$ ]] || exit 0
+    g "$1" cat-file -e "$c^{commit}" 2>/dev/null || g "$1" fetch -q origin "$c" 2>/dev/null || exit 0
+    g "$1" merge-base --is-ancestor "$c" origin/main 2>/dev/null || exit 0
+    [ "$(g "$1" show "$c:.ai-backbone/core.just" 2>/dev/null | sed -n '1s/.*version \([0-9][0-9.]*\).*/\1/p')" = "$v" ] || exit 0
+    echo "$v $(g "$1" rev-parse "$c^{commit}")"
+
+# The backbone's files at one commit, in a new temp folder whose path is printed
+[positional-arguments]
+_stable-tree src commit:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    d=$(mktemp -d)
+    git -C "$1" archive "$2" | tar -x -C "$d"
+    echo "$d"
+
+# Exit 0 when version $1 is newer than version $2
+[positional-arguments]
+_newer a b:
+    #!/usr/bin/env bash
+    [ -n "$1" ] && [ -n "$2" ] && [ "$1" != "$2" ] || exit 1
+    [ "$(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)" = "$1" ]
 
 # One line when cloud holds code main does not have: it waits for an attended carry (spec 031)
 _gate-waits:

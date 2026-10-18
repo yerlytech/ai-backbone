@@ -30,6 +30,18 @@ being tested, not green on all three machines, or built on an older `main`,
 and says which. The routine brief forbids a scheduled run to carry. A change
 to a workflow or `gate.sh` goes the same way instead of a hand push.
 
+**Projects move on a stable version** (spec 031). 107 versions came out in
+the month before, and every project heard "behind" after each. A one-line
+`STABLE` file at the top of the backbone now names the version projects move
+to, with its commit: `just template-check` (and so `just session-start`)
+says "behind" only below it and "ahead" above it; `just template-update`
+goes to it, never down, and to the newest only as `just template-update
+newest`. With no mark, offline, or with a mark whose commit is not on `main`
+or does not carry its version, nothing changes. In the backbone,
+`just stable <version>` writes the mark from the version's tag; the gate
+never carries it on its own and the routine brief forbids it. No version is
+marked yet: the first is marked after a day of use in the pilot project.
+
 Smaller items of the same spec:
 
 - The README named version 3.27.2 for fifteen days; it names none now, and
