@@ -1035,6 +1035,176 @@ def cargo_locked(lock, tomllib):
                    and "name" in p and "version" in p})
 
 
+class _Ambiguous(Exception):
+    """A dependency edge that could call a shipped crate test-only."""
+
+
+def _dep_crate(key, value, workspace_deps):
+    """The crate name a dependency names. A rename (`package`) and a
+    workspace spec are followed. Anything else is ambiguous."""
+    if isinstance(value, str):
+        return key
+    if not isinstance(value, dict):
+        raise _Ambiguous(key)
+    if value.get("workspace") is True:
+        spec = workspace_deps.get(key)
+        if not isinstance(spec, (str, dict)):
+            raise _Ambiguous(key)
+        if isinstance(value.get("package"), str):
+            return value["package"]
+        if isinstance(spec, dict) and isinstance(spec.get("package"), str):
+            return spec["package"]
+        return key
+    if isinstance(value.get("package"), str):
+        return value["package"]
+    if any(name in value for name in ("version", "path", "git")):
+        return key
+    raise _Ambiguous(key)
+
+
+def _prod_names(data, workspace_deps, into):
+    """Crate names from the tables a shipped build uses. Dev-dependencies
+    are how a test-only crate is named, so they are not read."""
+    for section in ("dependencies", "build-dependencies"):
+        block = data.get(section, {})
+        if not isinstance(block, dict):
+            raise _Ambiguous(section)
+        for key, value in block.items():
+            into.add(_dep_crate(key, value, workspace_deps))
+    targets = data.get("target", {})
+    if not isinstance(targets, dict):
+        raise _Ambiguous("target")
+    for spec in targets.values():
+        if not isinstance(spec, dict):
+            raise _Ambiguous("target")
+        for section in ("dependencies", "build-dependencies"):
+            block = spec.get(section, {})
+            if not isinstance(block, dict):
+                raise _Ambiguous(section)
+            for key, value in block.items():
+                into.add(_dep_crate(key, value, workspace_deps))
+
+
+def _member_dirs(root, data):
+    ws = data.get("workspace")
+    if not isinstance(ws, dict) or "members" not in ws:
+        return [root]
+    members, exclude = ws.get("members"), ws.get("exclude", [])
+    if not isinstance(members, list) or not isinstance(exclude, list):
+        raise _Ambiguous("members")
+    found = []
+    for pattern in members:
+        if not isinstance(pattern, str):
+            raise _Ambiguous("members")
+        paths = sorted(p for p in root.glob(pattern) if p.is_dir()) if any(c in pattern for c in "*?[") else [root / pattern]
+        if not paths:
+            raise _Ambiguous(pattern)
+        found.extend(paths)
+    skipped = set()
+    for pattern in exclude:
+        if not isinstance(pattern, str):
+            raise _Ambiguous("exclude")
+        paths = [p for p in root.glob(pattern) if p.is_dir()] if any(c in pattern for c in "*?[") else [root / pattern]
+        skipped.update(p.resolve() for p in paths)
+    dirs, seen = [], set()
+    if isinstance(data.get("package"), dict):
+        dirs.append(root)
+        seen.add(root)
+    for path in found:
+        path = path.resolve()
+        if path in skipped or path in seen:
+            continue
+        if not (path / "Cargo.toml").is_file():
+            raise _Ambiguous(str(path))
+        seen.add(path)
+        dirs.append(path)
+    return dirs
+
+
+def _resolve_dep(spec, by_name):
+    parts = str(spec).split()
+    if not parts:
+        raise _Ambiguous("empty")
+    cands = by_name.get(parts[0], [])
+    if len(parts) == 1:
+        if len(cands) != 1:
+            raise _Ambiguous(parts[0])
+        return cands[0]
+    version = parts[1]
+    source = parts[2][1:-1] if len(parts) >= 3 and parts[2].startswith("(") and parts[2].endswith(")") else None
+    matched = [p for p in cands if p["version"] == version and (source is None or p.get("source") == source)]
+    if len(matched) != 1:
+        raise _Ambiguous(spec)
+    return matched[0]
+
+
+def production_reached(lock):
+    """(name, version) of every locked crate a shipped build reaches, read
+    from the Cargo.toml files beside the lock. None when there is no manifest
+    or an edge is ambiguous: no label then, never a guess (spec 030, n-3140d5)."""
+    lock = Path(lock)
+    root = lock.parent.resolve()
+    manifest = root / "Cargo.toml"
+    if not manifest.is_file():
+        return None
+    try:
+        import tomllib
+    except ModuleNotFoundError:
+        return None
+    try:
+        data = tomllib.loads(manifest.read_text())
+        ws = data.get("workspace")
+        workspace_deps = ws.get("dependencies", {}) if isinstance(ws, dict) else {}
+        if not isinstance(workspace_deps, dict):
+            return None
+        names = set()
+        for member in _member_dirs(root, data):
+            member_data = data if member == root else tomllib.loads((member / "Cargo.toml").read_text())
+            _prod_names(member_data, workspace_deps, names)
+        locked = tomllib.loads(lock.read_text())
+    except (OSError, ValueError, _Ambiguous):
+        return None
+    by_name = {}
+    for pkg in locked.get("package", []):
+        if not isinstance(pkg, dict) or not isinstance(pkg.get("name"), str) or not isinstance(pkg.get("version"), str):
+            return None
+        deps = pkg.get("dependencies", [])
+        if not isinstance(deps, list) or not all(isinstance(item, str) for item in deps):
+            return None
+        row = {"name": pkg["name"], "version": pkg["version"], "source": str(pkg.get("source", "")), "deps": deps}
+        by_name.setdefault(pkg["name"], []).append(row)
+    seen = set()
+    wave = []
+    for rows in by_name.values():
+        for row in rows:
+            if row["name"] in names:
+                seen.add((row["name"], row["version"]))
+                wave.append(row)
+    try:
+        while wave:
+            pkg = wave.pop()
+            for spec in pkg["deps"]:
+                nxt = _resolve_dep(spec, by_name)
+                key = (nxt["name"], nxt["version"])
+                if key in seen:
+                    continue
+                seen.add(key)
+                wave.append(nxt)
+    except _Ambiguous:
+        return None
+    return seen
+
+
+def test_only_note(lock, name, ver, cache):
+    """The label, or nothing. Never silences the finding."""
+    if lock not in cache:
+        cache[lock] = production_reached(lock)
+    reached = cache[lock]
+    if reached is None or (name, ver) in reached:
+        return ""
+    return " (only tests, by Cargo.toml)"
+
+
 def adv_check(lock, db, tomllib):
     """Vulnerabilities and notices for one Cargo.lock, and how many crates."""
     crates = cargo_locked(lock, tomllib)
@@ -1159,7 +1329,7 @@ def advisories(mode, locks):
             rows, loose = triage_read(TRIAGE, tomllib, today)
         except (OSError, ValueError) as err:
             lines.append(("warn", f"{TRIAGE} could not be read, so nothing in it counts: {one_line(err)}"))
-    seen, unread = set(), False
+    seen, unread, usage = set(), False, {}
     for lock in locks:
         try:
             crates, found, notices = adv_check(lock, db, tomllib)
@@ -1170,15 +1340,16 @@ def advisories(mode, locks):
         triaged = 0
         for name, ver, adv in found:
             seen.add(adv["id"])
+            note = test_only_note(lock, name, ver, usage)
             state, why = adv_judge(name, adv, rows, today)
             if state == "triaged":
                 triaged += 1
-                lines.append(("info", f"{lock}: {name} {ver} has {adv['id']}, {why}: {rows[adv['id']]['why']}"))
+                lines.append(("info", f"{lock}: {name} {ver}{note} has {adv['id']}, {why}: {rows[adv['id']]['why']}"))
                 continue
             said = {"untriaged": "", "expired": f"; {why}, which has passed",
                     "changed": f"; {why}, and RustSec's fixed versions have moved",
                     "invalid": f"; its row in {TRIAGE} does not count: {why}"}[state]
-            lines.append(("warn", (f"{lock}: {name} {ver} has {adv['id']}, {adv['title']} -> {adv_fix(adv['patched'])}"
+            lines.append(("warn", (f"{lock}: {name} {ver}{note} has {adv['id']}, {adv['title']} -> {adv_fix(adv['patched'])}"
                                    f"{said} (https://rustsec.org/advisories/{adv['id']})")))
         if len(found) == triaged:
             beyond = f" beyond the {triaged} triaged in {TRIAGE}" if triaged else ""
@@ -1249,7 +1420,7 @@ def advisories_gate(args):
     if db is None:
         print(f"error no RustSec database to read: {note}")
         return 2
-    worst = 0
+    worst, usage = 0, {}
     for lock in locks:
         try:
             crates, found, _ = adv_check(lock, db, tomllib)
@@ -1259,7 +1430,8 @@ def advisories_gate(args):
             continue
         for name, ver, adv in found:
             state, why = adv_judge(name, adv, rows, today)
-            print(f"{state} {lock}: {name} {ver} {adv['id']} -> {adv_fix(adv['patched'])}" + (f" ({why})" if why else ""))
+            note = test_only_note(lock, name, ver, usage)
+            print(f"{state} {lock}: {name} {ver}{note} {adv['id']} -> {adv_fix(adv['patched'])}" + (f" ({why})" if why else ""))
             if state != "triaged":
                 worst = max(worst, 1)
         if not found:

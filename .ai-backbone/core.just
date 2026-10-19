@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.41.2
+# .ai-backbone/core.just — the backbone's recipes, version 3.44.0
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -442,6 +442,37 @@ doctor:
     # The names go without their ~/: Git Bash turns an argument that starts
     # with ~ into the whole path of the home folder on its way from just.
     if [ -n "$rcs" ]; then echo "  warn  $(just _doctor-msg completion-block "$rcs")"; echo; fi
+    # Docker's credsStore (spec 033): a helper that does not answer within a
+    # few seconds is a keychain dialog nobody sees. buildx then fails a push
+    # and does not say why. The helper's own words are never printed.
+    dcfg="${DOCKER_CONFIG:-$HOME/.docker}/config.json"
+    if [ -f "$dcfg" ]; then
+      store=$(sed -n 's/.*"credsStore"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$dcfg" | head -1)
+      if [ -n "$store" ]; then
+        helper="docker-credential-$store"
+        if ! command -v "$helper" >/dev/null 2>&1; then
+          echo "  warn  Docker names credsStore $store and $helper is not on PATH. A push then waits and fails without saying the helper is missing."
+        else
+          dout=$(mktemp)
+          printf '\n' | "$helper" list >"$dout" 2>/dev/null &
+          dpid=$!
+          di=0
+          while [ "$di" -lt 3 ]; do
+            kill -0 "$dpid" 2>/dev/null || break
+            sleep 1
+            di=$((di + 1))
+          done
+          if kill -0 "$dpid" 2>/dev/null; then
+            kill -TERM "$dpid" 2>/dev/null || true
+            wait "$dpid" 2>/dev/null || true
+            echo "  warn  Docker's credential helper $helper did not answer within 3 seconds. The keychain may be waiting on a dialog nobody sees; a push then fails with DeadlineExceeded and does not say why."
+          else
+            wait "$dpid" 2>/dev/null || true
+          fi
+          rm -f "$dout"
+        fi
+      fi
+    fi
     # What the project's own language needs on this machine. The backbone cannot
     # know it, and until it asked, a Mac with no Flutter on it read "Everything
     # needed is installed" and then failed every save that touched code, in the
@@ -803,21 +834,9 @@ sync-rules:
     }
     gen copilot .github/copilot-instructions.md
     gen junie   .junie/guidelines.md
-    # Skills live in .agents/skills/ (Codex and Gemini CLI read that folder).
-    # Claude Code reads .claude/skills/, so each skill gets a copy there. A copy,
-    # not a link: Git for Windows checks a link out as a small text file naming
-    # its target, and Claude Code saw no skills at all there (spec 020). The rm
-    # comes first, so an older link is replaced and never copied through.
-    if has claude && [ -d .agents/skills ]; then
-      mkdir -p .claude/skills
-      for d in .agents/skills/*/; do
-        [ -d "$d" ] || continue
-        n=$(basename "$d")
-        rm -rf ".claude/skills/$n"
-        cp -R ".agents/skills/$n" ".claude/skills/$n"
-        echo "  copied .claude/skills/$n"
-      done
-    fi
+    # Skill copies: .agents/skills/ is the source. Claude Code reads
+    # .claude/skills/, so each skill is copied there (spec 020, spec 033).
+    just _sync-skill-copies apply
     echo "Rule copies regenerated from AGENTS.md (tools: $tools)."
     while read -r sd sn; do
       if [ -n "$sd" ]; then echo "  warn  .agents/skills/$sd says name: $sn in its SKILL.md; make the folder and the name the same, or it may not be found by its name"; fi
@@ -1047,7 +1066,9 @@ _session-start-body:
     # when no spec is open, and in a project that has none. A done spec is named
     # too while a box of its Acceptance list is still "- [ ]": nothing else says
     # whether that list was walked before the status changed (spec 026). A line
-    # walked and not yet true is "- [~]" with its reason, and is not named.
+    # walked and not yet true is "- [~]" with its reason. A done spec still
+    # names those lines, as waiting for the owner (spec 033): quiet here hid
+    # them from the next session.
     # A spec with "night: yes" in its front matter is a night spec (spec skill),
     # and its line says so: the session that opens it next knows it runs alone.
     if ls docs/specs/*.md >/dev/null 2>&1; then
@@ -1055,6 +1076,8 @@ _session-start-body:
         function flush() {
           if (status == "done" && accopen > 0)
             print "Spec " name " (done): " accopen " acceptance line" (accopen == 1 ? "" : "s") " not ticked. Tick each one checked, or mark it - [~] and say why (spec skill)"
+          if (status == "done" && accwait > 0)
+            print "Spec " name " (done): " accwait " acceptance line" (accwait == 1 ? "" : "s") " waiting for the owner. Next: " accwhy
           if (status != "draft" && status != "approved") return
           line = "Spec " name " (" status (night ? ", night spec" : "") (status == "draft" ? ", no code until approved" : "") "): "
           if (total == 0)         line = line "no tasks written yet"
@@ -1063,13 +1086,14 @@ _session-start-body:
           print line
         }
         FNR == 1 { flush(); name = FILENAME; sub(/.*\//, "", name); sub(/\.md$/, "", name)
-                   status = ""; night = 0; fence = 0; tasks = 0; total = 0; ticked = 0; todo = ""; todo_at = 0; acc = 0; accopen = 0 }
+                   status = ""; night = 0; fence = 0; tasks = 0; total = 0; ticked = 0; todo = ""; todo_at = 0; acc = 0; accopen = 0; accwait = 0; accwhy = "" }
         { sub(/\r$/, "") }
         /^---[ \t]*$/ { if (FNR == 1 || fence > 0) fence++; next }
         fence == 1 && /^status:/ { status = $2; next }
         fence == 1 && /^night:/ { night = ($2 == "yes" || $2 == "true"); next }
         /^## / { tasks = ($0 ~ /^## +Tasks/); acc = ($0 ~ /^## +Acceptance/); next }
         acc && /^- \[ \]/ { accopen++; next }
+        acc && /^- \[~\]/ { accwait++; if (accwhy == "") accwhy = substr($0, 7); next }
         tasks && /^- \[.\]/ {
           total++
           if ($0 ~ /^- \[[xX]\]/) ticked++
@@ -3763,7 +3787,11 @@ _build-wait:
             n=$((n + 1)) ;;
           *)
             [ $((now - w)) -lt "$limit" ] || continue
-            if [ $((now - w)) -lt 30 ]; then n=$((n + 1)); else m=$((m + 1)); fi ;;
+            # A docker build inside a VM does not show in ps, so "no compiler"
+            # used to drop the turn after half a minute (spec 033).
+            # BUILD_WAIT_HOLD=whole holds until the holder ends, still inside
+            # the limit.
+            if [ "${BUILD_WAIT_HOLD:-}" = whole ] || [ $((now - w)) -lt 30 ]; then n=$((n + 1)); else m=$((m + 1)); fi ;;
         esac
       done
       echo "$n $m"
@@ -4019,13 +4047,30 @@ _rust-projects:
       if [ -n "$bb" ]; then base=$(dirname "$bb"); else base=$(cd .. && pwd -P); fi
     fi
     seen=" "
-    for d in "$(pwd -P)/" "$base"/*/ "$base"/*/*/; do
-      d="${d%/}"; [ -f "$d/.ai-backbone/core.just" ] && [ -f "$d/stack.just" ] || continue
-      grep -q '^_build-info' "$d/stack.just" && grep -q 'cargo' "$d/stack.just" || continue
+    consider() {
+      local d="$1"
+      d="${d%/}"; [ -f "$d/.ai-backbone/core.just" ] && [ -f "$d/stack.just" ] || return 0
+      grep -q '^_build-info' "$d/stack.just" && grep -q 'cargo' "$d/stack.just" || return 0
       d=$(cd "$d" && pwd -P)
-      case "$seen" in *" $d "*) continue ;; esac; seen="$seen$d "
+      case "$seen" in *" $d "*) return 0 ;; esac; seen="$seen$d "
       echo "$d"
-    done
+    }
+    for d in "$(pwd -P)/" "$base"/*/ "$base"/*/*/; do consider "$d"; done
+    # Extra roots (spec 033). The suite sets AI_BACKBONE_PROJECTS and does not
+    # read the real brain/ list; a test that wants roots sets
+    # AI_BACKBONE_PROJECT_ROOTS. A real run reads the backbone's private list.
+    roots_file=""
+    if [ -n "${AI_BACKBONE_PROJECT_ROOTS:-}" ]; then roots_file="$AI_BACKBONE_PROJECT_ROOTS"
+    elif [ -z "${AI_BACKBONE_PROJECTS:-}" ] && [ -n "${bb:-}" ]; then roots_file="$bb/brain/project-roots.txt"; fi
+    if [ -n "$roots_file" ] && [ -f "$roots_file" ]; then
+      while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in ""|\#*) continue ;; esac
+        [ -d "$line" ] || continue
+        line=$(cd "$line" && pwd -P)
+        consider "$line"
+        for d in "$line"/*/ "$line"/*/*/; do consider "$d"; done
+      done < "$roots_file"
+    fi
     exit 0
 
 # Print a folder's size as kilobytes and in words ("12345678 12 GB"), "timeout"
@@ -4566,13 +4611,34 @@ _sibling-names src:
     #!/usr/bin/env bash
     src=$(cd "$1" 2>/dev/null && pwd -P) || exit 0
     base=$(dirname "$src")
+    {
     for d in "$base"/*/ "$base"/*/*/; do
       d="${d%/}"; [ -f "$d/.ai-backbone/core.just" ] || continue
       d=$(cd "$d" && pwd -P); [ "$d" = "$src" ] && continue
       [ -f "$d/.ai-backbone/manifest.txt" ] && [ -f "$d/.ai-backbone/routine.md" ] && continue
       basename "$d"
       grep -m1 -E '^\| *project *\|' "$d/AGENTS.md" 2>/dev/null | awk -F'|' '{print $3}' | sed 's/^ *//;s/ *$//'
-    done | grep -v '^$' | grep -ivx -e ai-backbone -e "$(basename "$src")" | LC_ALL=C sort -u   # one order on every machine: a Mac sorts by its locale
+    done
+    # Extra roots stay on this machine (spec 033): brain/project-roots.txt,
+    # one folder a line. The suite points AI_BACKBONE_PROJECT_ROOTS at a
+    # fixture and does not read the real list.
+    roots="${AI_BACKBONE_PROJECT_ROOTS:-$src/brain/project-roots.txt}"
+    if [ -f "$roots" ]; then
+      while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in ""|\#*) continue ;; esac
+        line="${line#"${line%%[![:space:]]*}"}"; line="${line%"${line##*[![:space:]]}"}"
+        [ -d "$line" ] || continue
+        line=$(cd "$line" && pwd -P)
+        for d in "$line" "$line"/*/ "$line"/*/*/; do
+          d="${d%/}"; [ -f "$d/.ai-backbone/core.just" ] || continue
+          d=$(cd "$d" && pwd -P); [ "$d" = "$src" ] && continue
+          [ -f "$d/.ai-backbone/manifest.txt" ] && [ -f "$d/.ai-backbone/routine.md" ] && continue
+          basename "$d"
+          grep -m1 -E '^\| *project *\|' "$d/AGENTS.md" 2>/dev/null | awk -F'|' '{print $3}' | sed 's/^ *//;s/ *$//'
+        done
+      done < "$roots"
+    fi
+    } | grep -v '^$' | grep -ivx -e ai-backbone -e "$(basename "$src")" | LC_ALL=C sort -u   # one order on every machine: a Mac sorts by its locale
     # A clone that keeps a private list (brain/ is never committed) names what
     # it wants kept out too: a clone elsewhere on the machine has no projects
     # next to it, and the runners and the sandboxes have none at all.
@@ -4724,6 +4790,112 @@ _py:
 _tools:
     @{ grep -E '^\| *tools *\|' AGENTS.md 2>/dev/null | awk -F'|' '{print $3}' | tr -d ' `'; } | grep . || echo all
 
+# A stable hash of one skill folder. Same bytes on every machine: relative
+# paths with forward slashes, file contents, no timestamps (spec 033).
+[positional-arguments]
+_skill-sum dir:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # cksum of "relative-path bytes", paths sorted, so Linux, macOS and
+    # Windows (Git Bash) hash the same tree the same way.
+    ( cd "$1" && find . -type f | sort | while IFS= read -r f; do
+        printf '%s ' "${f#./}"
+        cksum "$f"
+      done ) | cksum | awk '{print $1}'
+
+# Claude's skill copies, and the record of which ones this recipe wrote
+# (.claude/skills/.ai-backbone-owned: "name hash" per line). A copy whose
+# source is gone is removed only when it still matches that hash. A copy
+# someone edited, or one this recipe never recorded, is named and left.
+# Links are replaced: Git for Windows checks a link out as a text file (spec 020).
+# mode=check prints what apply would change and exits 1 when a sync is due;
+# a kept copy is named and is not a failure, because sync will not overwrite it.
+[positional-arguments]
+_sync-skill-copies mode="apply":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mode="${1:-apply}"
+    own=".claude/skills/.ai-backbone-owned"
+    tools=$(just _tools)
+    case ",$tools," in *,all,*|*,claude,*) on=1 ;; *) on=0 ;; esac
+    sum() { just _skill-sum "$1"; }
+    owned() { if [ -f "$own" ]; then awk -v n="$1" '$1==n {print $2; exit}' "$own"; fi; return 0; }
+    bad=0
+    new=$(mktemp)
+    remember() { printf '%s %s\n' "$1" "$2" >> "$new"; }
+    sources=" "
+    if [ -d .agents/skills ]; then
+      for d in .agents/skills/*/; do
+        [ -d "$d" ] || continue
+        sources="$sources$(basename "$d") "
+      done
+    fi
+    is_src() { case "$sources" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+    # One source skill: copy it, or keep a copy we did not write.
+    one() {
+      local n="$1" src=".agents/skills/$1" dest=".claude/skills/$1" prev cur
+      if [ -L "$dest" ] || [ -f "$dest" ]; then
+        if [ "$mode" = check ]; then echo ".claude/skills/$n is out of date. Run just sync-rules, then stage the result."; bad=1; return; fi
+        rm -rf "$dest"
+      fi
+      if [ ! -d "$dest" ]; then
+        if [ "$mode" = check ]; then echo ".claude/skills/$n is out of date. Run just sync-rules, then stage the result."; bad=1; return; fi
+        mkdir -p .claude/skills
+        cp -R "$src" "$dest"
+        remember "$n" "$(sum "$dest")"
+        echo "  copied .claude/skills/$n"
+        return
+      fi
+      if diff -rq "$src" "$dest" >/dev/null 2>&1; then
+        remember "$n" "$(sum "$dest")"
+        return
+      fi
+      prev=$(owned "$n")
+      cur=$(sum "$dest")
+      if [ -n "$prev" ] && [ "$cur" = "$prev" ]; then
+        if [ "$mode" = check ]; then echo ".claude/skills/$n is out of date. Run just sync-rules, then stage the result."; bad=1; return; fi
+        rm -rf "$dest"
+        cp -R "$src" "$dest"
+        remember "$n" "$(sum "$dest")"
+        echo "  copied .claude/skills/$n"
+        return
+      fi
+      if [ -n "$prev" ]; then echo "  kept .claude/skills/$n (edited since it was generated)"; remember "$n" "$prev"
+      else echo "  kept .claude/skills/$n (not a recorded generated copy)"; fi
+    }
+    if [ "$on" = 1 ]; then
+      mkdir -p .claude/skills
+      for d in .agents/skills/*/; do
+        [ -d "$d" ] || continue
+        one "$(basename "$d")"
+      done
+    fi
+    if [ -d .claude/skills ]; then
+      for d in .claude/skills/*/; do
+        [ -d "$d" ] || continue
+        n=$(basename "$d")
+        if [ "$on" = 1 ] && is_src "$n"; then continue; fi
+        prev=$(owned "$n")
+        cur=$(sum "$d")
+        if [ -n "$prev" ] && [ "$cur" = "$prev" ]; then
+          if [ "$mode" = check ]; then echo ".claude/skills/$n is a generated copy whose source is gone. Run just sync-rules, then stage the result."; bad=1; continue; fi
+          rm -rf "$d"
+          echo "  removed .claude/skills/$n"
+        elif [ -n "$prev" ]; then
+          echo "  kept .claude/skills/$n (edited since it was generated)"
+          remember "$n" "$prev"
+        else
+          echo "  kept .claude/skills/$n (not a recorded generated copy)"
+        fi
+      done
+    fi
+    if [ "$mode" = apply ]; then
+      mkdir -p .claude/skills
+      sort -k1,1 -u "$new" > "$own"
+    fi
+    rm -f "$new"
+    [ "$mode" = check ] && exit "$bad" || true
+
 # Exit 1 with a message when a rule copy or skill copy is out of date (used by the pre-commit hook)
 _rules-check:
     #!/usr/bin/env bash
@@ -4738,13 +4910,7 @@ _rules-check:
         fi
       fi
     done
-    if has claude; then
-      for d in .agents/skills/*/; do
-        [ -d "$d" ] || continue; n=$(basename "$d")
-        { [ -d ".claude/skills/$n" ] && [ ! -L ".claude/skills/$n" ] && diff -r "$d" ".claude/skills/$n" >/dev/null 2>&1; } \
-          || { echo ".claude/skills/$n is out of date. Run just sync-rules, then stage the result."; bad=1; }
-      done
-    fi
+    if ! just _sync-skill-copies check; then bad=1; fi
     exit $bad
 
 # A limit accepted on purpose, so that a close reading does not report it as a

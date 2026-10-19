@@ -13,6 +13,74 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## 3.44.0 — 2026-10-19
+
+**A Flutter device test names its emulator, and stops when it goes quiet.**
+`just test-device <avd>` picks a running emulator by the name `adb` reports
+for it, or by its port. It does not take the first line of `adb devices`.
+A run that writes nothing for three minutes is stopped and the log is kept.
+A machine over the load or under the free-memory limit is told it is busy,
+and the test does not start. `just emulator-plist` writes the launchd agent
+(one shot, interactive, with the Android and Java paths). It does not start
+the emulator, and it does not call launchd: that still needs a Mac.
+
+Nothing to do in a project; `just template-update` brings the example.
+`just stack flutter` in a project copies it when you next ask.
+
+## 3.43.0 — 2026-10-19
+
+**An advisory in a test-only crate is labelled, and still reported.**
+`upstream.py` reads the workspace's Cargo.toml files and Cargo.lock's own
+dependency lists. A crate that a shipped build never reaches is marked
+`(only tests, by Cargo.toml)`. The warning stays. A rename, a workspace
+dependency and a target-specific dependency count as shipped. An edge the
+reader does not understand gets no label.
+
+Nothing to do in a project; `just template-update` brings it.
+
+## 3.42.0 — 2026-10-19
+
+**A build can hold its turn until it ends, and a stuck Docker helper is said.**
+`BUILD_WAIT_HOLD=whole` keeps a queue ticket until the holder exits, for a
+build that does not show up as a compiler (a docker build inside a VM was
+dropped after half a minute). `just doctor` asks a Docker `credsStore` helper
+to answer within three seconds and never prints what it says. A helper that
+is missing, or that does not answer, is a warning.
+
+**A done spec's waiting lines show up at session start.** An acceptance line
+marked `[~]` was quiet, so the next session did not see it. It is now named
+as waiting for the owner.
+
+**`just release` puts the layer's version in the release commit.** Where
+`stack.just` has `_set-version`, that version, the changelog section and the
+annotated tag are the same commit. A check that refuses the commit still
+leaves no tag.
+
+**Projects can sit outside the folders next to the backbone.**
+`brain/project-roots.txt`, one path a line, adds those folders to
+`just projects` and to the names a backbone commit may not use. A missing
+path is reported. The same folder is listed once.
+
+The suite's git-tag fallback no longer reads this machine's own gitconfig.
+A cloud agent rewrites `https://github.com/` to a token URL, and that rewrite
+was winning over the fixture's file URL, so the fallback read as unreachable.
+
+Nothing to do in a project; `just template-update` brings it.
+
+## 3.41.3 — 2026-10-19
+
+**Skill copies follow their source.** `just sync-rules` used to leave a
+Claude copy behind after the skill was removed or renamed, and the rules
+check never looked at that extra folder. It now records the copies it
+writes. A later sync removes one only when it still matches that record.
+A copy someone edited, or one the backbone never recorded, is named and
+left in place, and `.claude/settings.json` is not touched. Taking `claude`
+out of the tools row removes the recorded copies the same way. A new
+project tracks one more file, that record.
+
+Nothing to do in a project; `just template-update` brings it, then
+`just sync-rules`.
+
 ## 3.41.2 — 2026-10-19
 
 **The build wait names the other build before it gives up.** With a short

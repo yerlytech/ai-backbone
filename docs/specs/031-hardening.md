@@ -167,27 +167,40 @@ proposal 4 as decided above; proposals 2, 3, 5, 6, 7 and 8 built as written.
 - [x] An attended carry takes a waiting commit to `main` with `main`'s own copy
       of the carry, only when all three machines were green for that commit,
       and tags it; it refuses anything else and says why.
-- [ ] `.claude/settings.json` no longer allows `git checkout -- .`, `just undo`
+- [~] `.claude/settings.json` no longer allows `git checkout -- .`, `just undo`
       goes through Claude Code's own prompt, and `rm -r -f` and `rm -fr` are
       denied, each rule measured on the pinned Claude Code; a scheduled run
       still finishes; `docs/how-it-works.md` says what the list is and is not.
+      Holds without measurement: `git checkout -- .` is absent from allow;
+      `rm -rf` / `rm -fr` / `rm -r -f` / `rm -f -r` are denied; how-it-works
+      states the boundary. Open: `just undo` behind an `ask` rule (allow still
+      has `Bash(just:*)`), and measurement on the pinned Claude Code (not
+      installed on the machine that built and verified this, 2026-10-19).
 - [x] `README.md` names no version, and the suite fails when it names one other
       than line 1 of `core.just`.
 - [x] The stable mark: a project's `session-start` and `template-check` say
       "behind" only below it and "ahead" above it; `template-update` goes to
       it unless asked for the newest; the gate never carries a change to it on
       its own, and the routine brief forbids touching it.
-- [ ] A count of the recipes this machine's projects ran in the last month,
+- [~] A count of the recipes this machine's projects ran in the last month,
       from local session records only, written into a follow-up spec; no
-      recipe is removed in this one.
+      recipe is removed in this one. Measured 2026-10-18: no month of records
+      (Claude transcripts 0, Zed 5 threads that day). Count deferred; no recipe
+      removed. Follow-up stays outside this acceptance until records exist.
 - [x] The comment rule is in the backbone-dev skill, and `just doctor` in the
       backbone says the share of comment lines in `core.just`.
-- [ ] The suite says how long each section took; the slowest sections on
+- [~] The suite says how long each section took; the slowest sections on
       Windows are named and the worst is cut, measured before and after; the
       backbone-dev skill says a printed path is text, never a `Path`.
+      Holds: section timings print; path-as-text is in backbone-dev; Windows
+      run 39091792611 named slowest "the budget" 203s (1497s total). Open: cut
+      that section and re-measure (033 defers structural simplification).
 - [x] The agent-cap refusal and the audit skill say that a mode the person
       turned on is not a yes to a count.
-- [ ] Green on the three machines, released, and the managing session told.
+- [x] Green on the three machines, released, and the managing session told.
+      3.41.0 (`d28b98b`) and 3.41.2 (`0da7504`) carried to `main` with tags
+      after green checks; the managing session told via `just project-note` on
+      2026-10-19.
 
 ## Tasks
 
@@ -221,11 +234,13 @@ proposal 4 as decided above; proposals 2, 3, 5, 6, 7 and 8 built as written.
       "build output" and "the backlog of 2026-10-06" 128s each, "checks on
       every push" 124s. Linux 4m45s, macOS 12m. The cut is still to do.)
 - [x] The comment rule and doctor's line.
-- [ ] The recipe count from local session records, into a follow-up spec.
+- [~] The recipe count from local session records, into a follow-up spec.
       Measured 2026-10-18 on the maintainer's machine: there is no month of
       records to count. Claude Code keeps no transcripts there (0 files under
       its projects folder), Zed's thread store holds 5 threads, all of that
       day, and Gemini's temp folder one session. A count from that would be
       a guess, so it waits: either a month of records, or a follow-up spec
-      for a local count the backbone keeps itself.
-- [ ] Through the gate on the three machines; the managing session told.
+      for a local count the backbone keeps itself. Acceptance marked the same.
+- [x] Through the gate on the three machines; the managing session told.
+      Attended carries of 3.41.0 and 3.41.2; project-note to the managing
+      session 2026-10-19.

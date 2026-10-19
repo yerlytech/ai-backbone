@@ -38,6 +38,8 @@ Anything bigger than a small fix gets a spec first. One file, one page, English.
    so the file itself says the list was walked; `just session-start` names a
    done spec with a box still open. A line that cannot hold yet is marked
    `- [~]` and says why on the line. Never call it done on memory.
+   `just session-start` names a done spec's `[~]` acceptance lines as waiting
+   for the owner.
 7. When every line holds, set `status: done` and save. Then `just release`:
    a spec done is the moment the project gets its next version, read from the
    commits since the last one (a spec's work is a `feat`, so the next minor
