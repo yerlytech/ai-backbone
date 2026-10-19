@@ -13,6 +13,35 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## 3.42.0 — 2026-10-19
+
+**A build can hold its turn until it ends, and a stuck Docker helper is said.**
+`BUILD_WAIT_HOLD=whole` keeps a queue ticket until the holder exits, for a
+build that does not show up as a compiler (a docker build inside a VM was
+dropped after half a minute). `just doctor` asks a Docker `credsStore` helper
+to answer within three seconds and never prints what it says. A helper that
+is missing, or that does not answer, is a warning.
+
+**A done spec's waiting lines show up at session start.** An acceptance line
+marked `[~]` was quiet, so the next session did not see it. It is now named
+as waiting for the owner.
+
+**`just release` puts the layer's version in the release commit.** Where
+`stack.just` has `_set-version`, that version, the changelog section and the
+annotated tag are the same commit. A check that refuses the commit still
+leaves no tag.
+
+**Projects can sit outside the folders next to the backbone.**
+`brain/project-roots.txt`, one path a line, adds those folders to
+`just projects` and to the names a backbone commit may not use. A missing
+path is reported. The same folder is listed once.
+
+The suite's git-tag fallback no longer reads this machine's own gitconfig.
+A cloud agent rewrites `https://github.com/` to a token URL, and that rewrite
+was winning over the fixture's file URL, so the fallback read as unreachable.
+
+Nothing to do in a project; `just template-update` brings it.
+
 ## 3.41.3 — 2026-10-19
 
 **Skill copies follow their source.** `just sync-rules` used to leave a

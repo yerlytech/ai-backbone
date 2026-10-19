@@ -98,12 +98,17 @@ independent reports may be investigated together, never combined to hide a failu
 - [x] Track generated-copy ownership and fix synchronization with the removal,
   rename, modified-copy, tool-switch and idempotence regression cases.
   3.41.3: `.claude/skills/.ai-backbone-owned`; suite covers those cases.
-- [ ] Add optional machine-local project roots and test discovery, missing paths,
+- [x] Add optional machine-local project roots and test discovery, missing paths,
   real-path deduplication and compatibility with existing sibling/link layouts.
-- [ ] Investigate and resolve release consistency (n-0d2d4a), whole-build queue
+  3.42.0: `brain/project-roots.txt`. Sibling discovery is unchanged.
+- [x] Investigate and resolve release consistency (n-0d2d4a), whole-build queue
   holding (n-03ddaa), and credential-helper readiness (n-7a63e5), separately.
-- [ ] Investigate and resolve pending-spec visibility (n-20a330), conservative
+  3.42.0: release commit carries `_set-version`; `BUILD_WAIT_HOLD=whole`;
+  doctor bounds the credsStore helper and prints none of its output.
+- [~] Investigate and resolve pending-spec visibility (n-20a330), conservative
   dependency-use labels (n-3140d5), and upstream.py diagnostics (n-259b1e), separately.
+  3.42.0: a done spec's `[~]` acceptance lines are named at session-start.
+  The advisory label and the diagnostics are still open.
 - [ ] Implement and fixture-test explicit device selection (n-f79b86), silence
   timeout (n-445708), and safe macOS emulator startup/busy-machine handling
   (n-ae82d7, corrected by n-fe290b); keep the correction in the diagnosis.

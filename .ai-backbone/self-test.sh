@@ -1571,7 +1571,11 @@ check "three sources in a row that do not answer, and the rest are not asked" "s
 # github.com: v1.10.0 is newer than 1.2.0, and a release candidate is not a release.
 mkdir -p "$tmp/tags/a" && ( cd "$tmp/tags/a" && git init -q b.git && cd b.git && git commit -q --allow-empty -m seed && for t in v1.0.0 v1.2.0 v1.10.0 v2.0.0-rc.1; do git tag "$t"; done ) >/dev/null 2>&1
 printf '[[watch]]\nname = "tool"\nsource = "github:a/b"\npin = "1.2.0"\n' > "$tmp/hostile/docs/upstream.toml"
-sandbox() { hostile env -u AI_BACKBONE_OFFLINE https_proxy=$dead http_proxy=$dead no_proxy= PATH="$gitbin:/usr/bin:/bin" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.$(fileurl "$1")/.insteadOf" GIT_CONFIG_VALUE_0="https://github.com/"; }
+# The machine's own gitconfig is included for the commits above, and on a cloud
+# agent it rewrites https://github.com/ to a token URL. That rewrite wins over
+# the file URL this check plants, so these two calls read no other gitconfig.
+: > "$tmp/gitconfig-empty"
+sandbox() { hostile env -u AI_BACKBONE_OFFLINE https_proxy=$dead http_proxy=$dead no_proxy= PATH="$gitbin:/usr/bin:/bin" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="$tmp/gitconfig-empty" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.$(fileurl "$1")/.insteadOf" GIT_CONFIG_VALUE_0="https://github.com/"; }
 check "when the GitHub API refuses, the tags are asked of git" "says '^  tool +1\\.2\\.0 .* v1\\.10\\.0 +1 newer' sandbox '$tmp/tags'"
 # The FAIL names what was seen: on a runner nobody can run the line by hand.
 saw_full=$(sandbox "$tmp/no-such-folder" 2>&1)
@@ -1619,7 +1623,7 @@ mv "$tmp/brew/bin/tool" "$tmp/brew/bin/sdk"
 if command -v cygpath >/dev/null 2>&1; then printf '@echo 9.9.9\r\n' > "$tmp/sdk/bin/tool.cmd"; printf '@echo 9.9.9\r\n' > "$tmp/brew/bin/sdk.cmd"; fi
 ( cd "$tmp/sdk" && git init -q && git remote add origin https://github.com/a/b.git && git add -A && git commit -q -m seed && git tag v1.2.0 \
   && cd "$tmp/brew" && git init -q && git remote add origin https://github.com/Homebrew/brew && git add -A && git commit -q -m seed && git tag 4.0.0 ) >/dev/null 2>&1
-ask() { ( cd "$tmp/hostile" && env -u AI_BACKBONE_OFFLINE https_proxy=$dead http_proxy=$dead no_proxy= PATH="$tmp/sdk/bin:$tmp/brew/bin:$gitbin:/usr/bin:/bin" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.$(fileurl "$tmp/tags")/.insteadOf" GIT_CONFIG_VALUE_0="https://github.com/" "$py" "$root/.ai-backbone/upstream.py" "$@" ); }
+ask() { ( cd "$tmp/hostile" && env -u AI_BACKBONE_OFFLINE https_proxy=$dead http_proxy=$dead no_proxy= PATH="$tmp/sdk/bin:$tmp/brew/bin:$gitbin:/usr/bin:/bin" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="$tmp/gitconfig-empty" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.$(fileurl "$tmp/tags")/.insteadOf" GIT_CONFIG_VALUE_0="https://github.com/" "$py" "$root/.ai-backbone/upstream.py" "$@" ); }
 check "a list that holds neither the pin nor anything newer is unknown, never current" "says '^  sdk +3\\.44\\.0 .* unknown' ask && says '^  sdk: lists neither 3\\.44\\.0 nor a release newer than it; the newest it lists is v2\\.0\\.0-rc\\.1\$' ask && says '^  tool +1\\.10\\.0 .* current' ask"
 check "a pin written another way than the source writes is told how" "says '^  label: lists nothing written like tool-1\\.2\\.0; its versions look like v1\\.10\\.0: if that is what is pinned, write the pin that way\$' ask && says '^Everything readable is current. No answer for: sdk, label\\.\$' ask"
 check "upstream <name> says the source was read and did not answer" "says 'the source was read, and it lists neither 3\\.44\\.0' ask sdk && ! says 'could not be read' ask sdk"
@@ -2529,6 +2533,16 @@ check "a changelog saved with CRLF is read as written, and written back with LF"
 pc p "fix: 'Amiral Battı' opens again"
 out=$(rl 2>&1)
 check "a draft keeps a subject's own letters" "grep -qx \"  - 'Amiral Battı' opens again\" <<<\"\$out\" && [ \"\$(unrel)\" = \"\$(printf \"### Fixed\\n- 'Amiral Battı' opens again\")\" ]"
+# The layer's _set-version lands in the release commit, beside the changelog
+# and the annotated tag (spec 016, still the question in the backlog).
+rv="$tmp/rv"
+( cd "$root" && just new-project "$rv" ) >/dev/null 2>&1
+cd "$rv" || exit 1
+printf '%s\n' '[positional-arguments]' '_set-version version:' '    #!/usr/bin/env bash' '    set -euo pipefail' '    printf "%s\n" "$1" > VERSION' > stack.just
+git add -A && git commit -qm "feat: a versioned thing" --no-verify
+just release >/dev/null 2>&1
+out=$(just release 2>&1)
+check "the release commit carries the version the layer set, under an annotated tag" "grep -q '^Released v0.1.0' <<<\"\$out\" && [ \"\$(cat VERSION)\" = 0.1.0 ] && [ \"\$(git show HEAD:VERSION)\" = 0.1.0 ] && [ \"\$(git cat-file -t v0.1.0)\" = tag ] && grep -q '^## \\[0.1.0\\]' CHANGELOG.md"
 cd "$tmp" || exit 1
 
 section "the backlog of 2026-10-06 (spec 026)"
@@ -2552,7 +2566,7 @@ mkdir -p docs/specs
 printf -- '---\nstatus: done\n---\n\n# 001 — x\n\n## Acceptance\n\n- [x] one\n- [ ] two\n\n## Tasks\n\n- [x] t\n' > docs/specs/001-x.md
 check "session-start names a done spec with an acceptance box open" "says '^Spec 001-x [(]done[)]: 1 acceptance line not ticked' just session-start"
 perl -pi -e 's/^- \[ \] two/- [~] two, not yet: why/' docs/specs/001-x.md
-check "and not once the line is marked [~] with its reason" "! says '^Spec 001-x' just session-start"
+check "and a [~] line is named as waiting for the owner" "says '^Spec 001-x [(]done[)]: 1 acceptance line waiting for the owner. Next: two, not yet: why' just session-start"
 # A skill's folder and its name: differ.
 mkdir -p .agents/skills/zz && printf -- '---\nname: "Zed"\ndescription: x\n---\n' > .agents/skills/zz/SKILL.md
 check "sync-rules and doctor name a skill whose folder and name: differ" "says 'agents/skills/zz says name: Zed' just sync-rules && says 'skill folder .agents/skills/zz says name: Zed' just doctor && [ \"\$(just _skill-names)\" = 'zz Zed' ]"
@@ -2564,6 +2578,15 @@ printf '[[watch]]\nname = "uv"\nsource = "github:astral-sh/uv"\npin = "0.12.19"\
 check "doctor says when a tool is older than its pin" "says 'warn  uv 0.8.17 is older than its pin 0.12.19 in docs/upstream.toml -> just tools-update' env PATH=\"$tmp/s26bin:\$PATH\" just doctor"
 printf '[[watch]]\nname = "uv"\nsource = "github:astral-sh/uv"\npin = "0.8.0"\n' > docs/upstream.toml
 check "and nothing when it is the pin or newer" "! says 'older than its pin' env PATH=\"$tmp/s26bin:\$PATH\" just doctor"
+mkdir -p "$tmp/dock"
+printf '%s\n' '{"credsStore": "fast"}' > "$tmp/dock/config.json"
+printf '#!/bin/sh\nexit 0\n' > "$tmp/dock/docker-credential-fast"; chmod +x "$tmp/dock/docker-credential-fast"
+check "a Docker credential helper that answers is not a warning" "! says 'credential helper|credsStore' env DOCKER_CONFIG='$tmp/dock' PATH=\"$tmp/dock:\$PATH\" just doctor"
+printf '%s\n' '{"credsStore": "slow"}' > "$tmp/dock/config.json"
+printf '#!/bin/sh\nsleep 30\n' > "$tmp/dock/docker-credential-slow"; chmod +x "$tmp/dock/docker-credential-slow"
+check "a Docker credential helper that does not answer is named within a few seconds" "says 'docker-credential-slow did not answer within 3 seconds' env DOCKER_CONFIG='$tmp/dock' PATH=\"$tmp/dock:\$PATH\" just doctor"
+printf '%s\n' '{"credsStore": "gone"}' > "$tmp/dock/config.json"
+check "a Docker credsStore whose helper is missing is named" "says 'docker-credential-gone is not on PATH' env DOCKER_CONFIG='$tmp/dock' PATH=\"$tmp/dock:\$PATH\" just doctor"
 rm -f docs/upstream.toml; printf '# a layer\n' > stack.just
 check "doctor says when a project with a language has no watch list" "says 'a language layer and no watch list.*just upstream-init' just doctor"
 just upstream-init >/dev/null 2>&1
@@ -2575,6 +2598,17 @@ cp "$root/.ai-backbone/projects.sh" "$pj/bb/.ai-backbone/"; printf '# version 9.
 git -C "$pj/app" init -q; : > "$pj/app/docs/upstream.toml"
 printf '{"behind": ["flutter sdk", "prek"], "moved": [], "released": {}}' > "$pj/app/.git/upstream-cache.json"
 check "just projects names what is newer upstream in each project" "says '^  app +9.9.9 .* 2 newer +.*newer upstream: flutter sdk, prek' bash '$pj/bb/.ai-backbone/projects.sh'"
+# Outside $pj: projects.sh already looks one and two folders down from the
+# backbone, so a root placed there would be counted before the local list.
+mkdir -p "$tmp/extra/side/.ai-backbone" "$tmp/extra/rustp/.ai-backbone"
+printf '# version 1.0.0\n' > "$tmp/extra/side/.ai-backbone/core.just"
+printf '# version 1.0.0\n' > "$tmp/extra/rustp/.ai-backbone/core.just"
+printf '_build-info:\n    @echo dir x\n    @echo cargo\n' > "$tmp/extra/rustp/stack.just"
+printf '%s\n%s\n%s\n' "$tmp/extra/side" "$pj/nowhere" "$pj/app" > "$tmp/roots.txt"
+check "local roots add a project once, and a missing root is said" "o=\$(AI_BACKBONE_PROJECT_ROOTS='$tmp/roots.txt' bash '$pj/bb/.ai-backbone/projects.sh'); grep -q '^  side ' <<<\"\$o\" && grep -q 'missing root: $pj/nowhere' <<<\"\$o\" && [ \$(grep -c '^  app ' <<<\"\$o\") -eq 1 ] && grep -q '^2 project' <<<\"\$o\""
+check "a local root's name is one the backbone refuses to commit" "says '^side$' env AI_BACKBONE_PROJECT_ROOTS='$tmp/roots.txt' just _sibling-names '$root'"
+printf '%s\n' "$tmp/extra/rustp" > "$tmp/rust-roots.txt"
+check "the rust project list includes a local root once" "o=\$(env AI_BACKBONE_PROJECTS='$tmp/no-projects' AI_BACKBONE_PROJECT_ROOTS='$tmp/rust-roots.txt' just _rust-projects); [ \$(grep -c '/rustp$' <<<\"\$o\") -eq 1 ]"
 # routine-install on a Mac refuses a project in Desktop, Documents or Downloads,
 # which launchd may not read; routine-status shows how the last run ended.
 dh="$tmp/dhome"; mkdir -p "$dh/Desktop" "$tmp/mac"
@@ -2740,6 +2774,17 @@ check "a ticket still waiting whose waiter is gone holds nobody, though its hold
 printf '%s %s\n' "$hs" "$(( $(date +%s) - 60 ))" > "$bq/t-0000000005-00000005"
 s=$SECONDS; bw env BUILD_WAIT_MINUTES=2 just _build-wait >/dev/null 2>"$tmp/q-err5"; took=$((SECONDS - s))
 check "a build that went a minute ago holds the turn no longer once no compiler runs" "[ $took -lt 15 ] && grep -q 'Its turn: going on' '$tmp/q-err5'"
+printf '%s %s\n' "$hs" "$(( $(date +%s) - 60 ))" > "$bq/t-0000000007-00000007"
+: > "$tmp/q-hold"
+( bw env BUILD_WAIT_HOLD=whole BUILD_WAIT_MINUTES=2 just _build-wait >/dev/null 2>"$tmp/q-hold"; echo done >> "$tmp/q-hold" ) &
+wh=$!
+sleep 4
+check "BUILD_WAIT_HOLD=whole keeps a minute-old turn while its holder lives" "kill -0 $wh && ! grep -qx done '$tmp/q-hold'"
+{ kill "$hs"; wait "$hs"; } 2>/dev/null
+sleep 8
+check "and lets that turn go when the holder ends" "grep -qx done '$tmp/q-hold' && grep -q 'Its turn: going on' '$tmp/q-hold'"
+wait "$wh" 2>/dev/null || true
+hs=""
 { kill "$hs"; wait "$hs"; } 2>/dev/null; wait 2>/dev/null; rm -f "$bq"/t-*
 # One limit for the whole wait (spec 032): the queue and a running compiler
 # together, not each in full; and the wait names the project that holds the turn.

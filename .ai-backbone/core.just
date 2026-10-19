@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.41.3
+# .ai-backbone/core.just — the backbone's recipes, version 3.42.0
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -442,6 +442,37 @@ doctor:
     # The names go without their ~/: Git Bash turns an argument that starts
     # with ~ into the whole path of the home folder on its way from just.
     if [ -n "$rcs" ]; then echo "  warn  $(just _doctor-msg completion-block "$rcs")"; echo; fi
+    # Docker's credsStore (spec 033): a helper that does not answer within a
+    # few seconds is a keychain dialog nobody sees. buildx then fails a push
+    # and does not say why. The helper's own words are never printed.
+    dcfg="${DOCKER_CONFIG:-$HOME/.docker}/config.json"
+    if [ -f "$dcfg" ]; then
+      store=$(sed -n 's/.*"credsStore"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$dcfg" | head -1)
+      if [ -n "$store" ]; then
+        helper="docker-credential-$store"
+        if ! command -v "$helper" >/dev/null 2>&1; then
+          echo "  warn  Docker names credsStore $store and $helper is not on PATH. A push then waits and fails without saying the helper is missing."
+        else
+          dout=$(mktemp)
+          printf '\n' | "$helper" list >"$dout" 2>/dev/null &
+          dpid=$!
+          di=0
+          while [ "$di" -lt 3 ]; do
+            kill -0 "$dpid" 2>/dev/null || break
+            sleep 1
+            di=$((di + 1))
+          done
+          if kill -0 "$dpid" 2>/dev/null; then
+            kill -TERM "$dpid" 2>/dev/null || true
+            wait "$dpid" 2>/dev/null || true
+            echo "  warn  Docker's credential helper $helper did not answer within 3 seconds. The keychain may be waiting on a dialog nobody sees; a push then fails with DeadlineExceeded and does not say why."
+          else
+            wait "$dpid" 2>/dev/null || true
+          fi
+          rm -f "$dout"
+        fi
+      fi
+    fi
     # What the project's own language needs on this machine. The backbone cannot
     # know it, and until it asked, a Mac with no Flutter on it read "Everything
     # needed is installed" and then failed every save that touched code, in the
@@ -1035,7 +1066,9 @@ _session-start-body:
     # when no spec is open, and in a project that has none. A done spec is named
     # too while a box of its Acceptance list is still "- [ ]": nothing else says
     # whether that list was walked before the status changed (spec 026). A line
-    # walked and not yet true is "- [~]" with its reason, and is not named.
+    # walked and not yet true is "- [~]" with its reason. A done spec still
+    # names those lines, as waiting for the owner (spec 033): quiet here hid
+    # them from the next session.
     # A spec with "night: yes" in its front matter is a night spec (spec skill),
     # and its line says so: the session that opens it next knows it runs alone.
     if ls docs/specs/*.md >/dev/null 2>&1; then
@@ -1043,6 +1076,8 @@ _session-start-body:
         function flush() {
           if (status == "done" && accopen > 0)
             print "Spec " name " (done): " accopen " acceptance line" (accopen == 1 ? "" : "s") " not ticked. Tick each one checked, or mark it - [~] and say why (spec skill)"
+          if (status == "done" && accwait > 0)
+            print "Spec " name " (done): " accwait " acceptance line" (accwait == 1 ? "" : "s") " waiting for the owner. Next: " accwhy
           if (status != "draft" && status != "approved") return
           line = "Spec " name " (" status (night ? ", night spec" : "") (status == "draft" ? ", no code until approved" : "") "): "
           if (total == 0)         line = line "no tasks written yet"
@@ -1051,13 +1086,14 @@ _session-start-body:
           print line
         }
         FNR == 1 { flush(); name = FILENAME; sub(/.*\//, "", name); sub(/\.md$/, "", name)
-                   status = ""; night = 0; fence = 0; tasks = 0; total = 0; ticked = 0; todo = ""; todo_at = 0; acc = 0; accopen = 0 }
+                   status = ""; night = 0; fence = 0; tasks = 0; total = 0; ticked = 0; todo = ""; todo_at = 0; acc = 0; accopen = 0; accwait = 0; accwhy = "" }
         { sub(/\r$/, "") }
         /^---[ \t]*$/ { if (FNR == 1 || fence > 0) fence++; next }
         fence == 1 && /^status:/ { status = $2; next }
         fence == 1 && /^night:/ { night = ($2 == "yes" || $2 == "true"); next }
         /^## / { tasks = ($0 ~ /^## +Tasks/); acc = ($0 ~ /^## +Acceptance/); next }
         acc && /^- \[ \]/ { accopen++; next }
+        acc && /^- \[~\]/ { accwait++; if (accwhy == "") accwhy = substr($0, 7); next }
         tasks && /^- \[.\]/ {
           total++
           if ($0 ~ /^- \[[xX]\]/) ticked++
@@ -3751,7 +3787,11 @@ _build-wait:
             n=$((n + 1)) ;;
           *)
             [ $((now - w)) -lt "$limit" ] || continue
-            if [ $((now - w)) -lt 30 ]; then n=$((n + 1)); else m=$((m + 1)); fi ;;
+            # A docker build inside a VM does not show in ps, so "no compiler"
+            # used to drop the turn after half a minute (spec 033).
+            # BUILD_WAIT_HOLD=whole holds until the holder ends, still inside
+            # the limit.
+            if [ "${BUILD_WAIT_HOLD:-}" = whole ] || [ $((now - w)) -lt 30 ]; then n=$((n + 1)); else m=$((m + 1)); fi ;;
         esac
       done
       echo "$n $m"
@@ -4007,13 +4047,30 @@ _rust-projects:
       if [ -n "$bb" ]; then base=$(dirname "$bb"); else base=$(cd .. && pwd -P); fi
     fi
     seen=" "
-    for d in "$(pwd -P)/" "$base"/*/ "$base"/*/*/; do
-      d="${d%/}"; [ -f "$d/.ai-backbone/core.just" ] && [ -f "$d/stack.just" ] || continue
-      grep -q '^_build-info' "$d/stack.just" && grep -q 'cargo' "$d/stack.just" || continue
+    consider() {
+      local d="$1"
+      d="${d%/}"; [ -f "$d/.ai-backbone/core.just" ] && [ -f "$d/stack.just" ] || return 0
+      grep -q '^_build-info' "$d/stack.just" && grep -q 'cargo' "$d/stack.just" || return 0
       d=$(cd "$d" && pwd -P)
-      case "$seen" in *" $d "*) continue ;; esac; seen="$seen$d "
+      case "$seen" in *" $d "*) return 0 ;; esac; seen="$seen$d "
       echo "$d"
-    done
+    }
+    for d in "$(pwd -P)/" "$base"/*/ "$base"/*/*/; do consider "$d"; done
+    # Extra roots (spec 033). The suite sets AI_BACKBONE_PROJECTS and does not
+    # read the real brain/ list; a test that wants roots sets
+    # AI_BACKBONE_PROJECT_ROOTS. A real run reads the backbone's private list.
+    roots_file=""
+    if [ -n "${AI_BACKBONE_PROJECT_ROOTS:-}" ]; then roots_file="$AI_BACKBONE_PROJECT_ROOTS"
+    elif [ -z "${AI_BACKBONE_PROJECTS:-}" ] && [ -n "${bb:-}" ]; then roots_file="$bb/brain/project-roots.txt"; fi
+    if [ -n "$roots_file" ] && [ -f "$roots_file" ]; then
+      while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in ""|\#*) continue ;; esac
+        [ -d "$line" ] || continue
+        line=$(cd "$line" && pwd -P)
+        consider "$line"
+        for d in "$line"/*/ "$line"/*/*/; do consider "$d"; done
+      done < "$roots_file"
+    fi
     exit 0
 
 # Print a folder's size as kilobytes and in words ("12345678 12 GB"), "timeout"
@@ -4554,13 +4611,34 @@ _sibling-names src:
     #!/usr/bin/env bash
     src=$(cd "$1" 2>/dev/null && pwd -P) || exit 0
     base=$(dirname "$src")
+    {
     for d in "$base"/*/ "$base"/*/*/; do
       d="${d%/}"; [ -f "$d/.ai-backbone/core.just" ] || continue
       d=$(cd "$d" && pwd -P); [ "$d" = "$src" ] && continue
       [ -f "$d/.ai-backbone/manifest.txt" ] && [ -f "$d/.ai-backbone/routine.md" ] && continue
       basename "$d"
       grep -m1 -E '^\| *project *\|' "$d/AGENTS.md" 2>/dev/null | awk -F'|' '{print $3}' | sed 's/^ *//;s/ *$//'
-    done | grep -v '^$' | grep -ivx -e ai-backbone -e "$(basename "$src")" | LC_ALL=C sort -u   # one order on every machine: a Mac sorts by its locale
+    done
+    # Extra roots stay on this machine (spec 033): brain/project-roots.txt,
+    # one folder a line. The suite points AI_BACKBONE_PROJECT_ROOTS at a
+    # fixture and does not read the real list.
+    roots="${AI_BACKBONE_PROJECT_ROOTS:-$src/brain/project-roots.txt}"
+    if [ -f "$roots" ]; then
+      while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in ""|\#*) continue ;; esac
+        line="${line#"${line%%[![:space:]]*}"}"; line="${line%"${line##*[![:space:]]}"}"
+        [ -d "$line" ] || continue
+        line=$(cd "$line" && pwd -P)
+        for d in "$line" "$line"/*/ "$line"/*/*/; do
+          d="${d%/}"; [ -f "$d/.ai-backbone/core.just" ] || continue
+          d=$(cd "$d" && pwd -P); [ "$d" = "$src" ] && continue
+          [ -f "$d/.ai-backbone/manifest.txt" ] && [ -f "$d/.ai-backbone/routine.md" ] && continue
+          basename "$d"
+          grep -m1 -E '^\| *project *\|' "$d/AGENTS.md" 2>/dev/null | awk -F'|' '{print $3}' | sed 's/^ *//;s/ *$//'
+        done
+      done < "$roots"
+    fi
+    } | grep -v '^$' | grep -ivx -e ai-backbone -e "$(basename "$src")" | LC_ALL=C sort -u   # one order on every machine: a Mac sorts by its locale
     # A clone that keeps a private list (brain/ is never committed) names what
     # it wants kept out too: a clone elsewhere on the machine has no projects
     # next to it, and the runners and the sandboxes have none at all.
