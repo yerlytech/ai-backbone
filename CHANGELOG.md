@@ -13,6 +13,17 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## 3.41.2 — 2026-10-19
+
+**The build wait names the other build before it gives up.** With a short
+`BUILD_WAIT_MINUTES` (the suite uses 0.02) on a slow machine, the wait could
+reach its limit before the first line and jump to "Going on anyway". The
+Rust layer's check then failed on Windows while the rest of the wait was
+fine. It now always says "Another build is running" when one is there, then
+waits or gives up as before.
+
+Nothing to do in a project; `just template-update` brings it.
+
 ## 3.41.1 — 2026-10-18
 
 **`upstream.py` is quiet in the editor.** Opening it made basedpyright

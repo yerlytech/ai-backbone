@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.41.1
+# .ai-backbone/core.just — the backbone's recipes, version 3.41.2
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -3798,7 +3798,15 @@ _build-wait:
       running || { go; exit 0; }
     fi
     waited=$(elapsed)
-    [ "$waited" -ge "$limit" ] || echo "Another build is running on this machine ($(echo $names | sed 's/ /, /g')). This one waits for it to finish, up to $(span $((limit - waited)))$([ "$waited" -eq 0 ] || echo " more") (BUILD_WAIT_MINUTES; 0 switches this off)." >&2
+    # Always name the other build first, even when the limit is already up: a
+    # short BUILD_WAIT_MINUTES on a slow machine (Windows self-test, 0.02 min)
+    # used to jump straight to "Going on anyway" and the check that looks for
+    # "Another build is running" failed while the rest of the wait was fine.
+    if [ "$waited" -ge "$limit" ]; then
+      echo "Another build is running on this machine ($(echo $names | sed 's/ /, /g'))." >&2
+    else
+      echo "Another build is running on this machine ($(echo $names | sed 's/ /, /g')). This one waits for it to finish, up to $(span $((limit - waited)))$([ "$waited" -eq 0 ] || echo " more") (BUILD_WAIT_MINUTES; 0 switches this off)." >&2
+    fi
     while [ "$waited" -lt "$limit" ]; do
       sleep "$poll"; waited=$(elapsed)
       running; r=$?
