@@ -54,9 +54,10 @@ publication and audit spending retain their existing approval gates.
 - [ ] Safe fixture sessions in Claude Code and at least one non-Claude agent
   demonstrate current rules/skills and session handover without paid delegation
   or destructive actions. Missing access leaves this criterion pending.
-- [ ] Tests cover skill removal, rename, tool changes and repeated sync. Extra
+- [x] Tests cover skill removal, rename, tool changes and repeated sync. Extra
   generated copies are detected; modified or ownership-unknown copies are named
   and preserved. Project-owned skills and unrelated settings survive.
+  3.41.3, in the suite's new-project section.
 - [ ] Registered local roots supplement existing project discovery: duplicate
   real paths appear once; missing roots are reported; private paths stay local.
 - [ ] Release tests establish whether n-0d2d4a still reproduces with the existing
@@ -94,8 +95,9 @@ independent reports may be investigated together, never combined to hide a failu
   verified in this session; Claude Code and others mostly instruction-only /
   unverified until a real session. Smoke list in that file; Claude SessionStart
   smoke still pending (no `claude` on PATH here).
-- [ ] Track generated-copy ownership and fix synchronization with the removal,
+- [x] Track generated-copy ownership and fix synchronization with the removal,
   rename, modified-copy, tool-switch and idempotence regression cases.
+  3.41.3: `.claude/skills/.ai-backbone-owned`; suite covers those cases.
 - [ ] Add optional machine-local project roots and test discovery, missing paths,
   real-path deduplication and compatibility with existing sibling/link layouts.
 - [ ] Investigate and resolve release consistency (n-0d2d4a), whole-build queue

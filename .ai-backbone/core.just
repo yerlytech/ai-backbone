@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.41.2
+# .ai-backbone/core.just — the backbone's recipes, version 3.41.3
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -803,21 +803,9 @@ sync-rules:
     }
     gen copilot .github/copilot-instructions.md
     gen junie   .junie/guidelines.md
-    # Skills live in .agents/skills/ (Codex and Gemini CLI read that folder).
-    # Claude Code reads .claude/skills/, so each skill gets a copy there. A copy,
-    # not a link: Git for Windows checks a link out as a small text file naming
-    # its target, and Claude Code saw no skills at all there (spec 020). The rm
-    # comes first, so an older link is replaced and never copied through.
-    if has claude && [ -d .agents/skills ]; then
-      mkdir -p .claude/skills
-      for d in .agents/skills/*/; do
-        [ -d "$d" ] || continue
-        n=$(basename "$d")
-        rm -rf ".claude/skills/$n"
-        cp -R ".agents/skills/$n" ".claude/skills/$n"
-        echo "  copied .claude/skills/$n"
-      done
-    fi
+    # Skill copies: .agents/skills/ is the source. Claude Code reads
+    # .claude/skills/, so each skill is copied there (spec 020, spec 033).
+    just _sync-skill-copies apply
     echo "Rule copies regenerated from AGENTS.md (tools: $tools)."
     while read -r sd sn; do
       if [ -n "$sd" ]; then echo "  warn  .agents/skills/$sd says name: $sn in its SKILL.md; make the folder and the name the same, or it may not be found by its name"; fi
@@ -4724,6 +4712,112 @@ _py:
 _tools:
     @{ grep -E '^\| *tools *\|' AGENTS.md 2>/dev/null | awk -F'|' '{print $3}' | tr -d ' `'; } | grep . || echo all
 
+# A stable hash of one skill folder. Same bytes on every machine: relative
+# paths with forward slashes, file contents, no timestamps (spec 033).
+[positional-arguments]
+_skill-sum dir:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # cksum of "relative-path bytes", paths sorted, so Linux, macOS and
+    # Windows (Git Bash) hash the same tree the same way.
+    ( cd "$1" && find . -type f | sort | while IFS= read -r f; do
+        printf '%s ' "${f#./}"
+        cksum "$f"
+      done ) | cksum | awk '{print $1}'
+
+# Claude's skill copies, and the record of which ones this recipe wrote
+# (.claude/skills/.ai-backbone-owned: "name hash" per line). A copy whose
+# source is gone is removed only when it still matches that hash. A copy
+# someone edited, or one this recipe never recorded, is named and left.
+# Links are replaced: Git for Windows checks a link out as a text file (spec 020).
+# mode=check prints what apply would change and exits 1 when a sync is due;
+# a kept copy is named and is not a failure, because sync will not overwrite it.
+[positional-arguments]
+_sync-skill-copies mode="apply":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mode="${1:-apply}"
+    own=".claude/skills/.ai-backbone-owned"
+    tools=$(just _tools)
+    case ",$tools," in *,all,*|*,claude,*) on=1 ;; *) on=0 ;; esac
+    sum() { just _skill-sum "$1"; }
+    owned() { if [ -f "$own" ]; then awk -v n="$1" '$1==n {print $2; exit}' "$own"; fi; return 0; }
+    bad=0
+    new=$(mktemp)
+    remember() { printf '%s %s\n' "$1" "$2" >> "$new"; }
+    sources=" "
+    if [ -d .agents/skills ]; then
+      for d in .agents/skills/*/; do
+        [ -d "$d" ] || continue
+        sources="$sources$(basename "$d") "
+      done
+    fi
+    is_src() { case "$sources" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+    # One source skill: copy it, or keep a copy we did not write.
+    one() {
+      local n="$1" src=".agents/skills/$1" dest=".claude/skills/$1" prev cur
+      if [ -L "$dest" ] || [ -f "$dest" ]; then
+        if [ "$mode" = check ]; then echo ".claude/skills/$n is out of date. Run just sync-rules, then stage the result."; bad=1; return; fi
+        rm -rf "$dest"
+      fi
+      if [ ! -d "$dest" ]; then
+        if [ "$mode" = check ]; then echo ".claude/skills/$n is out of date. Run just sync-rules, then stage the result."; bad=1; return; fi
+        mkdir -p .claude/skills
+        cp -R "$src" "$dest"
+        remember "$n" "$(sum "$dest")"
+        echo "  copied .claude/skills/$n"
+        return
+      fi
+      if diff -rq "$src" "$dest" >/dev/null 2>&1; then
+        remember "$n" "$(sum "$dest")"
+        return
+      fi
+      prev=$(owned "$n")
+      cur=$(sum "$dest")
+      if [ -n "$prev" ] && [ "$cur" = "$prev" ]; then
+        if [ "$mode" = check ]; then echo ".claude/skills/$n is out of date. Run just sync-rules, then stage the result."; bad=1; return; fi
+        rm -rf "$dest"
+        cp -R "$src" "$dest"
+        remember "$n" "$(sum "$dest")"
+        echo "  copied .claude/skills/$n"
+        return
+      fi
+      if [ -n "$prev" ]; then echo "  kept .claude/skills/$n (edited since it was generated)"; remember "$n" "$prev"
+      else echo "  kept .claude/skills/$n (not a recorded generated copy)"; fi
+    }
+    if [ "$on" = 1 ]; then
+      mkdir -p .claude/skills
+      for d in .agents/skills/*/; do
+        [ -d "$d" ] || continue
+        one "$(basename "$d")"
+      done
+    fi
+    if [ -d .claude/skills ]; then
+      for d in .claude/skills/*/; do
+        [ -d "$d" ] || continue
+        n=$(basename "$d")
+        if [ "$on" = 1 ] && is_src "$n"; then continue; fi
+        prev=$(owned "$n")
+        cur=$(sum "$d")
+        if [ -n "$prev" ] && [ "$cur" = "$prev" ]; then
+          if [ "$mode" = check ]; then echo ".claude/skills/$n is a generated copy whose source is gone. Run just sync-rules, then stage the result."; bad=1; continue; fi
+          rm -rf "$d"
+          echo "  removed .claude/skills/$n"
+        elif [ -n "$prev" ]; then
+          echo "  kept .claude/skills/$n (edited since it was generated)"
+          remember "$n" "$prev"
+        else
+          echo "  kept .claude/skills/$n (not a recorded generated copy)"
+        fi
+      done
+    fi
+    if [ "$mode" = apply ]; then
+      mkdir -p .claude/skills
+      sort -k1,1 -u "$new" > "$own"
+    fi
+    rm -f "$new"
+    [ "$mode" = check ] && exit "$bad" || true
+
 # Exit 1 with a message when a rule copy or skill copy is out of date (used by the pre-commit hook)
 _rules-check:
     #!/usr/bin/env bash
@@ -4738,13 +4832,7 @@ _rules-check:
         fi
       fi
     done
-    if has claude; then
-      for d in .agents/skills/*/; do
-        [ -d "$d" ] || continue; n=$(basename "$d")
-        { [ -d ".claude/skills/$n" ] && [ ! -L ".claude/skills/$n" ] && diff -r "$d" ".claude/skills/$n" >/dev/null 2>&1; } \
-          || { echo ".claude/skills/$n is out of date. Run just sync-rules, then stage the result."; bad=1; }
-      done
-    fi
+    if ! just _sync-skill-copies check; then bad=1; fi
     exit $bad
 
 # A limit accepted on purpose, so that a close reading does not report it as a

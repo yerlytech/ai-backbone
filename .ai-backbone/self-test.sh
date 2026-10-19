@@ -243,7 +243,10 @@ n=$(git ls-files | wc -l | tr -d ' ')
 # 2026-10-01 in an attended session, choosing separate references over one file.
 # 60 since spec 027: buildtrim.py, which keeps a Rust build folder under its cap;
 # the maintainer approved the spec that names it on 2026-10-10, attended.
-check "tracked files at most 60 (got $n)"             "[ $n -le 60 ]"
+# 61 since 3.41.3: .claude/skills/.ai-backbone-owned, the record of which skill
+# copies sync-rules wrote (spec 033). Raised in the attended session of
+# 2026-10-19, when that task was started.
+check "tracked files at most 61 (got $n)"             "[ $n -le 61 ]"
 # Two more ceilings, set at what a new project measured on 2026-09-19 (spec 012).
 # An agent nobody watches works on this backbone every day and builds ideas it
 # read about; every one of them is small and sensible, and a hundred of them are
@@ -490,7 +493,26 @@ check "the seed does not allow git checkout -- ., and denies the other rm spelli
 # as a text file naming its target, and Claude Code found no skills (spec 020).
 check "a new project's skills are copies Claude Code reads on any machine" "[ -f .claude/skills/session/SKILL.md ] && [ ! -L .claude/skills/session ] && just _rules-check"
 echo 'an edit' >> .claude/skills/spec/SKILL.md
-check "a skill copy that differs from its source is named"  "says 'claude/skills/spec is out of date' just _rules-check"
+check "an edited generated skill copy is named and kept" "says 'kept .claude/skills/spec \\(edited since it was generated\\)' just sync-rules && grep -q 'an edit' .claude/skills/spec/SKILL.md && just _rules-check"
+rm -rf .claude/skills/spec && cp -R .agents/skills/spec .claude/skills/spec && just sync-rules >/dev/null
+mv .agents/skills/audit .agents/skills/audit-renamed
+check "renaming a skill drops the old generated copy and writes the new one" "just sync-rules >/dev/null && [ ! -d .claude/skills/audit ] && diff -rq .agents/skills/audit-renamed .claude/skills/audit-renamed"
+mv .agents/skills/audit-renamed .agents/skills/audit
+rm -rf .claude/skills/audit-renamed && just sync-rules >/dev/null
+rm -rf .agents/skills/audit
+check "sync-rules removes a generated copy whose source is gone" "says 'removed .claude/skills/audit' just sync-rules && [ ! -d .claude/skills/audit ]"
+mkdir -p .agents/skills/audit && cp -R "$root/.agents/skills/audit/." .agents/skills/audit/ && just sync-rules >/dev/null
+mkdir -p .claude/skills/mine && printf 'project skill\n' > .claude/skills/mine/SKILL.md
+cp .claude/settings.json "$tmp/settings-before-sync"
+check "an unrecorded skill copy and settings.json survive sync" "says 'kept .claude/skills/mine' just sync-rules && grep -q 'project skill' .claude/skills/mine/SKILL.md && cmp -s .claude/settings.json '$tmp/settings-before-sync'"
+rm -rf .claude/skills/mine && just sync-rules >/dev/null
+before=$(find .claude/skills -type f | sort | xargs cksum)
+check "a second sync-rules changes no skill copy" "just sync-rules >/dev/null && [ \"\$before\" = \"\$(find .claude/skills -type f | sort | xargs cksum)\" ]"
+cp AGENTS.md "$tmp/agents-tools"
+perl -pi -e 's/^\| tools \| claude \|/| tools | cursor |/' AGENTS.md
+check "dropping claude from tools removes generated copies and leaves a project skill" "mkdir -p .claude/skills/mine && printf 'stay\n' > .claude/skills/mine/SKILL.md && says 'removed .claude/skills/session' just sync-rules && [ ! -d .claude/skills/session ] && [ -d .agents/skills/session ] && grep -q stay .claude/skills/mine/SKILL.md && cmp -s .claude/settings.json '$tmp/settings-before-sync'"
+cp "$tmp/agents-tools" AGENTS.md
+rm -rf .claude/skills/mine && just sync-rules >/dev/null
 rm -rf .claude/skills/spec; ln -s ../../.agents/skills/spec .claude/skills/spec
 cp .agents/skills/spec/SKILL.md "$tmp/spec-skill-before"
 check "sync-rules turns an older project's link into a copy, and writes nothing through it" "just sync-rules >/dev/null && [ ! -L .claude/skills/spec ] && diff -r .agents/skills/spec .claude/skills/spec && cmp -s .agents/skills/spec/SKILL.md '$tmp/spec-skill-before' && just _rules-check"

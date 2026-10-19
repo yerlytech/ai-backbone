@@ -436,7 +436,7 @@ a web front end and a Flutter game are watched the same way.
 | `.ai-backbone/` | the backbone's files: its recipes, the manifest, templates, the setup script. Updates write only here and to the two files below. |
 | `.agents/skills/` | short instructions every agent shares: how to run a session, write a spec, pull an update, and the team: one skill per role (researcher, data analyst, marketer), with `team` saying who reads and writes what. SKILL.md open standard. |
 | `.pre-commit-config.yaml` | the checks that run before every save, the last of them `just lint`. Copied once, then yours. |
-| `.claude/`, `.github/`, `.junie/` | what each AI tool needs in its own place: settings, skill copies, rule copies. In Claude Code a hook runs `just session-start` when a session opens, so the journal is read every time. |
+| `.claude/`, `.github/`, `.junie/` | what each AI tool needs in its own place: settings, skill copies, rule copies. `just sync-rules` copies skills for Claude and removes a copy when its source is gone, unless someone edited that copy or the backbone never recorded it. In Claude Code a hook runs `just session-start` when a session opens, so the journal is read every time. |
 | `.vscode/settings.json` | folds all of the above away from VS Code's sidebar. Nothing is deleted. |
 
 ## Why the rule file has copies

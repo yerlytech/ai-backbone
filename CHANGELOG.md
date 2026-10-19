@@ -13,6 +13,20 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## 3.41.3 — 2026-10-19
+
+**Skill copies follow their source.** `just sync-rules` used to leave a
+Claude copy behind after the skill was removed or renamed, and the rules
+check never looked at that extra folder. It now records the copies it
+writes. A later sync removes one only when it still matches that record.
+A copy someone edited, or one the backbone never recorded, is named and
+left in place, and `.claude/settings.json` is not touched. Taking `claude`
+out of the tools row removes the recorded copies the same way. A new
+project tracks one more file, that record.
+
+Nothing to do in a project; `just template-update` brings it, then
+`just sync-rules`.
+
 ## 3.41.2 — 2026-10-19
 
 **The build wait names the other build before it gives up.** With a short

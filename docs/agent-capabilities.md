@@ -33,8 +33,11 @@ command), subagent limits (cap before spawning).
   `.github/copilot-instructions.md` and `.junie/guidelines.md` are not generated
   until those tools are listed. Pointers: `CLAUDE.md`, `GEMINI.md`.
 - **Skills:** `.agents/skills/*/SKILL.md`. Claude copies under `.claude/skills/`
-  from `sync-rules`. Other agents must find `.agents/skills/` themselves unless
-  a later sync target is added.
+  from `sync-rules`. A copy is removed when its source is gone only if this
+  recipe wrote it and nobody has edited it since (`.claude/skills/.ai-backbone-owned`).
+  An edited copy, or one the recipe never recorded, is named and left.
+  Other agents must find `.agents/skills/` themselves unless a later sync
+  target is added.
 - **Session:** `just session-start` / `just session-end` work from any shell that
   has `just`. Automatic run at session open is Claude Code's SessionStart hook
   only (`.claude/settings.json`).
