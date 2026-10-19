@@ -103,14 +103,13 @@ Cargo.lock does not mark a dev-dependency. Asking cargo (`cargo tree -e
 normal`) resolves the workspace, may reach the network and costs seconds, and
 session-start must not. So a row by hand: `why = "only tests build it"`.
 
-A better way, offered and not built here: read the members' Cargo.toml files
-beside Cargo.lock and walk Cargo.lock's own `dependencies` lists from what the
-members name under `[dependencies]` and `[build-dependencies]`; what that never
-reaches is built only for tests. No cargo, about a millisecond. It must follow
-renames (`package =`), `workspace = true` and `[target.*]` tables, and an edge
-misread would call a shipped crate test-only; so it would only label a
-finding "(only tests, by Cargo.toml)" to speed the triage, never silence it.
-Backlog line n-3140d5.
+Built in 3.43.0: the members' Cargo.toml files beside Cargo.lock are read,
+and Cargo.lock's own `dependencies` lists are walked from what the members
+name under `[dependencies]`, `[build-dependencies]` and `[target.*]` tables.
+What that never reaches is labelled `(only tests, by Cargo.toml)`. Renames
+(`package =`) and `workspace = true` are followed. An edge the reader does
+not understand gets no label, because a misread would call a shipped crate
+test-only. The finding is still reported.
 
 ## Not doing
 
@@ -131,7 +130,7 @@ None open. Settled on approval:
   row: if it is still affected, the reason usually still holds, and the day
   bounds it.
 - Exit 1 covers `changed` and `invalid` too; a ship stops on 2 as on 1.
-- The test-only label is backlog line n-3140d5, not this spec.
+- The test-only label was backlog line n-3140d5. Built in 3.43.0, outside this spec's release.
 
 ## Acceptance
 

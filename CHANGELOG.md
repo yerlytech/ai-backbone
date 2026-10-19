@@ -13,6 +13,17 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## 3.43.0 — 2026-10-19
+
+**An advisory in a test-only crate is labelled, and still reported.**
+`upstream.py` reads the workspace's Cargo.toml files and Cargo.lock's own
+dependency lists. A crate that a shipped build never reaches is marked
+`(only tests, by Cargo.toml)`. The warning stays. A rename, a workspace
+dependency and a target-specific dependency count as shipped. An edge the
+reader does not understand gets no label.
+
+Nothing to do in a project; `just template-update` brings it.
+
 ## 3.42.0 — 2026-10-19
 
 **A build can hold its turn until it ends, and a stuck Docker helper is said.**

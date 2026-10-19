@@ -3158,6 +3158,19 @@ if "$py" -c 'import tomllib' 2>/dev/null && cd "$tmp/s29"; then
   age30 8; o30=$(sg30); st30=$?
   age30 3; o3=$(sg30)
   check "a copy fetched over 7 days ago that cannot be fetched again is said stale, and the gate still decides" "[ $st30 -eq 0 ] && grep -q '^stale RustSec database of 2099-01-01, offline (AI_BACKBONE_OFFLINE); the copy here was fetched 8 day(s) ago' <<<\"\$o30\" && grep -q '^database RustSec of 2099-01-01, offline' <<<\"\$o3\""
+  # A label for a crate only tests build, read from Cargo.toml, never a
+  # silencer (n-3140d5). baz is a renamed workspace dep, old is target-only,
+  # foo is a dev-dependency. An edge the reader does not understand labels nothing.
+  use30="$tmp/s30-use"; mkdir -p "$use30/app"
+  printf '%s\n' '[workspace]' 'members = ["app"]' '[workspace.dependencies]' 'alias = { package = "baz", version = "0.1" }' > "$use30/Cargo.toml"
+  printf '%s\n' '[dependencies]' 'alias = { workspace = true }' "[target.'cfg(unix)'.dependencies]" 'old = "0.2"' '[dev-dependencies]' 'foo = "1"' > "$use30/app/Cargo.toml"
+  printf 'version = 4\n\n[[package]]\nname = "baz"\nversion = "0.1.0"\nsource = "%s"\ndependencies = [\n "old 0.2.4",\n]\n\n[[package]]\nname = "old"\nversion = "0.2.4"\nsource = "%s"\n\n[[package]]\nname = "foo"\nversion = "1.2.0"\nsource = "%s"\n' "$reg" "$reg" "$reg" > "$use30/Cargo.lock"
+  o30=$(u30 doctor "$use30/Cargo.lock" 2>&1); gate30 "$use30/Cargo.lock"
+  check "a dev-dependency is labelled only-tests and still warned" "grep -q 'foo 1.2.0 (only tests, by Cargo.toml) has RUSTSEC-2099-0001' <<<\"\$o30\" && grep -q '^  warn  ' <<<\"\$o30\" && grep -q 'foo 1.2.0 (only tests, by Cargo.toml) RUSTSEC-2099-0001' <<<\"\$out30\" && [ $rc30 -eq 1 ]"
+  check "a renamed dep and a target dep are not called test-only" "grep -q 'baz 0.1.0 has RUSTSEC-2099-0006' <<<\"\$o30\" && grep -q 'old 0.2.4 has RUSTSEC-2099-0004' <<<\"\$o30\" && ! grep -q 'baz 0.1.0 (only tests' <<<\"\$o30\" && ! grep -q 'old 0.2.4 (only tests' <<<\"\$o30\""
+  printf '%s\n' '[dependencies]' 'weird = { optional = true }' '[dev-dependencies]' 'foo = "1"' > "$use30/app/Cargo.toml"
+  o30=$(u30 doctor "$use30/Cargo.lock" 2>&1)
+  check "an edge the reader does not understand gets no test-only label" "! grep -q 'only tests, by Cargo.toml' <<<\"\$o30\" && grep -q 'foo 1.2.0 has RUSTSEC-2099-0001' <<<\"\$o30\""
   rm -f docs/advisories.toml
 else
   check "without tomllib, the gate says it could not tell" "o=\$(\"\$py\" \"\$root/.ai-backbone/upstream.py\" --advisories gate Cargo.lock 2>&1); [ \$? -eq 2 ] && grep -q '^error needs Python 3.11' <<<\"\$o\""
