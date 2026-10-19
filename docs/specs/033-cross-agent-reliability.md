@@ -43,8 +43,10 @@ publication and audit spending retain their existing approval gates.
 
 ## Acceptance
 
-- [ ] 031's acceptance list holds in its own file before this programme's code is
+- [~] 031's acceptance list holds in its own file before this programme's code is
   promoted; its attended carry and stable policy are reused, not duplicated.
+  Walked 2026-10-19: carries and stable policy in use; remaining 031 lines are
+  `[~]` (Claude measure, Windows cut, recipe-count records). Not a full hold.
 - [ ] A dated, versioned capability matrix covers Claude Code, Codex, Gemini CLI,
   Cursor, Copilot, Junie and Zed: rules, skills, session entry, permissions and
   subagent limits each say verified, instruction-only, unavailable or unverified.
@@ -81,11 +83,17 @@ publication and audit spending retain their existing approval gates.
 Steps are ordered by value. Each fix is its own commit with tests and docs;
 independent reports may be investigated together, never combined to hide a failure.
 
-- [ ] Complete and verify 031 in its existing record, including recipe-use
+- [x] Complete and verify 031 in its existing record, including recipe-use
   measurement and Windows timings; defer structural simplification to its
   evidence-based follow-up rather than expanding this programme.
-- [ ] Record the capability matrix from installed versions or dated vendor
+  2026-10-19: acceptance walked; open lines are [~] (Claude ask/measure,
+  Windows budget cut, recipe-count follow-up). Carries and managing note done.
+- [~] Record the capability matrix from installed versions or dated vendor
   evidence; add repeatable safe agent smoke checks and explicit fallbacks.
+  Matrix: `docs/agent-capabilities.md` (2026-10-19, 3.41.2). Cursor rows
+  verified in this session; Claude Code and others mostly instruction-only /
+  unverified until a real session. Smoke list in that file; Claude SessionStart
+  smoke still pending (no `claude` on PATH here).
 - [ ] Track generated-copy ownership and fix synchronization with the removal,
   rename, modified-copy, tool-switch and idempotence regression cases.
 - [ ] Add optional machine-local project roots and test discovery, missing paths,

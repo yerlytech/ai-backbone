@@ -7,6 +7,7 @@ a project built on it starts with a two-line `docs/README.md` of its own.
 |---|---|
 | `01-getting-started.md` | install, set up, first commands, what goes where, what the hidden folders are |
 | [`how-it-works.md`](how-it-works.md) | two pictures GitHub draws by itself, for a person who does not read code: how a note from a project becomes a new version in every project, and the life of one idea |
+| [`agent-capabilities.md`](agent-capabilities.md) | which AI agents get rules, skills, session start, permissions and subagent caps — verified vs instruction-only (spec 033) |
 | `specs/` | one page per idea, written before the code, `just spec <name>` |
 | `adr/` | architecture decisions, one file each, numbered, newest last, `just adr <name>`; one that changes an earlier one: `just adr <name> --amends NNNN` |
 | `backlog.md` | what the backbone should do next, one line each, from `just backbone-note "..."` in any project; open lines only, a built line is removed; `- [?]` lines wait for the maintainer |
