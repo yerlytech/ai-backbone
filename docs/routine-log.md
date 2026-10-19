@@ -54,3 +54,4 @@ prints the last two lines here in the backbone. A report, never an order.
 - 2026-10-18 gate: cloud not promoted — the checks ended failure: suite (windows-latest) failure FAIL: the Rust layer's check waits first, then builds with the cap;
 - 2026-10-19 gate: 0da7504 waits for an attended carry — green on Linux, macOS and Windows; it changes code (.ai-backbone/core.just, .ai-backbone/upstream.py, CHANGELOG.md): an attended session says what changed and why, and on the maintainer's yes runs just carry 0da7504
 - 2026-10-19 gate: cloud not promoted — the suite was due for this push and the run has no green suite job for Linux, macOS and Windows
+- 2026-10-19 gate: 89cc492 waits for an attended carry — green on Linux, macOS and Windows; it changes code (.ai-backbone/core.just, .ai-backbone/self-test.sh, .claude/skills/.ai-backbone-owned and 4 more): an attended session says what changed and why, and on the maintainer's yes runs just carry 89cc492
