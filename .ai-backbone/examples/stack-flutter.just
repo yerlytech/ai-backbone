@@ -52,9 +52,8 @@
 #                         it has already seen
 #   flavors               the first project that needs two builds of one app (the
 #                         first one here chose separate apps in one workspace instead)
-#   device integration    integration_test/ on a simulator, an emulator or a
-#     tests               phone: run by hand on one machine so far, here once a
-#                         second machine has run them
+#   a Mac rehearsal of    `just emulator-plist` writes the launchd agent. bootstrap
+#     launchd             itself is not run from here: it needs a Mac.
 #   golden tests          a picture drawn on one operating system fails on
 #                         another (the fonts differ): here once one set passes
 #                         on two
@@ -127,6 +126,137 @@ run device="":
 [group('flutter')]
 devices:
     @just _need-flutter 2>/dev/null && flutter devices
+
+# The emulator a device test runs on, chosen by its own AVD name
+# (`adb -s <serial> emu avd name`) or by the port it was started with
+# (`emulator-<port>`). Never the first line of `adb devices`: several
+# projects share one machine, and adb lists them in no set order.
+[positional-arguments]
+_device-serial avd="" port="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    avd="${1:-}"; port="${2:-}"
+    if [ -z "$avd" ] && [ -z "$port" ]; then
+      echo "Name the emulator: just test-device <avd>, or a port as the second argument." >&2
+      echo "The first line of adb devices is not a choice." >&2
+      exit 1
+    fi
+    if ! command -v adb >/dev/null 2>&1; then echo "adb is not on PATH." >&2; exit 1; fi
+    serials=$(adb devices | awk 'NR > 1 && $1 ~ /^emulator-/ && $2 == "device" { print $1 }')
+    if [ -z "$serials" ]; then echo "No emulator is running." >&2; exit 1; fi
+    if [ -n "$port" ]; then
+      want="emulator-$port"
+      grep -qx "$want" <<< "$serials" || { echo "No emulator is listening on port $port." >&2; exit 1; }
+      printf '%s\n' "$want"
+      exit 0
+    fi
+    found=""
+    while IFS= read -r serial; do
+      [ -n "$serial" ] || continue
+      name=$(adb -s "$serial" emu avd name 2>/dev/null | head -1 | tr -d '\r')
+      if [ "$name" = "$avd" ]; then
+        if [ -n "$found" ]; then echo "Two running emulators are named $avd." >&2; exit 1; fi
+        found=$serial
+      fi
+    done <<< "$serials"
+    if [ -z "$found" ]; then echo "No running emulator is named $avd." >&2; exit 1; fi
+    printf '%s\n' "$found"
+
+# Load average and free memory. A device test on a busy machine loses the
+# device after install; the cause is still open, so the run says the machine
+# is busy and does not start (n-fe290b). FLUTTER_LOAD_NOW and FLUTTER_FREE_NOW
+# are how the suite states the numbers. A number that cannot be read does not
+# count as busy.
+_machine-calm:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    load="${FLUTTER_LOAD_NOW:-}"
+    if [ -z "$load" ] && [ -r /proc/loadavg ]; then read -r load _ < /proc/loadavg || true; fi
+    if [ -z "$load" ]; then load=$(sysctl -n vm.loadavg 2>/dev/null | awk '{ print $2 }' || true); fi
+    free="${FLUTTER_FREE_NOW:-}"
+    if [ -z "$free" ] && [ -r /proc/meminfo ]; then free=$(awk '/^MemAvailable:/ { printf "%d", $2 / 1024 }' /proc/meminfo || true); fi
+    max="${FLUTTER_LOAD_MAX:-8}"
+    min="${FLUTTER_FREE_MIN_MB:-512}"
+    busy=$(awk -v l="${load:-0}" -v m="$max" -v f="${free:-999999}" -v n="$min" 'BEGIN { print (l+0 >= m+0 || f+0 < n+0) ? "yes" : "no" }')
+    if [ "$busy" = yes ]; then
+      echo "This machine is busy (load ${load:-unknown}, ${free:-unknown} MB free). A device test waits."
+      echo "The limit is load $max and $min MB free (FLUTTER_LOAD_MAX, FLUTTER_FREE_MIN_MB)."
+      exit 1
+    fi
+
+# One device test. Picks the emulator by name or port, stops when the run
+# writes nothing for FLUTTER_SILENCE_SECONDS (three minutes), and keeps the
+# log of a failed try under brain/05-files/.
+[group('flutter')]
+[positional-arguments]
+test-device avd="" port="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    d=$(just _app {{quote(app_dir)}} {{quote(ws_dir)}}); if [ -z "$d" ]; then exit 1; fi
+    just _need-flutter 2>/dev/null || exit 1
+    just _machine-calm || exit 1
+    serial=$(just _device-serial "${1:-}" "${2:-}") || exit 1
+    root=$(pwd)
+    mkdir -p "$root/brain/05-files"
+    cd "$d"
+    log=$(mktemp)
+    if [ -d integration_test ]; then set -- flutter test -d "$serial" integration_test
+    else set -- flutter test -d "$serial"; fi
+    "$@" >"$log" 2>&1 &
+    pid=$!
+    limit="${FLUTTER_SILENCE_SECONDS:-180}"
+    case "$limit" in ""|*[!0-9]*) limit=180 ;; esac
+    quiet=0; last=-1
+    while kill -0 "$pid" 2>/dev/null; do
+      size=$(wc -c < "$log" | tr -d ' ')
+      if [ "$size" = "$last" ]; then quiet=$((quiet + 1)); else quiet=0; last=$size; fi
+      if [ "$quiet" -ge "$limit" ]; then
+        kill -TERM "$pid" 2>/dev/null || true
+        wait "$pid" 2>/dev/null || true
+        kept="$root/brain/05-files/device-test-$pid.log"
+        cp "$log" "$kept"
+        rm -f "$log"
+        echo "Stopped: flutter test wrote nothing for $limit seconds. The log is $kept"
+        exit 1
+      fi
+      sleep 1
+    done
+    rc=0
+    wait "$pid" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+      kept="$root/brain/05-files/device-test-$pid.log"
+      cp "$log" "$kept"
+      rm -f "$log"
+      echo "flutter test failed. The log is $kept"
+      exit "$rc"
+    fi
+    rm -f "$log"
+
+# The launchd agent that should start the emulator, as a file. It is not
+# started here, and not as a child of this recipe: a niced parent is how a
+# busy Mac lost the device. bootstrap waits for a Mac (n-ae82d7).
+[group('flutter')]
+[positional-arguments]
+emulator-plist avd port dest:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    avd="${1:-}"; port="${2:-}"; dest="${3:-}"
+    if [ -z "$avd" ] || [ -z "$port" ] || [ -z "$dest" ]; then
+      echo "just emulator-plist <avd> <port> <file>" >&2
+      exit 1
+    fi
+    label=$(printf '%s' "$avd" | tr -c 'A-Za-z0-9' '-')
+    {
+      printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' '<plist version="1.0"><dict>'
+      printf '%s\n' '<key>Label</key>' "<string>ai.backbone.emulator.$label</string>"
+      printf '%s\n' '<key>KeepAlive</key><false/>' '<key>ProcessType</key><string>Interactive</string>'
+      printf '%s\n' '<key>ProgramArguments</key><array>' '<string>emulator</string>' '<string>-avd</string>' "<string>$avd</string>" '<string>-port</string>' "<string>$port</string>" '</array>'
+      printf '%s\n' '<key>EnvironmentVariables</key><dict>' "<key>PATH</key><string>${PATH}</string>"
+      if [ -n "${ANDROID_HOME:-}" ]; then printf '<key>ANDROID_HOME</key><string>%s</string>\n' "$ANDROID_HOME"; fi
+      if [ -n "${JAVA_HOME:-}" ]; then printf '<key>JAVA_HOME</key><string>%s</string>\n' "$JAVA_HOME"; fi
+      printf '%s\n' '</dict></dict></plist>'
+    } > "$dest"
+    echo "Wrote $dest. launchd was not asked: bootstrap is a Mac's job, and this recipe does not start the emulator itself."
 
 # ──────────────────────────── test ────────────────────────────
 #

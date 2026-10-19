@@ -110,9 +110,12 @@ independent reports may be investigated together, never combined to hide a failu
   3.42.0: a done spec's `[~]` acceptance lines are named at session-start.
   3.43.0: a test-only crate is labelled and still reported. n-259b1e has no
   report text anywhere but this line, so it stays open.
-- [ ] Implement and fixture-test explicit device selection (n-f79b86), silence
+- [~] Implement and fixture-test explicit device selection (n-f79b86), silence
   timeout (n-445708), and safe macOS emulator startup/busy-machine handling
   (n-ae82d7, corrected by n-fe290b); keep the correction in the diagnosis.
+  3.44.0: `test-device` picks by AVD name or port, stops a silent run, and
+  refuses a busy machine. `emulator-plist` writes the agent and starts
+  nothing. launchctl bootstrap is not rehearsed: it needs a Mac.
 - [ ] Run the real agent and device rehearsals; record versions, outcomes and
   unresolved checks. Public evidence contains no account or local project data.
 - [ ] Walk both acceptance lists; run the three-OS gate and attended install/update

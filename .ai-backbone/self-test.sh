@@ -2077,6 +2077,7 @@ case "$1 $2" in
   "analyze "*) [ -n "${FL_ANALYZE_FAILS:-}" ] && { echo "1 issue found."; exit 1; } ;;
   "pub upgrade") printf '%b\n' "${FL_DRY:-Resolving dependencies...\nNo dependencies would change.}" ;;
   "build apk") echo "Execution failed: Error while executing process /jdk/bin/jlink"; exit 1 ;;
+  "test "*) [ -n "${FL_TEST_SILENT:-}" ] && exec sleep 30 ;;
   "--version "*) echo "Flutter 0.0.0 (a stand-in)" ;;
 esac
 exit 0
@@ -2101,7 +2102,7 @@ lsum=$(just -f "$L" -d "$fl" --summary 2>&1)
 check "it has the recipes the spec names, and no test-fast"         "( for r in get lint fmt test outdated run devices build-android build-ios clean versions check-versions; do grep -qw -- \"\$r\" <<<\"\$lsum\" || exit 1; done ) && ! grep -qw test-fast <<<\"\$lsum\""
 check "it tells doctor its tools and its root files"                "grep -q '^_stack-doctor:' '$L' && grep -q '^_root-allow:' '$L'"
 check "it analyzes with flutter analyze, never dart analyze"        "grep -q 'flutter analyze' <<<\"\$lcode\" && ! grep -q 'dart analyze' <<<\"\$lcode\""
-check "its header lists what it does not do yet, each with its event" "( for w in 'release signing' 'store upload' 'build-number bump' 'flavors' 'device integration' 'golden tests' 'MCP server' 'toolchain line in'; do grep -q \"^#.*\$w\" '$L' || exit 1; done )"
+check "its header lists what it does not do yet, each with its event" "( for w in 'release signing' 'store upload' 'build-number bump' 'flavors' 'a Mac rehearsal of' 'golden tests' 'MCP server' 'toolchain line in'; do grep -q \"^#.*\$w\" '$L' || exit 1; done )"
 # The names are the project's own words (its apps, the earlier ones) and are
 # private: they live in brain/private-names.txt on the maintainer's machine,
 # one per line, and never in this file, because the repository is public
@@ -2129,6 +2130,29 @@ check "the members are read from the workspace: list"              "[ \"\$(just 
 check "get and analyze run once, at the workspace root"            "[ \$(grep -cx 'flutter pub get @ src' <<<\"\$flog\") -eq 1 ] && [ \$(grep -cx 'flutter analyze @ src' <<<\"\$flog\") -eq 1 ]"
 check "the format check names every member's Dart folders, not ." "grep -qx 'dart format --output=none --set-exit-if-changed core/lib core/test app/lib app/test @ src' <<<\"\$flog\""
 check "a package without Flutter runs dart test, the app flutter test" "grep -qx 'dart test @ core' <<<\"\$flog\" && grep -qx 'flutter test @ app' <<<\"\$flog\" && ! grep -qx 'flutter test @ core' <<<\"\$flog\""
+# Device tests pick an emulator by its AVD name or its port, never the first
+# line adb prints. A run that writes nothing is stopped, and a busy machine
+# is said before Flutter is asked. The launchd file is checked as text.
+mkdir -p "$fl/adb"
+cat > "$fl/adb/adb" <<'EOF'
+#!/bin/sh
+if [ "$1" = devices ]; then printf 'List of devices attached\nemulator-5554\tdevice\nemulator-5556\tdevice\n'; exit 0; fi
+if [ "$1" = -s ] && [ "$3" = emu ]; then
+  case "$2" in emulator-5554) printf 'Pixel_API_35\n' ;; emulator-5556) printf 'Other\n' ;; esac
+fi
+exit 0
+EOF
+chmod +x "$fl/adb/adb"
+dev() { env PATH="$fl/adb:$fl/fakes:$PATH" FL_LOG="$fl/log" FLUTTER_LOAD_NOW=0.1 FLUTTER_FREE_NOW=4000 "$@"; }
+check "a device is chosen by its AVD name, never by being listed first" "says '^emulator-5554$' dev just _device-serial Pixel_API_35 && says '^emulator-5556$' dev just _device-serial '""' 5556"
+check "with no name and no port, the first adb line is refused" "! dev just _device-serial >/dev/null 2>&1 && says 'not a choice' dev just _device-serial"
+: > "$fl/log"
+check "test-device asks flutter test for that emulator" "dev just app=app test-device Pixel_API_35 >/dev/null 2>&1 && grep -qx 'flutter test -d emulator-5554 @ app' '$fl/log'"
+: > "$fl/log"
+check "a device test that writes nothing is stopped, and the log is kept" "! dev env FL_TEST_SILENT=1 FLUTTER_SILENCE_SECONDS=2 just app=app test-device Pixel_API_35 >/dev/null 2>&1 && says 'wrote nothing for 2 seconds' dev env FL_TEST_SILENT=1 FLUTTER_SILENCE_SECONDS=2 just app=app test-device Pixel_API_35 && [ -n \"\$(ls brain/05-files/device-test-*.log 2>/dev/null)\" ]"
+: > "$fl/log"; rm -rf brain
+check "a busy machine is said, and flutter is not asked" "! dev env FLUTTER_LOAD_NOW=20 FLUTTER_LOAD_MAX=8 just app=app test-device Pixel_API_35 >/dev/null 2>&1 && says 'This machine is busy' dev env FLUTTER_LOAD_NOW=20 just app=app test-device Pixel_API_35 && [ ! -s '$fl/log' ]"
+check "the emulator plist is a one-shot interactive agent and starts nothing" "says 'launchd was not asked' env ANDROID_HOME=/opt/android JAVA_HOME=/opt/java just emulator-plist Pixel_API_35 5554 '$fl/emu.plist' && grep -q '<key>KeepAlive</key><false/>' '$fl/emu.plist' && grep -q '<key>ProcessType</key><string>Interactive</string>' '$fl/emu.plist' && grep -q '<string>-port</string>' '$fl/emu.plist' && grep -q '<string>5554</string>' '$fl/emu.plist' && grep -q 'ANDROID_HOME' '$fl/emu.plist' && grep -q 'JAVA_HOME' '$fl/emu.plist' && [ ! -s '$fl/log' ]"
 : > "$fl/log"; out=$(fx env FL_DART_FAILS=1 just test 2>&1); rc=$?
 check "a member that fails does not stop the others, and the end names it" "[ $rc -ne 0 ] && grep -qx 'Failed: src/core' <<<\"\$out\" && grep -qx 'flutter test @ app' '$fl/log'"
 : > "$fl/log"

@@ -13,6 +13,20 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## 3.44.0 — 2026-10-19
+
+**A Flutter device test names its emulator, and stops when it goes quiet.**
+`just test-device <avd>` picks a running emulator by the name `adb` reports
+for it, or by its port. It does not take the first line of `adb devices`.
+A run that writes nothing for three minutes is stopped and the log is kept.
+A machine over the load or under the free-memory limit is told it is busy,
+and the test does not start. `just emulator-plist` writes the launchd agent
+(one shot, interactive, with the Android and Java paths). It does not start
+the emulator, and it does not call launchd: that still needs a Mac.
+
+Nothing to do in a project; `just template-update` brings the example.
+`just stack flutter` in a project copies it when you next ask.
+
 ## 3.43.0 — 2026-10-19
 
 **An advisory in a test-only crate is labelled, and still reported.**
