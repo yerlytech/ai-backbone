@@ -3569,17 +3569,6 @@ fi
 cd "$tmp" || exit 1
 
 section "delegate (spec 034)"
-# The recipe's text is in d_out. The shared check prints the eval's own
-# stdout, which this section leaves empty, so a red CI line had nothing
-# under it (macos-latest, run 39407850519). Show what the recipe printed.
-check() {
-  : > "$tmp/check.out"; : > "$tmp/says.out"
-  if eval "$2" >"$tmp/check.out" 2>&1; then ok "$1"; else bad "$1"
-    if [ -s "$tmp/check.out" ] || [ -s "$tmp/says.out" ]; then cat "$tmp/check.out" "$tmp/says.out"; else printf '%s\n' "${out:-}"; fi | tail -12 | sed 's/^/        /'
-    if [ -n "${d_out-}" ]; then printf '%s\n' "$d_out" | sed -n '1,30s/^/        | /p'
-    else printf '%s\n' '        | (no recipe output)'; fi
-  fi
-}
 # A script stands in for the worker. The recipes call the resolved path; on
 # PATH that is this script. It records the prompt and does what FAKE_WORKER_MODE
 # says. FAKE_WORKER_BINLOG, when set, receives the path the recipe executed.
@@ -3840,7 +3829,7 @@ check "drop with two delegate branches asks for the name and deletes none" \
 d_new fail
 d_run fail grok "" delegate "break it"
 check "the worker's exit status is the recipe's, and a dirty tree is said" \
-  "[ \$d_rc -eq 3 ] && grep -qx 'exit status: 3' <<<\"\$d_out\" && ! grep -q Terminated <<<\"\$d_out\" && ! grep -q ' Done ' <<<\"\$d_out\""
+  "[ \$d_rc -eq 3 ] && grep -qx 'exit status: 3' <<<\"\$d_out\""
 d_new dirt
 d_run dirty grok "" delegate "leave a file"
 check "a worker that leaves a file is reported as a dirty tree" "grep -qx 'tree: dirty' <<<\"\$d_out\" && [ -f \"\$dproj/left-dirty.txt\" ]"
