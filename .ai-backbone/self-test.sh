@@ -3569,6 +3569,17 @@ fi
 cd "$tmp" || exit 1
 
 section "delegate (spec 034)"
+# The recipe's text is in d_out. The shared check prints the eval's own
+# stdout, which this section leaves empty, so a red line had nothing under
+# it (windows-latest, run 39407850519). Show what the recipe printed.
+check() {
+  : > "$tmp/check.out"; : > "$tmp/says.out"
+  if eval "$2" >"$tmp/check.out" 2>&1; then ok "$1"; else bad "$1"
+    if [ -s "$tmp/check.out" ] || [ -s "$tmp/says.out" ]; then cat "$tmp/check.out" "$tmp/says.out"; else printf '%s\n' "${out:-}"; fi | tail -12 | sed 's/^/        /'
+    if [ -n "${d_out-}" ]; then printf '%s\n' "$d_out" | sed -n '1,30s/^/        | /p'
+    else printf '%s\n' '        | (no recipe output)'; fi
+  fi
+}
 # A script stands in for the worker. The recipes call the resolved path; on
 # PATH that is this script. It records the prompt and does what FAKE_WORKER_MODE
 # says. FAKE_WORKER_BINLOG, when set, receives the path the recipe executed.
@@ -3783,8 +3794,34 @@ cp "$dbin/grok" "$tmp/only-via-worker-bin"
 chmod +x "$tmp/only-via-worker-bin"
 rm -f "$tmp/delegate-binlog"
 WORKER_BIN="$tmp/only-via-worker-bin" FAKE_WORKER_BINLOG="$tmp/delegate-binlog" d_run ok grok "" delegate "add a line"
+# $0 can be another spelling of the same file: Git Bash rewrites WORKER_BIN
+# on the way into native just.exe, and cygpath writes it back (the run above).
+# Compare the file, not the characters. bash 3.2's test -ef is the same file.
+same_bin() {
+  a=$1; b=$2
+  if command -v cygpath >/dev/null 2>&1; then
+    a=$(cygpath -u "$a")
+    b=$(cygpath -u "$b")
+  fi
+  [ "$a" -ef "$b" ]
+}
 check "WORKER_BIN is the binary, ahead of the name on PATH" \
-  "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$tmp/delegate-binlog\")\" = \"\$tmp/only-via-worker-bin\" ]"
+  "[ \$d_rc -eq 0 ] && same_bin \"\$(cat \"\$tmp/delegate-binlog\")\" \"\$tmp/only-via-worker-bin\""
+# Git Bash is not on this machine. A cygpath ahead of PATH is the one the
+# recipe calls, and it answers with the real file. A Windows-shaped value
+# is not executable until that answer replaces it: without the call, this
+# refuses with "not installed" (the same run).
+cat > "$dbin/cygpath" << EOF
+#!/usr/bin/env bash
+printf '%s\n' "$tmp/only-via-worker-bin"
+EOF
+chmod +x "$dbin/cygpath"
+d_new binwin
+rm -f "$tmp/delegate-binlog"
+WORKER_BIN='C:\Users\runner\AppData\Local\Temp\only-via-worker-bin' FAKE_WORKER_BINLOG="$tmp/delegate-binlog" d_run ok grok "" delegate "add a line"
+check "a Windows path in WORKER_BIN is the same binary once cygpath reads it" \
+  "[ \$d_rc -eq 0 ] && same_bin \"\$(cat \"\$tmp/delegate-binlog\")\" \"\$tmp/only-via-worker-bin\""
+rm -f "$dbin/cygpath"
 d_new dirty
 printf 'x\n' >> "$dproj/README.md"
 d_run ok grok "" delegate "add a line"

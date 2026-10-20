@@ -1333,6 +1333,11 @@ delegate task="":
     # The adapters call that path, or the fallback is found and never used.
     worker_bin=""
     if [ -n "${WORKER_BIN:-}" ]; then
+      # Git Bash, calling native just.exe, rewrites a POSIX path in the
+      # environment into a Windows path. test -x is a builtin and does not see
+      # C:\... or C:/..., so this said the binary was not installed
+      # (windows-latest, run 39407850519). cygpath exists only there.
+      if command -v cygpath >/dev/null 2>&1; then WORKER_BIN=$(cygpath -u "$WORKER_BIN"); fi
       if [ -x "$WORKER_BIN" ]; then worker_bin=$WORKER_BIN
       else echo "refuses: $worker is not installed"; exit 1; fi
     elif command -v "$worker" >/dev/null 2>&1; then
