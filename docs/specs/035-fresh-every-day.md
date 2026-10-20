@@ -44,36 +44,40 @@ first job the update, ideas watched in the same list, the scan on request.
 
 ## Acceptance
 
-- [ ] `just session-start` shows a FRESHNESS block: when it was checked, what is
+- [x] `just session-start` shows a FRESHNESS block: when it was checked, what is
       behind (tool, pin → newest), pins that MOVED, the backbone's own version,
       ideas that released, and one suggested first job.
-- [ ] The online check runs only when the machine's shared result is older than
+- [x] The online check runs only when the machine's shared result is older than
       24 hours, or on `just upstream --refresh`. Its cache lives under
       `~/.cache/ai-backbone/upstream/`, keyed by source, so two projects that
       watch the same tool share one lookup.
-- [ ] Offline, rate-limited or slow (over 10 s in total): session start still
+- [x] Offline, rate-limited or slow (over 10 s in total): session start still
       completes. It shows the last result with its age and says why it is old.
       It never fails the session and never hides a failure.
-- [ ] `docs/upstream.toml` accepts `kind = "idea"` with `why` and `look_for`.
+- [x] `docs/upstream.toml` accepts `kind = "idea"` with `why` and `look_for`.
       An idea entry is listed apart from tools. Its newer release counts as
       "to read", never as "behind".
-- [ ] The backbone's list watches the worker CLI (grok), Claude Code and Zed,
+- [x] The backbone's list watches the worker CLI (grok), Claude Code and Zed,
       and the two ideas taken for spec 034: OrchestratorInc/agent-orchestrator
       (a board of every running job) and claude-delegator (ask-only mode).
       The pins match what is installed or pinned on 2026-10-20.
-- [ ] The core rules and the session skill say: a FRESHNESS block with something
+- [x] The core rules and the session skill say: a FRESHNESS block with something
       behind makes the update the first job; an idea to read goes to the
       worker for a ten-line note, and to the maintainer only when it is worth
       a decision.
-- [ ] Tests cover the cache's age rule, a shared lookup across two fixture
+- [~] Tests cover the cache's age rule, a shared lookup across two fixture
       projects, offline and rate-limited runs, and an idea entry. They pass on
       macOS and Linux.
+      macOS green (903 ok). Linux waits for the checks of the first publish.
+      Walked 2026-10-20 by the manager: `just upstream` and `just session-start`
+      on this machine show the block, the shared cache, the new entries and the
+      ideas pinned at today's release and commit.
 
 ## Tasks
 
-- [ ] Shared daily cache and `--refresh` in upstream.py, with its tests.
-- [ ] FRESHNESS block in session-start, offline and slow paths, tests.
-- [ ] `kind = "idea"`, its listing and tests; the backbone's list brought up to
+- [x] Shared daily cache and `--refresh` in upstream.py, with its tests.
+- [x] FRESHNESS block in session-start, offline and slow paths, tests.
+- [x] `kind = "idea"`, its listing and tests; the backbone's list brought up to
       date (just, prek, graphify, uv, the two MOVED pins) and the new entries.
 - [ ] Rules, session skill, docs and changelog. Release with 034's, or after it.
 
