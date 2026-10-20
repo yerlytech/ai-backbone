@@ -1908,6 +1908,33 @@ elif mode == "fresh-idea":
         fail(out)
     if "First job: read orch:" not in out or "Behind: orch" in out:
         fail(out)
+elif mode == "idea-table":
+    (one / "docs" / "upstream.toml").write_text(
+        '[[watch]]\nname = "tool"\nsource = "pypi:tool"\npin = "1.2.0"\n\n'
+        '[[watch]]\nname = "orch"\nkind = "idea"\nsource = "pypi:tool"\npin = "1.0.0"\n'
+        'why = "an idea"\nlook_for = "a board of every running job across projects"\n',
+        encoding="utf-8")
+    rc, out = run(one)
+    if rc != 0 or "To read: orch" not in out or "Newer:" in out:
+        fail(f"rc={rc}\n{out}")
+    if "An idea is not an upgrade" not in out:
+        fail(out)
+    cache = json.loads((one / ".git" / "upstream-cache.json").read_text(encoding="utf-8"))
+    if cache.get("behind"):
+        fail("an idea was counted behind: " + repr(cache["behind"]))
+elif mode == "npm-scope":
+    seen = {}
+
+    def fake(url, headers=None):
+        seen["url"] = url
+        return {"versions": {"1.0.62": {}}, "time": {"1.0.62": "2026-10-20T00:00:00.000Z"}}
+
+    u.fetch_json = fake
+    rows = u.from_npm("@xai-official/grok")
+    if seen.get("url") != "https://registry.npmjs.org/@xai-official%2Fgrok":
+        fail("asked " + seen.get("url", ""))
+    if not rows or rows[0]["version"] != "1.0.62":
+        fail(repr(rows))
 else:
     fail("unknown mode " + mode)
 PY
@@ -1927,6 +1954,13 @@ check "offline, with no copy, the block says so and still exits 0"    "fresh035 
 check "past ten seconds the block keeps the last result and says slow" "fresh035 fresh-slow"
 check "a pin the file does not hold is the job when nothing is behind" "fresh035 fresh-moved"
 check "an idea's newer release is to read, never behind"              "fresh035 fresh-idea"
+check "the table lists an idea apart, and not as newer"             "fresh035 idea-table"
+check "a scoped npm package is asked with the slash encoded"        "fresh035 npm-scope"
+check "the backbone's tool pins are the releases of 2026-10-20" \
+  "grep -qx 'pin = \"1.59.0\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"0.5.6\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"0.9.92\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"0.13.3\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"v8.30.1\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"v7\"' '$root/docs/upstream.toml'"
+check "the backbone watches grok, claude-code, zed and the two ideas" \
+  "grep -qx 'source = \"npm:@xai-official/grok\"' '$root/docs/upstream.toml' && grep -qx 'source = \"npm:@anthropic-ai/claude-code\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:zed-industries/zed\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:OrchestratorInc/agent-orchestrator\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:jarrodwatts/claude-delegator\"' '$root/docs/upstream.toml' && grep -qx 'look_for = \"a board of every running job across projects\"' '$root/docs/upstream.toml' && grep -qx 'look_for = \"an ask-only mode\"' '$root/docs/upstream.toml'"
+check "the template says what an idea row is" "grep -q 'kind' '$root/.ai-backbone/templates/upstream.toml' && grep -q 'look_for' '$root/.ai-backbone/templates/upstream.toml'"
 check "just upstream --refresh is a real run, and offline it says so" \
   "says offline env AI_BACKBONE_UPSTREAM_CACHE='$tmp/spec035-refresh' just upstream --refresh && env AI_BACKBONE_UPSTREAM_CACHE='$tmp/spec035-refresh' just upstream --refresh >/dev/null"
 # session-start's two weekly blocks ask GitHub and the registries. Offline they

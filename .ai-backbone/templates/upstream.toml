@@ -26,6 +26,10 @@
 #               for npm, pubspec.lock for pub. The file beside it holds a range
 #               (flame: ^1.38.2) and still says so after the lockfile has moved
 #   why         one line: what this project uses it for
+#   kind        "idea" for a project an idea is taken from and this one is not
+#               built on. Left off, the row is a tool. A newer idea is listed
+#               as something to read, never as something this project is behind
+#   look_for    for an idea: the one thing a newer release is read for
 #   check       what to look at before following it upstream
 #   prereleases true to count release candidates as newer (for something
 #               deliberately tracked before it is stable)

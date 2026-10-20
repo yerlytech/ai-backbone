@@ -41,6 +41,7 @@ import tarfile
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -222,7 +223,11 @@ def from_crates(name):
 
 
 def from_npm(name):
-    data = fetch_json(f"https://registry.npmjs.org/{name}")
+    """npm. A scoped package is @scope/name. The registry wants that slash
+    written as %2F and the @ left as it is, or the request names a different
+    package and comes back empty."""
+    quoted = urllib.parse.quote(name, safe="@")
+    data = fetch_json(f"https://registry.npmjs.org/{quoted}")
     times = data.get("time", {})
     versions = [v for v in data.get("versions", {})]
     versions.sort(key=lambda v: times.get(v, ""), reverse=True)
@@ -2070,7 +2075,16 @@ def main():
     for name, pin, at, newest, how, real in rows:
         mark = "ok" if real else ("MOVED" if real is False else "-")
         say(f"  {name:<{wn}}{pin:<{wp}}{at:<12}{newest:<{wv}}{how:<12}{mark}")
-    behind = [name for name, _, _, _, how, _ in rows if how.endswith("newer")]
+    # An idea is listed apart, and never as something this project is behind on.
+    by_name = {(e.get("name") or e.get("source", "?")): e for e in watched}
+    behind, to_read = [], []
+    for name, _pin, _at, _newest, how, _real in rows:
+        if not str(how).endswith("newer"):
+            continue
+        if _is_idea(by_name.get(name, {})):
+            to_read.append(name)
+        else:
+            behind.append(name)
     blind = [name for name, _, _, _, how, _ in rows if how in ("unknown", "unreachable")]
     moved = [name for name, _, _, _, _, real in rows if real is False]
     say()
@@ -2092,6 +2106,8 @@ def main():
         say(f"Everything readable is current. No answer for: {', '.join(blind)}.")
     else:
         say("Everything watched is current.")
+    if to_read:
+        say(f"To read: {', '.join(to_read)}. An idea is not an upgrade. Read one: just upstream {to_read[0]}")
     if stale:
         say("Last result, kept because this run could not check:")
         for name, reason, record in stale:
