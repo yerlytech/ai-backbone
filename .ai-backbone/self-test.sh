@@ -264,7 +264,9 @@ r=$(just --summary 2>/dev/null | wc -w | tr -d ' ')
 # 027: `just trim-build`, named in the spec the maintainer approved on 2026-10-10
 # in an attended session; in the core, so that the disk warning every project
 # can show points at a recipe every project has.
-check "recipes a new project shows at most 41 (got $r)" "[ $r -le 41 ]"
+# 45 since spec 034: `just delegate`, `delegate-status`, `delegate-accept` and
+# `delegate-drop`, named in the spec the maintainer approved on 2026-10-20.
+check "recipes a new project shows at most 45 (got $r)" "[ $r -le 45 ]"
 b=$(wc -c < AGENTS.md | tr -d ' ')
 check "AGENTS.md at most 7000 bytes (got $b)"         "[ $b -le 7000 ]"
 # What a Claude Code session loads, not one file (spec 022): since 2.1.281 its
@@ -3200,6 +3202,192 @@ else
   check "without tomllib, the gate says it could not tell" "o=\$(\"\$py\" \"\$root/.ai-backbone/upstream.py\" --advisories gate Cargo.lock 2>&1); [ \$? -eq 2 ] && grep -q '^error needs Python 3.11' <<<\"\$o\""
 fi
 cd "$tmp" || exit 1
+
+section "delegate (spec 034)"
+# A script stands in for the worker. The recipes call `grok` or `claude` on
+# PATH; this one records the prompt and does what FAKE_WORKER_MODE says.
+dhome="$tmp/delegate-home"
+dbin="$tmp/delegate-bin"
+dprompt="$tmp/delegate-prompt"
+dgo="$tmp/delegate-go"
+mkdir -p "$dbin" "$dhome"
+cat > "$dbin/grok" << 'EOF'
+#!/usr/bin/env bash
+prompt=""
+fmt=""
+model=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -p) prompt=$2; shift 2 ;;
+    --output-format) fmt=$2; shift 2 ;;
+    --model) model=$2; shift 2 ;;
+    *) echo "unexpected: $1" >&2; exit 2 ;;
+  esac
+done
+if [ -n "${FAKE_WORKER_PROMPT:-}" ]; then
+  printf '%s\n' "$prompt" > "$FAKE_WORKER_PROMPT"
+  printf '%s\n' "$fmt" > "$FAKE_WORKER_PROMPT.fmt"
+  printf '%s\n' "$model" > "$FAKE_WORKER_PROMPT.model"
+fi
+mode=${FAKE_WORKER_MODE:-ok}
+case "$mode" in
+  ok)
+    printf 'done\n' > worker-did.txt
+    git add worker-did.txt
+    git commit -qm "chore: worker did the task" --no-verify
+    n=1
+    while [ "$n" -le 20 ]; do printf 'line-%02d\n' "$n"; n=$((n+1)); done
+    ;;
+  slow)
+    echo started
+    i=0
+    while [ "$i" -lt 100 ]; do
+      [ -n "${FAKE_WORKER_GO:-}" ] && [ -f "$FAKE_WORKER_GO" ] && break
+      i=$((i+1))
+      sleep 0.2
+    done
+    echo report
+    ;;
+  dirty)
+    echo report
+    echo x > left-dirty.txt
+    ;;
+  fail)
+    echo report
+    exit 3
+    ;;
+  *) echo "unknown mode $mode" >&2; exit 2 ;;
+esac
+EOF
+cp "$dbin/grok" "$dbin/claude"
+chmod +x "$dbin/grok" "$dbin/claude"
+d_new() {
+  dproj="$tmp/delegate-$1"
+  rm -rf "$dproj"
+  mkdir -p "$dproj"
+  git -C "$dproj" init -qb main
+  git -C "$dproj" config user.email "delegate-test@example.com"
+  git -C "$dproj" config user.name "Delegate Test"
+  git -C "$dproj" config commit.gpgsign false
+  printf 'seed\n' > "$dproj/README.md"
+  git -C "$dproj" add README.md
+  git -C "$dproj" commit -qm "chore: init"
+  rm -f "$dgo" "$dprompt" "$dprompt.fmt" "$dprompt.model"
+}
+# d_run MODE WORKER WORKER_MODEL -- just args. An empty WORKER is unset.
+d_run() {
+  local mode="$1" worker="$2" model="$3"; shift 3
+  # shellcheck disable=SC2086
+  d_out=$(env -u WORKER -u WORKER_MODEL -u DELEGATE_TIMEOUT \
+    HOME="$dhome" PATH="$dbin:$PATH" \
+    FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE="$mode" FAKE_WORKER_GO="$dgo" \
+    ${worker:+WORKER=$worker} ${model:+WORKER_MODEL=$model} \
+    just -f "$root/Justfile" -d "$dproj" "$@" 2>&1) && d_rc=0 || d_rc=$?
+}
+d_one() {
+  local n=0 line
+  while IFS= read -r line; do [ -n "$line" ] && n=$((n+1)); done <<EOF
+$d_out
+EOF
+  [ "$n" -eq 1 ]
+}
+d_new off
+d_run ok "" "" delegate "add a line"
+check "with WORKER unset, delegate says so in one line and makes no branch" "[ \$d_rc -ne 0 ] && d_one && grep -q 'delegation is off (WORKER is unset)' <<<\"\$d_out\" && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ]"
+d_run ok off "" delegate "add a line"
+check "with WORKER=off, delegate says so and makes no branch" "[ \$d_rc -ne 0 ] && grep -q 'delegation is off (WORKER=off)' <<<\"\$d_out\" && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ]"
+d_run ok glm "" delegate "add a line"
+check "an unknown worker is refused with the list this recipe knows" "[ \$d_rc -ne 0 ] && d_one && grep -q \"unknown worker 'glm'\" <<<\"\$d_out\" && grep -q 'claude' <<<\"\$d_out\" && grep -q 'grok' <<<\"\$d_out\""
+d_out=$(env -u WORKER HOME="$dhome" PATH="$(dirname "$(command -v just)"):$(dirname "$(command -v git)"):/usr/bin:/bin" \
+  WORKER=grok just -f "$root/Justfile" -d "$dproj" delegate "add a line" 2>&1) && d_rc=0 || d_rc=$?
+check "a worker that is not installed is refused in one line" "[ \$d_rc -ne 0 ] && d_one && grep -qx 'refuses: grok is not installed' <<<\"\$d_out\""
+d_new dirty
+printf 'x\n' >> "$dproj/README.md"
+d_run ok grok "" delegate "add a line"
+check "a dirty tree is refused in one line, before any branch" "[ \$d_rc -ne 0 ] && d_one && grep -qx 'refuses: the working tree is not clean' <<<\"\$d_out\" && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ]"
+d_new branch
+git -C "$dproj" checkout -qb other
+d_run ok grok "" delegate "add a line"
+check "a branch other than the default is refused in one line" "[ \$d_rc -ne 0 ] && d_one && grep -q 'refuses: not on the default branch' <<<\"\$d_out\" && grep -q 'other' <<<\"\$d_out\" && grep -q 'main' <<<\"\$d_out\""
+d_new clean
+d_run ok grok "" delegate "add a line"
+dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+dlog=""
+for f in "$dhome/.cache/ai-backbone/delegate/delegate-clean"/*.log; do
+  [ -f "$f" ] || continue
+  dlog=$f
+done
+check "a clean run makes delegate/<date>-<slug>, commits, and prints the report, the stat, a clean tree and the exit" \
+  "[ \$d_rc -eq 0 ] && case \"\$dbr\" in delegate/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-add-a-line) ;; *) false ;; esac && grep -qx 'tree: clean' <<<\"\$d_out\" && grep -qx 'exit status: 0' <<<\"\$d_out\" && grep -q 'worker-did.txt' <<<\"\$d_out\" && grep -q 'line-20' <<<\"\$d_out\" && grep -q 'line-06' <<<\"\$d_out\" && ! grep -q 'line-01' <<<\"\$d_out\" && grep -q \"commits on \$dbr\" <<<\"\$d_out\" && [ -n \"\$dlog\" ] && grep -q 'line-01' \"\$dlog\" && [ -z \"\$(find \"\$dproj\" -name '*.log' -type f)\" ] && [ -z \"\$(git -C \"\$dproj\" status --porcelain)\" ]"
+check "the worker's prompt is the preamble, then the task, and grok is called headless" \
+  "grep -q 'Read AGENTS.md' \"\$dprompt\" && grep -q \"You are on branch \$dbr; stay on it.\" \"\$dprompt\" && grep -q 'just save' \"\$dprompt\" && grep -q 'just publish' \"\$dprompt\" && grep -q 'git push' \"\$dprompt\" && grep -q 'just ship' \"\$dprompt\" && grep -q 'just deploy' \"\$dprompt\" && grep -q 'server or GitHub' \"\$dprompt\" && grep -q 'merge, rebase, or delete a branch' \"\$dprompt\" && grep -q 'at most 15 lines' \"\$dprompt\" && [ \"\$(tail -n 1 \"\$dprompt\")\" = 'add a line' ] && [ \"\$(cat \"\$dprompt.fmt\")\" = plain ] && [ -z \"\$(cat \"\$dprompt.model\")\" ]"
+git -C "$dproj" checkout -q main
+d_run ok grok "" delegate "add a line"
+check "the same task on the same day is refused, and the first branch stays" "[ \$d_rc -ne 0 ] && grep -q 'already exists' <<<\"\$d_out\" && git -C \"\$dproj\" show-ref --verify --quiet \"refs/heads/\$dbr\""
+d_new model
+d_run ok claude cheap delegate "use claude"
+check "the claude adapter calls claude -p with WORKER_MODEL" "[ \$d_rc -eq 0 ] && grep -q 'Read AGENTS.md' \"\$dprompt\" && [ -z \"\$(cat \"\$dprompt.fmt\")\" ] && [ \"\$(cat \"\$dprompt.model\")\" = cheap ]"
+d_new running
+env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE=slow FAKE_WORKER_GO="$dgo" \
+  WORKER=grok just -f "$root/Justfile" -d "$dproj" delegate "wait here" > "$tmp/delegate-bg.out" 2>&1 &
+dbg=$!
+i=0
+while [ "$i" -lt 50 ]; do
+  [ -s "$dhome/.cache/ai-backbone/delegate/delegate-running/running/branch" ] && break
+  i=$((i+1)); sleep 0.1
+done
+d_run ok grok "" delegate "second task"
+dst=$(env -u WORKER HOME="$dhome" just -f "$root/Justfile" -d "$dproj" delegate-status 2>&1 || true)
+# The job deletes its lock as it exits, so remember the file before letting it go.
+if [ -s "$dhome/.cache/ai-backbone/delegate/delegate-running/running/branch" ]; then lock_seen=yes; else lock_seen=no; fi
+touch "$dgo"
+wait "$dbg" || true
+check "while a job runs, a second delegate is refused in one line and status names its branch" \
+  "[ \"\$lock_seen\" = yes ] && [ \$d_rc -ne 0 ] && d_one && grep -q 'refuses: a job is already running on delegate/' <<<\"\$d_out\" && grep -q 'job: running on delegate/' <<<\"\$dst\""
+d_new report
+d_run ok grok "" delegate "add a line"
+dst=$(env -u WORKER HOME="$dhome" just -f "$root/Justfile" -d "$dproj" delegate-status 2>&1 || true)
+check "with no job running, status shows the last report and the open delegate branch" \
+  "grep -qx 'job: none' <<<\"\$dst\" && grep -q 'line-20' <<<\"\$dst\" && ! grep -q 'line-01' <<<\"\$dst\" && grep -q 'delegate/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-add-a-line' <<<\"\$dst\""
+d_new accept
+d_run ok grok "" delegate "add a line"
+d_run ok "" "" delegate-accept
+check "accept fast-forwards the default branch and deletes the delegate branch" \
+  "[ \$d_rc -eq 0 ] && grep -q '^accepted delegate/.* onto main$' <<<\"\$d_out\" && [ \"\$(git -C \"\$dproj\" symbolic-ref --short HEAD)\" = main ] && [ -f \"\$dproj/worker-did.txt\" ] && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ] && git -C \"\$dproj\" merge-base --is-ancestor HEAD HEAD"
+d_new noff
+d_run ok grok "" delegate "add a line"
+nbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+git -C "$dproj" checkout -q main
+printf 'more\n' >> "$dproj/README.md"
+git -C "$dproj" add README.md
+git -C "$dproj" commit -qm "chore: main moved"
+d_run ok "" "" delegate-accept
+check "accept refuses when the delegate branch is not a fast-forward, and keeps it" \
+  "[ \$d_rc -ne 0 ] && grep -qx \"refuses: \$nbr is not a fast-forward of main\" <<<\"\$d_out\" && git -C \"\$dproj\" show-ref --verify --quiet \"refs/heads/\$nbr\""
+d_new drop
+d_run ok grok "" delegate "add a line"
+nbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+d_out=$(printf 'n\n' | env -u WORKER HOME="$dhome" just -f "$root/Justfile" -d "$dproj" delegate-drop 2>&1) && d_rc=0 || d_rc=$?
+kept=$d_rc
+kept_msg=$d_out
+if git -C "$dproj" show-ref --verify --quiet "refs/heads/$nbr"; then kept_branch=yes; else kept_branch=no; fi
+d_out2=$(printf 'y\n' | env -u WORKER HOME="$dhome" just -f "$root/Justfile" -d "$dproj" delegate-drop 2>&1) && d_rc=0 || d_rc=$?
+check "drop asks once: no keeps the branch, yes deletes it" \
+  "[ \$kept -ne 0 ] && grep -q \"kept \$nbr\" <<<\"\$kept_msg\" && [ \"\$kept_branch\" = yes ] && [ \$d_rc -eq 0 ] && grep -q \"^dropped \$nbr\$\" <<<\"\$d_out2\" && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ] && [ \"\$(git -C \"\$dproj\" symbolic-ref --short HEAD)\" = main ]"
+d_new two
+d_run ok grok "" delegate "one thing"
+git -C "$dproj" checkout -q main
+d_run ok grok "" delegate "two things"
+d_run ok "" "" delegate-drop
+check "drop with two delegate branches asks for the name and deletes none" \
+  "[ \$d_rc -ne 0 ] && grep -q 'refuses: name the branch' <<<\"\$d_out\" && [ \"\$(git -C \"\$dproj\" branch --list 'delegate/*' | wc -l | tr -d ' ')\" = 2 ]"
+d_new fail
+d_run fail grok "" delegate "break it"
+check "the worker's exit status is the recipe's, and a dirty tree is said" \
+  "[ \$d_rc -eq 3 ] && grep -qx 'exit status: 3' <<<\"\$d_out\""
+d_new dirt
+d_run dirty grok "" delegate "leave a file"
+check "a worker that leaves a file is reported as a dirty tree" "grep -qx 'tree: dirty' <<<\"\$d_out\" && [ -f \"\$dproj/left-dirty.txt\" ]"
 
 sec_times="$sec_times$((SECONDS-sec_start)) $sec_name"$'\n'
 echo

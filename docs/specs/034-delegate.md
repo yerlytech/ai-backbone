@@ -59,10 +59,10 @@ its own worker.
 
 ## Acceptance
 
-- [ ] `just delegate "<task>"` refuses on a dirty tree, on a branch other than
+- [x] `just delegate "<task>"` refuses on a dirty tree, on a branch other than
       the default, while another job of this project runs, or when the worker
       is not installed. Each refusal says why in one line.
-- [ ] It creates `delegate/<date>-<slug>` from the default branch and runs the
+- [x] It creates `delegate/<date>-<slug>` from the default branch and runs the
       worker there with a fixed preamble: read AGENTS.md, stay on this branch,
       commit with `just save`, the forbidden list, the report's shape. The
       manager's text follows the preamble. The worker sees nothing else.
@@ -75,12 +75,12 @@ its own worker.
       goes to `~/.cache/ai-backbone/delegate/<project>/<id>.log`, never the
       repo. The recipe prints only the worker's report, the branch's commits
       with `--stat`, whether the tree is clean, and the exit status.
-- [ ] `just delegate-status` says whether a job runs and on which branch, and
+- [x] `just delegate-status` says whether a job runs and on which branch, and
       shows the last report and the open `delegate/*` branches.
       `just delegate-accept [branch]` fast-forwards the default branch onto it
       and deletes it. It refuses when that is not a fast-forward.
       `just delegate-drop [branch]` asks once, then deletes the branch.
-- [ ] `WORKER` (machine-local; unset or `off` means no delegation) chooses the
+- [x] `WORKER` (machine-local; unset or `off` means no delegation) chooses the
       adapter. Each adapter is one function: how to call the CLI headless in a
       folder with a prompt. `grok` uses `grok -p … --output-format plain`;
       `claude` uses `claude -p …` with a cheaper model (`WORKER_MODEL`). With
@@ -97,7 +97,7 @@ its own worker.
 
 ## Tasks
 
-- [ ] The recipes `delegate`, `delegate-status`, `delegate-accept` and
+- [x] The recipes `delegate`, `delegate-status`, `delegate-accept` and
       `delegate-drop`, the grok adapter, the preamble, and the fake-worker tests.
 - [ ] The BREACH check and the timeout, with their tests.
 - [ ] The manager rules in the core instructions, the skill text (team or a new

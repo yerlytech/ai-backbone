@@ -1311,6 +1311,242 @@ session-end:
     # still ends. `_vault-copy` says what it did in its own words.
     just _vault-copy || true
 
+# Hand one task to a worker on delegate/<date>-<slug> (spec 034). The session
+# stays the manager: this recipe runs the worker and prints its report. No
+# worktree, one job at a time in this folder — a second checkout would rebuild
+# from nothing. The log is outside the repo, or the worker's own `just save`
+# would commit it. WORKER is the machine's choice (unset or off: no delegation).
+# Each adapter is one function, the headless call in this folder.
+# [no-exit-message]: a refusal is one line. Without it, just 1.59.0 adds
+# "error: recipe failed" (measured); the attribute is documented since just 1.7.0,
+# under the 1.29.0 floor this file names.
+[group('session')]
+[no-exit-message]
+[positional-arguments]
+delegate task="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    task="${1:-}"
+    if [ -z "$task" ]; then echo "refuses: name the task"; exit 1; fi
+    worker="${WORKER-}"
+    case "$worker" in
+      ""|off)
+        if [ -z "$worker" ]; then echo "delegation is off (WORKER is unset). This session does the work itself."
+        else echo "delegation is off (WORKER=off). This session does the work itself."; fi
+        exit 1 ;;
+      grok|claude) ;;
+      *) echo "refuses: unknown worker '$worker' (known: claude, grok)"; exit 1 ;;
+    esac
+    if ! command -v "$worker" >/dev/null 2>&1; then echo "refuses: $worker is not installed"; exit 1; fi
+    git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "refuses: not a git repository"; exit 1; }
+    # A live job uses this folder, so the tree is dirty or the branch is not
+    # the default while it runs. Say the job is running before those checks,
+    # or that refusal never fires (no worktree, spec 034).
+    top=$(git rev-parse --show-toplevel)
+    dir="$HOME/.cache/ai-backbone/delegate/$(basename "$top")"
+    lock="$dir/running"
+    if [ -f "$lock/pid" ]; then
+      pid=$(cat "$lock/pid" 2>/dev/null || true)
+      br=$(cat "$lock/branch" 2>/dev/null || true)
+      if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+        echo "refuses: a job is already running${br:+ on $br}"; exit 1
+      fi
+    fi
+    if [ -n "$(git status --porcelain)" ]; then echo "refuses: the working tree is not clean"; exit 1; fi
+    default_branch() {
+      local d
+      d=$(git symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || true)
+      d=${d#origin/}
+      if [ -n "$d" ] && git show-ref --verify --quiet "refs/heads/$d"; then printf '%s' "$d"; return; fi
+      if git show-ref --verify --quiet refs/heads/main; then printf 'main'; return; fi
+      if git show-ref --verify --quiet refs/heads/master; then printf 'master'; return; fi
+      git symbolic-ref -q --short HEAD
+    }
+    default=$(default_branch)
+    here=$(git symbolic-ref -q --short HEAD || echo "no branch")
+    if [ "$here" != "$default" ]; then echo "refuses: not on the default branch ($here; default is $default)"; exit 1; fi
+    # The same fold as `_slug`. Inlined: a nested `just` looks for a Justfile
+    # from this folder, and a run pointed at another directory has none.
+    slug=$(printf '%s' "$task" | perl -CS -Mutf8 -pe 'tr/çğıöşüÇĞİÖŞÜ/cgiosucgiosu/; $_=lc; s/[^a-z0-9]+/-/g; s/^-+|-+$//g')
+    slug=$(printf '%s' "$slug" | cut -c1-48 | sed 's/-*$//')
+    if [ -z "$slug" ]; then echo "refuses: the task has no name a branch can use"; exit 1; fi
+    branch="delegate/$(LC_ALL=C date +%Y-%m-%d)-$slug"
+    if git show-ref --verify --quiet "refs/heads/$branch"; then echo "refuses: $branch already exists"; exit 1; fi
+    top=$(git rev-parse --show-toplevel)
+    dir="$HOME/.cache/ai-backbone/delegate/$(basename "$top")"
+    lock="$dir/running"
+    mkdir -p "$dir"
+    if ! mkdir "$lock" 2>/dev/null; then
+      pid=$(cat "$lock/pid" 2>/dev/null || true)
+      br=$(cat "$lock/branch" 2>/dev/null || true)
+      if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+        echo "refuses: a job is already running${br:+ on $br}"; exit 1
+      fi
+      rm -rf "$lock"
+      mkdir "$lock" 2>/dev/null || { echo "refuses: a job is already running${br:+ on $br}"; exit 1; }
+    fi
+    echo $$ > "$lock/pid"
+    printf '%s\n' "$branch" > "$lock/branch"
+    trap 'rm -rf "$lock"' EXIT
+    git checkout -q -b "$branch"
+    # Adapters: how to call the CLI headless, in this folder, with the prompt.
+    # `exec` so a later stop reaches the CLI and not the shell around it. The
+    # call is always in a subshell, or exec would replace this recipe.
+    delegate_grok() { exec grok -p "$1" --output-format plain; }
+    delegate_claude() {
+      if [ -n "${WORKER_MODEL:-}" ]; then exec claude -p "$1" --model "$WORKER_MODEL"
+      else exec claude -p "$1"; fi
+    }
+    preamble=$(printf '%s\n' \
+      "You are the worker for this repository. A manager reviews your work. Read AGENTS.md first and follow it. You are on branch ${branch}; stay on it." \
+      "Commit with just save. Run the project's tests before each commit." \
+      "Never run just publish, git push, just ship, or just deploy. Never call a server or GitHub. Never merge, rebase, or delete a branch." \
+      "When you finish, the report is the last thing you print: at most 15 lines, and nothing after it.")
+    # One line: a blank line inside a quoted string is a just parse error
+    # (measured on just 1.59.0, "unknown start of token").
+    prompt=$(printf '%s\n\n%s\n' "$preamble" "$task")
+    id="${branch#delegate/}"
+    log="$dir/${id}.log"
+    # The worker's whole output stays in the log. The last 15 lines are the
+    # report: the preamble tells the worker to end with it.
+    set +e
+    ( delegate_"$worker" "$prompt" ) >"$log" 2>&1
+    rc=$?
+    set -e
+    tail -n 15 "$log"
+    echo
+    echo "commits on $branch:"
+    if git show-ref --verify --quiet "refs/heads/$branch"; then
+      git --no-pager -c color.ui=never log --stat "${default}..${branch}"
+    else
+      echo "(branch $branch is gone)"
+    fi
+    echo
+    if [ -n "$(git status --porcelain)" ]; then echo "tree: dirty"; else echo "tree: clean"; fi
+    echo "exit status: $rc"
+    exit "$rc"
+
+# Whether a job of this project is running, its last report, and the open delegate branches.
+[group('session')]
+[no-exit-message]
+delegate-status:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "refuses: not a git repository"; exit 1; }
+    top=$(git rev-parse --show-toplevel)
+    dir="$HOME/.cache/ai-backbone/delegate/$(basename "$top")"
+    lock="$dir/running"
+    if [ -f "$lock/pid" ]; then
+      pid=$(cat "$lock/pid" 2>/dev/null || true)
+      br=$(cat "$lock/branch" 2>/dev/null || true)
+      if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then echo "job: running on ${br:-unknown}"
+      else echo "job: none"; fi
+    else
+      echo "job: none"
+    fi
+    echo
+    echo "last report:"
+    latest=""
+    if [ -d "$dir" ]; then
+      for f in "$dir"/*.log; do
+        [ -f "$f" ] || continue
+        if [ -z "$latest" ] || [ "$f" -nt "$latest" ]; then latest=$f; fi
+      done
+    fi
+    if [ -n "$latest" ]; then tail -n 15 "$latest"; else echo none; fi
+    echo
+    echo "open branches:"
+    # No heredoc: just 1.59.0 fails to parse `$(… --format)` on its own line
+    # inside one (measured, "unknown start of token").
+    branches=$(git for-each-ref refs/heads/delegate/ --format='%(refname:short)')
+    if [ -n "$branches" ]; then printf '%s\n' "$branches"; else echo none; fi
+
+# Fast-forward the default branch onto a delegate branch, then delete it.
+# Refuses when that is not a fast-forward, and leaves the branch.
+[group('session')]
+[no-exit-message]
+[positional-arguments]
+delegate-accept branch="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "refuses: not a git repository"; exit 1; }
+    if [ -n "$(git status --porcelain)" ]; then echo "refuses: the working tree is not clean"; exit 1; fi
+    default_branch() {
+      local d
+      d=$(git symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || true)
+      d=${d#origin/}
+      if [ -n "$d" ] && git show-ref --verify --quiet "refs/heads/$d"; then printf '%s' "$d"; return; fi
+      if git show-ref --verify --quiet refs/heads/main; then printf 'main'; return; fi
+      if git show-ref --verify --quiet refs/heads/master; then printf 'master'; return; fi
+      git symbolic-ref -q --short HEAD
+    }
+    default=$(default_branch)
+    branch="${1:-}"
+    if [ -z "$branch" ]; then
+      branch=$(git for-each-ref refs/heads/delegate/ --format='%(refname:short)')
+      n=$(printf '%s\n' "$branch" | grep -c . || true)
+      if [ "$n" -eq 0 ]; then echo "refuses: no delegate branch"; exit 1; fi
+      if [ "$n" -gt 1 ]; then echo "refuses: name the branch ($(printf '%s' "$branch" | tr '\n' ' '))"; exit 1; fi
+    fi
+    case "$branch" in
+      delegate/*) ;;
+      *) echo "refuses: $branch is not a delegate branch"; exit 1 ;;
+    esac
+    git show-ref --verify --quiet "refs/heads/$branch" || { echo "refuses: no branch $branch"; exit 1; }
+    if ! git merge-base --is-ancestor "$default" "$branch"; then
+      echo "refuses: $branch is not a fast-forward of $default"; exit 1
+    fi
+    here=$(git symbolic-ref -q --short HEAD || echo "no branch")
+    if [ "$here" != "$default" ]; then git checkout -q "$default"; fi
+    if ! git merge --ff-only "$branch" >/dev/null 2>&1; then
+      echo "refuses: $branch is not a fast-forward of $default"; exit 1
+    fi
+    git branch -d "$branch" >/dev/null
+    echo "accepted $branch onto $default"
+
+# Ask once, then delete a delegate branch.
+[group('session')]
+[no-exit-message]
+[positional-arguments]
+delegate-drop branch="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "refuses: not a git repository"; exit 1; }
+    if [ -n "$(git status --porcelain)" ]; then echo "refuses: the working tree is not clean"; exit 1; fi
+    default_branch() {
+      local d
+      d=$(git symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null || true)
+      d=${d#origin/}
+      if [ -n "$d" ] && git show-ref --verify --quiet "refs/heads/$d"; then printf '%s' "$d"; return; fi
+      if git show-ref --verify --quiet refs/heads/main; then printf 'main'; return; fi
+      if git show-ref --verify --quiet refs/heads/master; then printf 'master'; return; fi
+      git symbolic-ref -q --short HEAD
+    }
+    default=$(default_branch)
+    branch="${1:-}"
+    if [ -z "$branch" ]; then
+      branch=$(git for-each-ref refs/heads/delegate/ --format='%(refname:short)')
+      n=$(printf '%s\n' "$branch" | grep -c . || true)
+      if [ "$n" -eq 0 ]; then echo "refuses: no delegate branch"; exit 1; fi
+      if [ "$n" -gt 1 ]; then echo "refuses: name the branch ($(printf '%s' "$branch" | tr '\n' ' '))"; exit 1; fi
+    fi
+    case "$branch" in
+      delegate/*) ;;
+      *) echo "refuses: $branch is not a delegate branch"; exit 1 ;;
+    esac
+    git show-ref --verify --quiet "refs/heads/$branch" || { echo "refuses: no branch $branch"; exit 1; }
+    printf 'Delete %s? [y/N]\n' "$branch"
+    ans=""
+    read -r ans || true
+    case "$ans" in
+      y|Y|yes|YES) ;;
+      *) echo "kept $branch"; exit 1 ;;
+    esac
+    here=$(git symbolic-ref -q --short HEAD || echo "no branch")
+    if [ "$here" = "$branch" ]; then git checkout -q "$default"; fi
+    git branch -D "$branch" >/dev/null
+    echo "dropped $branch"
+
 # Start a spec for an idea: docs/specs/NNN-<name>.md, written before the code
 [group('session')]
 [positional-arguments]
