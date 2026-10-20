@@ -23,6 +23,10 @@ export AI_BACKBONE_OFFLINE=1   # never reach GitHub or a registry from a test
 # session line reads these (spec 014), and the budget section points them at its
 # own fixtures. Until then: no meter, no transcripts, one quiet line.
 export AI_BACKBONE_BUDGET_PROJECTS="$tmp/no-projects" AI_BACKBONE_BUDGET_METER="$tmp/no-meter" AI_BACKBONE_BUDGET_CACHE="$tmp/budget-cache.json"
+# Nor the machine's shared upstream cache (spec 035). A copy under a day old
+# there would make an offline check read as current. This folder starts empty.
+export AI_BACKBONE_UPSTREAM_CACHE="$tmp/upstream-cache"
+mkdir -p "$AI_BACKBONE_UPSTREAM_CACHE"
 mkdir -p "$tmp/T"; export TMPDIR="$tmp/T"
 # Nor the projects next to the real backbone: doctor adds up their build caps,
 # and a build's trim may go into their folders (spec 032).
@@ -1581,8 +1585,12 @@ printf '[[watch]]\nname = "tool"\nsource = "github:a/b"\npin = "1.2.0"\n' > "$tm
 : > "$tmp/gitconfig-empty"
 sandbox() { hostile env -u AI_BACKBONE_OFFLINE https_proxy=$dead http_proxy=$dead no_proxy= PATH="$gitbin:/usr/bin:/bin" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="$tmp/gitconfig-empty" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.$(fileurl "$1")/.insteadOf" GIT_CONFIG_VALUE_0="https://github.com/"; }
 check "when the GitHub API refuses, the tags are asked of git" "says '^  tool +1\\.2\\.0 .* v1\\.10\\.0 +1 newer' sandbox '$tmp/tags'"
+# The line above stored a successful read of github:a/b. A shared copy under a
+# day old is that answer, so a missing folder would never be asked. This check
+# is the ask itself failing, and it uses an empty cache.
 # The FAIL names what was seen: on a runner nobody can run the line by hand.
-saw_full=$(sandbox "$tmp/no-such-folder" 2>&1)
+mkdir -p "$tmp/upstream-cache-miss"
+saw_full=$(AI_BACKBONE_UPSTREAM_CACHE="$tmp/upstream-cache-miss" sandbox "$tmp/no-such-folder" 2>&1)
 saw=$(printf '%s' "$saw_full" | tr '\n' ' ' | tail -c 300)
 check "and when git cannot list them either, that is unreachable, never current (saw: …$saw)" "grep -q 'git could not list the tags either' <<<\"\$saw_full\" && grep -qE '^  tool +1\\.2\\.0 .* unreachable' <<<\"\$saw_full\""
 # spec 013, upstream: what a tag says, what a list does not say, Flutter's own
@@ -1678,6 +1686,174 @@ check "the template says where a pub pin lives"            "grep -q 'pubspec.loc
 printf '\n[[watch]]\nname = "flame"\nsource = "pub:flame"\npin = "1.38.2"\n' >> docs/upstream.toml
 mkdir -p "$tmp/pub-cache/hosted/pub.dev/flame-1.38.2" && echo x > "$tmp/pub-cache/hosted/pub.dev/flame-1.38.2/CHANGELOG.md"
 check "a pub.dev package is watched like the rest"      "says '^  flame: offline' just upstream && ! says 'unknown source' just upstream && says 'docs +https://pub.dev/documentation/flame/1.38.2/\$' just upstream flame && says 'notes +$(winpath "$tmp")/pub-cache/hosted/pub.dev/flame-1.38.2/CHANGELOG.md' env PUB_CACHE='$tmp/pub-cache' just upstream flame"
+# spec 035: one answer per source per machine, for a day. Each mode has its own
+# folder. fetch_json is replaced before main runs, so nothing here is asked of
+# a registry. The recipe check below is the one that goes through `just`.
+cat > "$tmp/spec035.py" <<'PY'
+import datetime
+import importlib.util
+import io
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+root, mode, base = sys.argv[1:]
+os.environ["AI_BACKBONE_UPSTREAM_CACHE"] = str(Path(base) / mode)
+os.environ.pop("AI_BACKBONE_OFFLINE", None)
+spec = importlib.util.spec_from_file_location("u", str(Path(root) / ".ai-backbone" / "upstream.py"))
+u = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(u)
+u.OFFLINE = False
+fixture = {"releases": {
+    "1.0.0": [{"upload_time_iso_8601": "2026-01-01T00:00:00Z"}],
+    "1.2.0": [{"upload_time_iso_8601": "2026-06-01T00:00:00Z"}],
+}}
+calls = {"n": 0, "rate": False}
+
+def fake(url, headers=None):
+    calls["n"] += 1
+    if calls["rate"]:
+        raise u.urllib.error.HTTPError(url, 403, "Forbidden", {}, io.BytesIO(b"API rate limit exceeded"))
+    if url != "https://pypi.org/pypi/tool/json":
+        raise SystemExit("asked " + url)
+    return fixture
+
+u.fetch_json = fake
+
+def fail(msg):
+    print(msg, file=sys.stderr)
+    raise SystemExit(1)
+
+def project(path):
+    p = Path(path)
+    (p / "docs").mkdir(parents=True, exist_ok=True)
+    (p / ".git").mkdir(parents=True, exist_ok=True)
+    (p / "docs" / "upstream.toml").write_text(
+        '[[watch]]\nname = "tool"\nsource = "pypi:tool"\npin = "1.0.0"\n')
+    return p
+
+def run(path, *args):
+    os.chdir(path)
+    sys.argv = ["upstream.py", *args]
+    buf = io.StringIO()
+    old = sys.stdout
+    sys.stdout = buf
+    try:
+        rc = u.main()
+    finally:
+        sys.stdout = old
+    return rc, buf.getvalue()
+
+def rewind(hours):
+    path = u.share_file("pypi:tool")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    when = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=hours)
+    data["fetched"] = when.replace(microsecond=0).isoformat()
+    data["failed_at"] = ""
+    data["error"] = ""
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+work = Path(base) / (mode + "-work")
+one = project(work / "a")
+
+if mode == "age-fresh":
+    rc, out = run(one)
+    if rc != 0 or calls["n"] != 1 or "1.2.0" not in out:
+        fail(f"seed rc={rc} calls={calls['n']}\n{out}")
+    rewind(2)
+    calls["n"] = 0
+    rc, out = run(one)
+    if calls["n"] != 0 or "1.2.0" not in out:
+        fail(f"fresh copy was asked ({calls['n']})\n{out}")
+elif mode == "age-stale":
+    run(one)
+    rewind(25)
+    calls["n"] = 0
+    rc, out = run(one)
+    if calls["n"] != 1:
+        fail(f"a day-old copy was not asked ({calls['n']})\n{out}")
+elif mode == "refresh":
+    run(one)
+    calls["n"] = 0
+    rc, out = run(one, "--refresh")
+    if rc != 0 or calls["n"] != 1:
+        fail(f"--refresh rc={rc} calls={calls['n']}\n{out}")
+elif mode == "shared":
+    two = project(work / "b")
+    rc, out = run(one)
+    rc2, out2 = run(two)
+    files = [p for p in u.share_root().glob("*.json")]
+    if calls["n"] != 1 or len(files) != 1 or "1.2.0" not in out or "1.2.0" not in out2:
+        fail(f"shared calls={calls['n']} files={files}\n{out}\n{out2}")
+    (two / "docs" / "upstream.toml").write_text(
+        '[[watch]]\nname = "other"\nsource = "pypi:other"\npin = "1.0.0"\n')
+
+    def fake_other(url, headers=None):
+        calls["n"] += 1
+        if url == "https://pypi.org/pypi/other/json":
+            return {"releases": {"9.0.0": [{"upload_time_iso_8601": "2026-06-01T00:00:00Z"}]}}
+        raise SystemExit("asked " + url)
+
+    u.fetch_json = fake_other
+    run(two)
+    files = [p for p in u.share_root().glob("*.json")]
+    if len(files) != 2:
+        fail(f"two sources wrote {len(files)} files")
+elif mode == "offline-empty":
+    u.OFFLINE = True
+    rc, out = run(one)
+    if rc != 0 or calls["n"] != 0 or "offline" not in out or "1.2.0" in out:
+        fail(f"rc={rc} calls={calls['n']}\n{out}")
+elif mode == "offline-stale":
+    run(one)
+    rewind(30)
+    calls["n"] = 0
+    u.OFFLINE = True
+    rc, out = run(one)
+    if rc != 0 or calls["n"] != 0 or "1.2.0" not in out or "offline" not in out or "hours ago" not in out:
+        fail(f"rc={rc} calls={calls['n']}\n{out}")
+elif mode == "rate":
+    run(one)
+    rewind(30)
+    calls["n"] = 0
+    calls["rate"] = True
+    rc, out = run(one)
+    if calls["n"] != 1 or "1.2.0" not in out or "rate-limited" not in out or "hours ago" not in out:
+        fail(f"first calls={calls['n']}\n{out}")
+    calls["n"] = 0
+    rc, out = run(one)
+    if calls["n"] != 0 or "rate-limited" not in out or "1.2.0" not in out:
+        fail(f"second calls={calls['n']}\n{out}")
+elif mode == "slow":
+    run(one)
+    rewind(30)
+    calls["n"] = 0
+    os.chdir(one)
+    entry = {"name": "tool", "source": "pypi:tool", "pin": "1.0.0"}
+    releases, old, live = u.obtain(entry, False, time.monotonic() - 1)
+    if calls["n"] != 0 or old != "slow" or live:
+        fail(f"calls={calls['n']} old={old} live={live}")
+    if not any(r.get("version") == "1.2.0" for r in releases):
+        fail(repr(releases))
+    releases, old, live = u.obtain(entry, False, time.monotonic() + 100)
+    if calls["n"] != 0 or old != "slow":
+        fail(f"retried calls={calls['n']} old={old}")
+else:
+    fail("unknown mode " + mode)
+PY
+fresh035() { env -u AI_BACKBONE_OFFLINE "$py" "$tmp/spec035.py" "$rootw" "$1" "$tmp/spec035"; }
+check "a shared copy under a day old is not asked again"          "fresh035 age-fresh"
+check "a shared copy a day old is asked again"                    "fresh035 age-stale"
+check "--refresh asks even when the copy is new"                  "fresh035 refresh"
+check "two projects share one lookup of one source"               "fresh035 shared"
+check "offline, with no copy, says so and does not ask"           "fresh035 offline-empty"
+check "offline, an old copy is shown with its age"                "fresh035 offline-stale"
+check "a rate limit keeps the last result and is not asked again" "fresh035 rate"
+check "past the time budget the last result is kept"              "fresh035 slow"
+check "just upstream --refresh is a real run, and offline it says so" \
+  "says offline env AI_BACKBONE_UPSTREAM_CACHE='$tmp/spec035-refresh' just upstream --refresh && env AI_BACKBONE_UPSTREAM_CACHE='$tmp/spec035-refresh' just upstream --refresh >/dev/null"
 # session-start's two weekly blocks ask GitHub and the registries. Offline they
 # are skipped, and an offline session does not use up the week either.
 rm -f .git/ai-backbone.last-check .git/ai-backbone.last-upstream

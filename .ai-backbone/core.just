@@ -3265,12 +3265,14 @@ _backbone-news:
     echo "Behind -> run: just tools-update, then just save. (An agent does this without asking.)"
 
 # What the things this project is built on have released: just upstream · just upstream graphify
+# Asked at most once a day per machine. The answer is shared by every project
+# that watches the same source. `just upstream --refresh` asks again.
 [group('template')]
 [positional-arguments]
 upstream name="":
     #!/usr/bin/env bash
     set -uo pipefail
-    "$(just _py)" .ai-backbone/upstream.py ${1:+"$1"}
+    "$(just _py)" .ai-backbone/upstream.py "$@"
 
 # Start the watch list: docs/upstream.toml, then edit it
 [group('template')]
