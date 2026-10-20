@@ -14,7 +14,8 @@ from its own CLI. Later it may be GLM, Kimi or Gemini. The worker does the job o
 its own branch, runs the tests, commits locally and ends with a report of at most
 15 lines. The manager reads only that report and the branch's summary. Then it
 either takes the work with `just delegate-accept`, sends a fix with another
-`just delegate`, or drops the branch with `just delegate-drop`. Publishing,
+`just delegate` on that same branch, or drops the branch with
+`just delegate-drop`. Publishing,
 shipping and talking to the maintainer stay with the manager.
 
 ## Why
@@ -60,10 +61,13 @@ its own worker.
 ## Acceptance
 
 - [x] `just delegate "<task>"` refuses on a dirty tree, on a branch other than
-      the default, while another job of this project runs, or when the worker
-      is not installed. Each refusal says why in one line.
-- [x] It creates `delegate/<date>-<slug>` from the default branch and runs the
-      worker there with a fixed preamble: read AGENTS.md, stay on this branch,
+      the default and other than an open `delegate/*` branch, while another
+      job of this project runs, or when the worker is not installed. Each
+      refusal says why in one line.
+- [x] On the default branch it creates `delegate/<date>-<slug>` from that
+      branch. On a `delegate/*` branch with a clean tree it runs there again
+      and makes no new branch, so a fix keeps the first round's commits. The
+      worker gets a fixed preamble: read AGENTS.md, stay on this branch,
       commit with `just save`, the forbidden list, the report's shape. The
       manager's text follows the preamble. The worker sees nothing else.
 - [x] Forbidden to the worker, said in the preamble and checked afterwards:

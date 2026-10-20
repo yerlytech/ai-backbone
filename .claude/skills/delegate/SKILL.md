@@ -17,7 +17,8 @@ With `WORKER` set to `grok` or `claude`, this session is the manager.
    report (at most 15 lines), the commits, whether the tree is clean, and the
    exit. The log stays outside the repo.
 3. Read that. Then `just delegate-accept`, another `just delegate` with the
-   fix, or `just delegate-drop`.
+   fix, or `just delegate-drop`. The fix runs on the same branch. A new branch
+   would drop the first round's commits.
 4. `just publish` and `just ship` stay here. They are not the worker's.
 5. Two failed tries at one job: stop and tell the maintainer. Do not do the
    job yourself instead.

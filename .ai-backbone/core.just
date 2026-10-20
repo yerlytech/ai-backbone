@@ -1385,7 +1385,17 @@ delegate task="":
     }
     default=$(default_branch)
     here=$(git symbolic-ref -q --short HEAD || echo "no branch")
-    if [ "$here" != "$default" ]; then echo "refuses: not on the default branch ($here; default is $default)"; exit 1; fi
+    # A fix is another delegate on the branch the first round left. A new
+    # branch from the default would drop that round's commits. Any other
+    # branch still refuses. The tree is already clean, or the check above
+    # refused it.
+    fix_round=0
+    case "$here" in
+      delegate/*) fix_round=1; branch=$here ;;
+      *)
+        if [ "$here" != "$default" ]; then echo "refuses: not on the default branch ($here; default is $default)"; exit 1; fi
+        ;;
+    esac
     # Minutes. The default is three hours; a fraction is one job, or a test.
     # GNU timeout is not on macOS, so the stop below is a sleep and a signal.
     timeout_min=${DELEGATE_TIMEOUT:-180}
@@ -1395,11 +1405,14 @@ delegate task="":
     timeout_secs=$(awk -v t="$timeout_min" 'BEGIN { printf "%.3f", t * 60 }')
     # The same fold as `_slug`. Inlined: a nested `just` looks for a Justfile
     # from this folder, and a run pointed at another directory has none.
-    slug=$(printf '%s' "$task" | perl -CS -Mutf8 -pe 'tr/çğıöşüÇĞİÖŞÜ/cgiosucgiosu/; $_=lc; s/[^a-z0-9]+/-/g; s/^-+|-+$//g')
-    slug=$(printf '%s' "$slug" | cut -c1-48 | sed 's/-*$//')
-    if [ -z "$slug" ]; then echo "refuses: the task has no name a branch can use"; exit 1; fi
-    branch="delegate/$(LC_ALL=C date +%Y-%m-%d)-$slug"
-    if git show-ref --verify --quiet "refs/heads/$branch"; then echo "refuses: $branch already exists"; exit 1; fi
+    # A fix round already has its branch, so the task needs no slug.
+    if [ "$fix_round" -eq 0 ]; then
+      slug=$(printf '%s' "$task" | perl -CS -Mutf8 -pe 'tr/çğıöşüÇĞİÖŞÜ/cgiosucgiosu/; $_=lc; s/[^a-z0-9]+/-/g; s/^-+|-+$//g')
+      slug=$(printf '%s' "$slug" | cut -c1-48 | sed 's/-*$//')
+      if [ -z "$slug" ]; then echo "refuses: the task has no name a branch can use"; exit 1; fi
+      branch="delegate/$(LC_ALL=C date +%Y-%m-%d)-$slug"
+      if git show-ref --verify --quiet "refs/heads/$branch"; then echo "refuses: $branch already exists"; exit 1; fi
+    fi
     top=$(git rev-parse --show-toplevel)
     dir="$HOME/.cache/ai-backbone/delegate/$(basename "$top")"
     lock="$dir/running"
@@ -1420,7 +1433,7 @@ delegate task="":
     wpid=""
     tpid=""
     trap 'if [ -n "$tpid" ]; then kill -TERM -"$tpid" 2>/dev/null || kill -TERM "$tpid" 2>/dev/null || true; fi; if [ -n "$wpid" ]; then kill -TERM -"$wpid" 2>/dev/null || kill -TERM "$wpid" 2>/dev/null || true; fi; rm -rf "$lock"' EXIT
-    git checkout -q -b "$branch"
+    if [ "$fix_round" -eq 0 ]; then git checkout -q -b "$branch"; fi
     # Adapters: how to call the CLI headless, in this folder, with the prompt.
     # `exec` so a later stop reaches the CLI and not the shell around it. The
     # call is always in a subshell, or exec would replace this recipe.

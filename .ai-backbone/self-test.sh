@@ -3276,6 +3276,12 @@ case "$mode" in
     git branch from-the-worker
     echo report
     ;;
+  fix)
+    printf 'fixed\n' >> worker-did.txt
+    git add worker-did.txt
+    git commit -qm "chore: worker fixed the task" --no-verify
+    echo report
+    ;;
   timeout)
     echo report
     sleep 30
@@ -3486,6 +3492,32 @@ d_run branch grok "" delegate "add a branch"
 first=${d_out%%$'\n'*}
 check "a worker that adds a branch is a breach, said first" \
   "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: branch list changed' ] && grep -q '^report$' <<<\"\$d_out\" && git -C \"\$dproj\" show-ref --verify --quiet refs/heads/from-the-worker"
+d_new fixround
+d_run ok grok "" delegate "add a line"
+dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+d_run fix grok "" delegate "fix the line"
+dcount=$(git -C "$dproj" branch --list 'delegate/*' | wc -l | tr -d ' ')
+dahead=$(git -C "$dproj" rev-list --count main..HEAD)
+check "a fix on a delegate branch stays there and keeps the first round's commit" \
+  "[ \$d_rc -eq 0 ] && [ \"\$(git -C \"\$dproj\" symbolic-ref --short HEAD)\" = \"\$dbr\" ] && [ \"\$dcount\" = 1 ] && [ \"\$dahead\" = 2 ] && ! grep -q '^BREACH:' <<<\"\$d_out\" && grep -qx 'tree: clean' <<<\"\$d_out\" && grep -q 'worker fixed the task' <<<\"\$d_out\" && grep -q 'worker did the task' <<<\"\$d_out\" && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*fix-the-line')\" ]"
+d_new fixdirty
+d_run ok grok "" delegate "add a line"
+printf 'x\n' >> "$dproj/README.md"
+d_run fix grok "" delegate "fix the line"
+check "a dirty delegate branch is refused before a second branch" \
+  "[ \$d_rc -ne 0 ] && d_one && grep -qx 'refuses: the working tree is not clean' <<<\"\$d_out\" && [ \"\$(git -C \"\$dproj\" branch --list 'delegate/*' | wc -l | tr -d ' ')\" = 1 ]"
+d_new fixmove
+d_run ok grok "" delegate "add a line"
+d_run move grok "" delegate "move main"
+first=${d_out%%$'\n'*}
+check "a fix round that moves the default branch is still a breach" \
+  "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: default branch main moved' ]"
+d_new fixside
+d_run ok grok "" delegate "add a line"
+d_run branch grok "" delegate "add a branch"
+first=${d_out%%$'\n'*}
+check "a fix round that adds a branch is still a breach" \
+  "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: branch list changed' ] && git -C \"\$dproj\" show-ref --verify --quiet refs/heads/from-the-worker"
 
 sec_times="$sec_times$((SECONDS-sec_start)) $sec_name"$'\n'
 echo

@@ -202,7 +202,9 @@ just --list          # everything
 ```
 
 When `WORKER` is `grok` or `claude`, the session manages. It sends one task,
-reads the report, and accepts, fixes or drops. It writes no product code.
+reads the report, and accepts, fixes or drops. A fix is another `just delegate`
+on that same `delegate/*` branch, so the first round's commits stay. It writes
+no product code.
 `just publish` and `just ship` stay with that session. `WORKER` unset or `off`
 is the default on a new machine, and then the session does the work as before,
 including when the named worker is not installed. The binary is `WORKER_BIN`
