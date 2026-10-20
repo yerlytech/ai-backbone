@@ -351,10 +351,86 @@ def from_hf(repo, pin=""):
     return out
 
 
+# Kinds whose versions are commits, matched by the id's first characters.
+# hf: is a model. ghcommit: is a repository that publishes no release: what
+# moves is the default branch, and a version comparison would read the pin as
+# unknown forever.
+COMMIT_KINDS = {"hf", "ghcommit"}
+
+
+def github_get(repo, path):
+    """One JSON value from the GitHub API. Through gh when it is installed,
+    since it carries the login; plain HTTPS otherwise, with no name and no
+    token. gh's refusal is the answer: the same call without it would be
+    refused too, and a second try spends a limit the first call already used."""
+    if shutil_which("gh"):
+        try:
+            done = subprocess.run(
+                ["gh", "api", f"repos/{repo}/{path}"],
+                check=False, capture_output=True, text=True, timeout=call_timeout(30),
+            )
+        except (OSError, subprocess.TimeoutExpired) as err:
+            raise Unreachable(f"{repo}: {err}") from err
+        if done.returncode != 0:
+            why = (done.stderr or done.stdout or "the API refused").strip().splitlines()
+            raise Unreachable(f"{repo}: {(why[0] if why else 'the API refused')[:120]}")
+        try:
+            return json.loads(done.stdout)
+        except ValueError as err:
+            raise Unreachable(f"{repo}: the API answered something that is not JSON") from err
+    return fetch_json(f"https://api.github.com/repos/{repo}/{path}")
+
+
+def _commit_row(repo, item):
+    """One commit from the GitHub API, in the shape the other sources use.
+    None when the object has no id: a hole in the page is not a version."""
+    if not isinstance(item, dict):
+        return None
+    sha = item.get("sha") or ""
+    if not sha:
+        return None
+    commit = item.get("commit") or {}
+    message = (commit.get("message") or "").strip()
+    when = commit.get("committer") or commit.get("author") or {}
+    return {
+        "version": sha[:12],
+        "commit": sha,
+        "at": (when.get("date") or "")[:10],
+        "title": message.split("\n", 1)[0],
+        "notes": message,
+        "url": item.get("html_url") or f"https://github.com/{repo}/commit/{sha}",
+        "prerelease": False,
+    }
+
+
+def from_ghcommit(repo, pin=""):
+    """Commits on the repository's default branch, newest first. For a project
+    that publishes no release and no tag: the pin is a commit id, and each
+    commit after it is one newer. The request names no branch. Naming `main`
+    would miss a repository whose default branch is something else, and the
+    commits API's own default is that branch. Pages of thirty until the pin is
+    among them, twenty at most, so a pin that has fallen off the first page
+    is still found."""
+    pin = str(pin).strip().lower()
+    out = []
+    for page in range(1, 21):
+        data = github_get(repo, f"commits?per_page=30&page={page}")
+        if not isinstance(data, list):
+            raise ValueError(  # noqa: TRY004
+                f"{repo}: GitHub answered something that is not a list of commits")
+        for item in data:
+            row = _commit_row(repo, item)
+            if row:
+                out.append(row)
+        if len(data) < 30 or (len(pin) >= 7 and any(r["commit"].lower().startswith(pin) for r in out)):
+            break
+    return out
+
+
 def by_commit(entry):
-    """Whether a row's versions are commits (hf:), so its pin is a commit id
-    and is matched by its first characters, not compared as a number."""
-    return entry.get("source", "").partition(":")[0] == "hf"
+    """Whether a row's versions are commits, so its pin is a commit id and is
+    matched by its first characters, not compared as a number."""
+    return entry.get("source", "").partition(":")[0] in COMMIT_KINDS
 
 
 def commits_after(entry, releases):
@@ -586,6 +662,8 @@ def where(entry):
         out.append(("docs", f"https://pub.dev/documentation/{rest}/{bare}/"))
     elif kind == "hf" and pin:
         out.append(("docs", f"https://huggingface.co/{rest}/tree/{pin}"))
+    elif kind == "ghcommit" and pin:
+        out.append(("docs", f"https://github.com/{rest}/commit/{pin}"))
     if entry.get("pinned_in"):
         if pin_is_real(entry):
             out.append(("pinned in", entry["pinned_in"]))
@@ -598,7 +676,7 @@ def where(entry):
                    or Path(os.environ.get("HF_HOME") or Path.home() / ".cache" / "huggingface") / "hub")
         folders += sorted(glob.glob(str(hub / f"models--{rest.replace('/', '--')}" / "snapshots"
                                         / (glob.escape(pin) + "*"))))
-    elif bare:
+    elif bare and kind not in COMMIT_KINDS:
         cargo = Path(os.environ.get("CARGO_HOME") or Path.home() / ".cargo")
         crate = rest if kind == "crates" else name
         folders += sorted(glob.glob(str(cargo / "registry" / "src" / "*" / glob.escape(f"{crate}-{bare}"))))
@@ -614,9 +692,10 @@ def where(entry):
         tools = said(["uv", "tool", "dir"])
         if tools and Path(tools, name).is_dir():
             folders.append(str(Path(tools, name)))
-    # A model is no program: a binary that shares its name says nothing about it.
-    exe = None if kind == "hf" else shutil_which("flutter" if kind == "flutter" else name)
-    repo = {"github": rest, "flutter": "flutter/flutter"}.get(kind)
+    # A model, and a repository watched by its commits, is no program: a binary
+    # that shares its name says nothing about it.
+    exe = None if kind in COMMIT_KINDS else shutil_which("flutter" if kind == "flutter" else name)
+    repo = {"github": rest, "ghcommit": rest, "flutter": "flutter/flutter"}.get(kind)
     sdk = checkout(exe, repo) if exe and repo else ""
     if sdk:
         folders.append(sdk)
@@ -716,7 +795,7 @@ def pin_is_real(entry):
 
 
 SOURCES = {"github": from_github, "crates": from_crates, "npm": from_npm, "pub": from_pub,
-           "pypi": from_pypi, "flutter": from_flutter, "hf": from_hf}
+           "pypi": from_pypi, "flutter": from_flutter, "hf": from_hf, "ghcommit": from_ghcommit}
 
 
 def look(entry):
@@ -726,11 +805,11 @@ def look(entry):
     kind, _, rest = source.partition(":")
     if kind not in SOURCES or not rest:
         raise ValueError(f"unknown source `{source}` — use github:owner/repo, crates:name, npm:name,"
-                         " pub:name, pypi:name, flutter:stable or hf:owner/name")
+                         " pub:name, pypi:name, flutter:stable, hf:owner/name or ghcommit:owner/repo")
     if OFFLINE:
         raise Unreachable("offline: AI_BACKBONE_OFFLINE is set")
-    if kind == "hf":
-        return from_hf(rest, entry.get("pin", ""))
+    if kind in COMMIT_KINDS:
+        return SOURCES[kind](rest, entry.get("pin", ""))
     return SOURCES[kind](rest)
 
 
@@ -746,10 +825,10 @@ def share_root():
 
 def cache_key(entry):
     """The shared file's name. Two projects that watch the same source share one
-    lookup. A Hugging Face row is read only until its own pin, so the pin is
-    part of that key: a newer pin must not hide the commits an older one needs."""
+    lookup. A commit row is read only until its own pin, so the pin is part of
+    that key: a newer pin must not hide the commits an older one needs."""
     source = entry.get("source", "")
-    if source.startswith("hf:"):
+    if source.partition(":")[0] in COMMIT_KINDS:
         return source + " pin=" + str(entry.get("pin", "")).strip()
     return source
 

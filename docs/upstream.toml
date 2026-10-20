@@ -21,9 +21,11 @@
 # version` printed. claude-code 2.1.296 is the last version this repo recorded
 # (docs/radar.toml, read 2026-10-13); no claude binary was on this machine.
 # zed v1.24.3 is what `zed --version` printed, written with the v this list
-# uses for a GitHub tag. The two ideas have not been read on this machine, so
-# their pin is 0: the first release the daily check sees is to read, not a
-# version remembered from training.
+# uses for a GitHub tag. agent-orchestrator v0.14.3 is its newest release,
+# read 2026-10-20: a pin of 0 counted every release before that as to read.
+# claude-delegator publishes no release (the releases list was empty that
+# day), so it is pinned by the newest commit on its default branch, read the
+# same day. The commit itself is dated 2026-10-12. A later commit is to read.
 
 [[watch]]
 name = "just"
@@ -95,7 +97,7 @@ check = "whether a project opened in it still reads the same settings"
 name = "agent-orchestrator"
 kind = "idea"
 source = "github:OrchestratorInc/agent-orchestrator"
-pin = "0"
+pin = "v0.14.3"
 why = "an idea taken for spec 034"
 look_for = "a board of every running job across projects"
 check = "whether that board exists, and what it would change about a delegated job"
@@ -103,8 +105,8 @@ check = "whether that board exists, and what it would change about a delegated j
 [[watch]]
 name = "claude-delegator"
 kind = "idea"
-source = "github:jarrodwatts/claude-delegator"
-pin = "0"
+source = "ghcommit:jarrodwatts/claude-delegator"
+pin = "8e2ea57c9b8e6f0790b1596d98e35632ca48a59c"
 why = "an idea taken for spec 034"
 look_for = "an ask-only mode"
 check = "whether an ask-only mode exists, and what it would change about a worker"

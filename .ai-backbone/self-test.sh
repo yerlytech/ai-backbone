@@ -1651,7 +1651,7 @@ fl() { ( cd "$tmp/hostile" && cp "$tmp/flutter.toml" docs/upstream.toml && "$py"
 check "flutter:stable reads Flutter's own list, one row per version" "says '^  flutter +3\\.44\\.0 +2026-05-18 +3\\.47\\.5 +2 newer' fl"
 check "a version built more than once is dated by its first day" "says '^  rebuilt +3\\.13\\.3 +2023-09-08 +3\\.47\\.5 +3 newer' fl"
 check "on the beta channel a beta is the release"          "says '^  beta +3\\.48\\.0-0\\.4\\.pre +2026-09-03 +3\\.48\\.0-0\\.5\\.pre +1 newer' fl"
-check "a channel that is not there is said, with the ones that are" "says '^  typo: .*stabel.* beta, stable' fl && says '^  kind: unknown source .* flutter:stable or hf:owner/name' fl"
+check "a channel that is not there is said, with the ones that are" "says '^  typo: .*stabel.* beta, stable' fl && says '^  kind: unknown source .* flutter:stable, hf:owner/name or ghcommit:owner/repo' fl"
 check "the template names Flutter's own source"           "grep -q 'flutter:stable' '$root/.ai-backbone/templates/upstream.toml'"
 # pin_is_real asked whether the file held the pin anywhere in its text, so a file
 # that had moved on to 1.38.20 still "held" 1.38.2 and MOVED was never said. And
@@ -1959,7 +1959,9 @@ check "a scoped npm package is asked with the slash encoded"        "fresh035 np
 check "the backbone's tool pins are the releases of 2026-10-20" \
   "grep -qx 'pin = \"1.59.0\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"0.5.6\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"0.9.92\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"0.13.3\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"v8.30.1\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"v7\"' '$root/docs/upstream.toml'"
 check "the backbone watches grok, claude-code, zed and the two ideas" \
-  "grep -qx 'source = \"npm:@xai-official/grok\"' '$root/docs/upstream.toml' && grep -qx 'source = \"npm:@anthropic-ai/claude-code\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:zed-industries/zed\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:OrchestratorInc/agent-orchestrator\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:jarrodwatts/claude-delegator\"' '$root/docs/upstream.toml' && grep -qx 'look_for = \"a board of every running job across projects\"' '$root/docs/upstream.toml' && grep -qx 'look_for = \"an ask-only mode\"' '$root/docs/upstream.toml'"
+  "grep -qx 'source = \"npm:@xai-official/grok\"' '$root/docs/upstream.toml' && grep -qx 'source = \"npm:@anthropic-ai/claude-code\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:zed-industries/zed\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:OrchestratorInc/agent-orchestrator\"' '$root/docs/upstream.toml' && grep -qx 'source = \"ghcommit:jarrodwatts/claude-delegator\"' '$root/docs/upstream.toml' && grep -qx 'look_for = \"a board of every running job across projects\"' '$root/docs/upstream.toml' && grep -qx 'look_for = \"an ask-only mode\"' '$root/docs/upstream.toml'"
+check "the two ideas are pinned at what was read on 2026-10-20" \
+  "grep -qx 'pin = \"v0.14.3\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"8e2ea57c9b8e6f0790b1596d98e35632ca48a59c\"' '$root/docs/upstream.toml'"
 check "the template says what an idea row is" "grep -q 'kind' '$root/.ai-backbone/templates/upstream.toml' && grep -q 'look_for' '$root/.ai-backbone/templates/upstream.toml'"
 check "just upstream --refresh is a real run, and offline it says so" \
   "says offline env AI_BACKBONE_UPSTREAM_CACHE='$tmp/spec035-refresh' just upstream --refresh && env AI_BACKBONE_UPSTREAM_CACHE='$tmp/spec035-refresh' just upstream --refresh >/dev/null"
@@ -3005,6 +3007,81 @@ u.fetch_json = page
 $1"; }
 check "a pin past the first page of fifty is found on the next, and no page after it is asked" "hfp \"r = u.from_hf('o/m', '%040x' % 49); ahead, at, why = u.commits_after({'pin': '%040x' % 49}, r); sys.exit(0 if len(ahead) == 51 and not why and len(asked) == 2 else 1)\""
 check "a gated model says so and names HF_TOKEN" "says 'gated or private; set HF_TOKEN' hfp \"u.from_hf('o/gated')\""
+# A repository that publishes no release is watched by the commits on its
+# default branch (spec 035). The request names no branch. From stand-in pages,
+# with every other address refused, and gh never called.
+cat > "$tmp/ghcommit.py" <<'PY'
+import importlib.util
+import os
+import sys
+from pathlib import Path
+
+root, mode, base = sys.argv[1:]
+os.environ.pop("AI_BACKBONE_OFFLINE", None)
+spec = importlib.util.spec_from_file_location("u", str(Path(root) / ".ai-backbone" / "upstream.py"))
+u = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(u)
+u.OFFLINE = False
+u.shutil_which = lambda name: None
+asked = []
+
+def row(n):
+    sha = "%040x" % n
+    return {"sha": sha, "html_url": "https://github.com/o/r/commit/" + sha,
+            "commit": {"message": "t", "committer": {"date": "2026-01-01T00:00:00Z"}}}
+
+def fake(url, headers=None):
+    asked.append(url)
+    prefix = "https://api.github.com/repos/o/r/commits?per_page=30&page="
+    if not url.startswith(prefix):
+        raise SystemExit("asked " + url)
+    page = int(url[len(prefix):])
+    if mode == "page":
+        if page == 1:
+            return [row(n) for n in range(100, 70, -1)]
+        if page == 2:
+            return [row(n) for n in range(70, 40, -1)]
+        return []
+    if page == 1:
+        return [
+            {"sha": "a" * 40, "html_url": "https://github.com/o/r/commit/" + "a" * 40,
+             "commit": {"message": "Ask only\n\nA flag.", "committer": {"date": "2026-10-20T08:00:00Z"}}},
+            {"sha": "b" * 40, "html_url": "https://github.com/o/r/commit/" + "b" * 40,
+             "commit": {"message": "Start", "committer": {"date": "2026-10-01T08:00:00Z"}}},
+        ]
+    return []
+
+u.fetch_json = fake
+
+def fail(msg):
+    print(msg, file=sys.stderr)
+    raise SystemExit(1)
+
+if mode == "page":
+    pin = "%040x" % 41
+    rows = u.from_ghcommit("o/r", pin)
+    ahead, _at, why = u.commits_after({"pin": pin}, rows)
+    bad = [url for url in asked if "sha=" in url or "/commits/" in url]
+    if why or len(ahead) != 59 or len(asked) != 2 or bad:
+        fail(f"ahead={len(ahead)} why={why} asked={asked}")
+else:
+    project = Path(base) / mode
+    os.chdir(project)
+    # main() reads sys.argv. This file's own arguments are the fixture, not a
+    # name on the watch list.
+    sys.argv = ["upstream.py", "--freshness"] if mode == "fresh" else ["upstream.py"]
+    sys.exit(u.main())
+PY
+mkdir -p "$tmp/ghc/table/docs" "$tmp/ghc/table/.git" "$tmp/ghc/fresh/docs" "$tmp/ghc/fresh/.git"
+printf '[[watch]]\nname = "idea"\nkind = "idea"\nsource = "ghcommit:o/r"\npin = "bbbbbbb"\nlook_for = "an ask-only mode"\n\n[[watch]]\nname = "tip"\nkind = "idea"\nsource = "ghcommit:o/r"\npin = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"\nlook_for = "an ask-only mode"\n\n[[watch]]\nname = "lost"\nsource = "ghcommit:o/r"\npin = "0000000"\n' > "$tmp/ghc/table/docs/upstream.toml"
+cp "$tmp/ghc/table/docs/upstream.toml" "$tmp/ghc/fresh/docs/upstream.toml"
+ghc() { env -u AI_BACKBONE_OFFLINE AI_BACKBONE_UPSTREAM_CACHE="$tmp/ghc-cache-$1" "$py" "$tmp/ghcommit.py" "$rootw" "$1" "$tmp/ghc"; }
+check "ghcommit: a pin past the first page is found on the next, and the request names no branch" "ghc page"
+check "ghcommit: a pin one commit behind is 1 newer, dated by its own commit" "says '^  idea +bbbbbbb +2026-10-01 +aaaaaaaaaaaa +1 newer +-\$' ghc table"
+check "ghcommit: the newest commit, written in full, is current" "says '^  tip +a{40} +2026-10-20 +— +current +-\$' ghc table"
+check "ghcommit: a commit the list does not hold is no answer" "says '^  lost: lists no commit 0000000 among its last 2; the newest is aaaaaaaaaaaa\$' ghc table"
+check "an idea pinned by commit is to read, never behind" "says 'To read: idea bbbbbbb → aaaaaaaaaaaa [(]an ask-only mode[)]' ghc fresh && says 'Behind: nothing' ghc fresh && ! says 'Behind: idea' ghc fresh"
+check "the template names a GitHub commit source" "grep -q 'ghcommit:owner/repo' '$root/.ai-backbone/templates/upstream.toml'"
 # Claude Code's agent checkouts are repositories of their own; a save must not take them.
 check "a new project ignores Claude Code's agent worktrees" "( cd '$tmp/plain' && git check-ignore -q .claude/worktrees/agent-1/file )"
 check "the session skill says what to do when the context fills up" "grep -q '^## When the context fills up' '$root/.agents/skills/session/SKILL.md' && grep -q 'new chat' '$root/.agents/skills/session/SKILL.md' && grep -q 'Do not compact on your own' '$root/.agents/skills/session/SKILL.md'"

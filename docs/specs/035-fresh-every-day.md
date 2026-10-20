@@ -76,3 +76,13 @@ first job the update, ideas watched in the same list, the scan on request.
 - [ ] `kind = "idea"`, its listing and tests; the backbone's list brought up to
       date (just, prek, graphify, uv, the two MOVED pins) and the new entries.
 - [ ] Rules, session skill, docs and changelog. Release with 034's, or after it.
+
+## Notes
+
+2026-10-20, fix round. agent-orchestrator is pinned at v0.14.3, the newest
+release read that day. A pin of 0 counted every earlier release as to read.
+claude-delegator publishes no release, so `github:` read UNKNOWN. It is
+watched with `ghcommit:owner/repo`: the commits on the repository's default
+branch, the request naming no branch. Pinned at `8e2ea57c9b8e6f0790b1596d98e35632ca48a59c`,
+the newest commit read that day (the commit itself is dated 2026-10-12). A
+later commit is to read.

@@ -47,9 +47,12 @@ and shows the last result with its age and why it is old. `docs/upstream.toml`
 accepts `kind = "idea"` with `why` and `look_for`. An idea is listed apart, and
 a newer release is to read, never behind. The backbone's list now watches grok,
 Claude Code and Zed, and two ideas taken for spec 034 (a board of every running
-job, and an ask-only mode). The pins of just, prek, graphify and uv are the
-newest releases of 2026-10-20. A scoped npm package is asked with its slash
-encoded. Something behind is the first job: just, prek, graphify and uv are
+job, and an ask-only mode). agent-orchestrator is pinned at v0.14.3, the newest
+release read on 2026-10-20. claude-delegator publishes no release, so it is
+watched by the commits on its default branch (`ghcommit:owner/repo`) and pinned
+at the commit read that day; a later commit is to read. The pins of just, prek,
+graphify and uv are the newest releases of 2026-10-20. A scoped npm package is
+asked with its slash encoded. Something behind is the first job: just, prek, graphify and uv are
 `just tools-update`, then `just save`; any other pin is a job, delegated when a
 worker is set. An idea to read goes to the worker for ten lines, and to the
 maintainer only when it is worth a decision. Nothing is upgraded on its own.
