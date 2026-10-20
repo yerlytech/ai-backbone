@@ -3256,6 +3256,27 @@ case "$mode" in
     echo report
     exit 3
     ;;
+  push)
+    git push -q origin HEAD:refs/heads/from-the-worker
+    git update-ref -d refs/remotes/origin/from-the-worker 2>/dev/null || true
+    echo report
+    ;;
+  move)
+    git checkout -q main
+    printf 'moved\n' >> README.md
+    git add README.md
+    git commit -qm "chore: moved the default branch" --no-verify
+    echo report
+    ;;
+  branch)
+    git branch from-the-worker
+    echo report
+    ;;
+  timeout)
+    echo report
+    sleep 30
+    echo finished
+    ;;
   *) echo "unknown mode $mode" >&2; exit 2 ;;
 esac
 EOF
@@ -3318,7 +3339,7 @@ for f in "$dhome/.cache/ai-backbone/delegate/delegate-clean"/*.log; do
   dlog=$f
 done
 check "a clean run makes delegate/<date>-<slug>, commits, and prints the report, the stat, a clean tree and the exit" \
-  "[ \$d_rc -eq 0 ] && case \"\$dbr\" in delegate/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-add-a-line) ;; *) false ;; esac && grep -qx 'tree: clean' <<<\"\$d_out\" && grep -qx 'exit status: 0' <<<\"\$d_out\" && grep -q 'worker-did.txt' <<<\"\$d_out\" && grep -q 'line-20' <<<\"\$d_out\" && grep -q 'line-06' <<<\"\$d_out\" && ! grep -q 'line-01' <<<\"\$d_out\" && grep -q \"commits on \$dbr\" <<<\"\$d_out\" && [ -n \"\$dlog\" ] && grep -q 'line-01' \"\$dlog\" && [ -z \"\$(find \"\$dproj\" -name '*.log' -type f)\" ] && [ -z \"\$(git -C \"\$dproj\" status --porcelain)\" ]"
+  "[ \$d_rc -eq 0 ] && case \"\$dbr\" in delegate/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-add-a-line) ;; *) false ;; esac && grep -qx 'tree: clean' <<<\"\$d_out\" && grep -qx 'exit status: 0' <<<\"\$d_out\" && grep -q 'worker-did.txt' <<<\"\$d_out\" && grep -q 'line-20' <<<\"\$d_out\" && grep -q 'line-06' <<<\"\$d_out\" && ! grep -q 'line-01' <<<\"\$d_out\" && grep -q \"commits on \$dbr\" <<<\"\$d_out\" && ! grep -q '^BREACH:' <<<\"\$d_out\" && [ -n \"\$dlog\" ] && grep -q 'line-01' \"\$dlog\" && [ -z \"\$(find \"\$dproj\" -name '*.log' -type f)\" ] && [ -z \"\$(git -C \"\$dproj\" status --porcelain)\" ]"
 check "the worker's prompt is the preamble, then the task, and grok is called headless" \
   "grep -q 'Read AGENTS.md' \"\$dprompt\" && grep -q \"You are on branch \$dbr; stay on it.\" \"\$dprompt\" && grep -q 'just save' \"\$dprompt\" && grep -q 'just publish' \"\$dprompt\" && grep -q 'git push' \"\$dprompt\" && grep -q 'just ship' \"\$dprompt\" && grep -q 'just deploy' \"\$dprompt\" && grep -q 'server or GitHub' \"\$dprompt\" && grep -q 'merge, rebase, or delete a branch' \"\$dprompt\" && grep -q 'at most 15 lines' \"\$dprompt\" && [ \"\$(tail -n 1 \"\$dprompt\")\" = 'add a line' ] && [ \"\$(cat \"\$dprompt.fmt\")\" = plain ] && [ -z \"\$(cat \"\$dprompt.model\")\" ]"
 git -C "$dproj" checkout -q main
@@ -3388,6 +3409,39 @@ check "the worker's exit status is the recipe's, and a dirty tree is said" \
 d_new dirt
 d_run dirty grok "" delegate "leave a file"
 check "a worker that leaves a file is reported as a dirty tree" "grep -qx 'tree: dirty' <<<\"\$d_out\" && [ -f \"\$dproj/left-dirty.txt\" ]"
+d_new badt
+d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=ok WORKER=grok DELEGATE_TIMEOUT=no \
+  just -f "$root/Justfile" -d "$dproj" delegate "add a line" 2>&1) && d_rc=0 || d_rc=$?
+d_out0=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=ok WORKER=grok DELEGATE_TIMEOUT=0 \
+  just -f "$root/Justfile" -d "$dproj" delegate "add a line" 2>&1) && d_rc0=0 || d_rc0=$?
+check "a DELEGATE_TIMEOUT that is not a positive number of minutes is refused in one line" \
+  "[ \$d_rc -ne 0 ] && d_one && grep -qx 'refuses: DELEGATE_TIMEOUT must be a positive number of minutes' <<<\"\$d_out\" && [ \$d_rc0 -ne 0 ] && grep -qx 'refuses: DELEGATE_TIMEOUT must be a positive number of minutes' <<<\"\$d_out0\" && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ]"
+d_new tout
+t0=$SECONDS
+d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=timeout FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_GO="$dgo" \
+  WORKER=grok DELEGATE_TIMEOUT=0.05 just -f "$root/Justfile" -d "$dproj" delegate "sleep it" 2>&1) && d_rc=0 || d_rc=$?
+elapsed=$((SECONDS - t0))
+check "the run stops when DELEGATE_TIMEOUT passes and says timeout, before the worker finishes" \
+  "[ \$d_rc -eq 124 ] && [ \$elapsed -lt 15 ] && grep -qx 'exit status: timeout' <<<\"\$d_out\" && grep -q '^report$' <<<\"\$d_out\" && ! grep -q finished <<<\"\$d_out\" && ! grep -q Terminated <<<\"\$d_out\""
+d_new push
+bare="$tmp/delegate-bare-push"
+git init -q --bare "$bare"
+git -C "$dproj" remote add origin "$bare"
+git -C "$dproj" push -q origin main
+d_run push grok "" delegate "push it"
+first=${d_out%%$'\n'*}
+check "a worker that pushes is a breach, said first, and the recipe exits non-zero" \
+  "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: remote refs changed' ] && grep -q '^report$' <<<\"\$d_out\" && ! grep -q 'default branch' <<<\"\$d_out\" && ! grep -q 'branch list changed' <<<\"\$d_out\""
+d_new move
+d_run move grok "" delegate "move main"
+first=${d_out%%$'\n'*}
+check "a worker that moves the default branch is a breach, said first" \
+  "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: default branch main moved' ] && grep -q '^report$' <<<\"\$d_out\" && ! grep -q 'remote refs' <<<\"\$d_out\" && ! grep -q 'branch list changed' <<<\"\$d_out\""
+d_new side
+d_run branch grok "" delegate "add a branch"
+first=${d_out%%$'\n'*}
+check "a worker that adds a branch is a breach, said first" \
+  "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: branch list changed' ] && grep -q '^report$' <<<\"\$d_out\" && git -C \"\$dproj\" show-ref --verify --quiet refs/heads/from-the-worker"
 
 sec_times="$sec_times$((SECONDS-sec_start)) $sec_name"$'\n'
 echo

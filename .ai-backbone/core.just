@@ -1365,6 +1365,13 @@ delegate task="":
     default=$(default_branch)
     here=$(git symbolic-ref -q --short HEAD || echo "no branch")
     if [ "$here" != "$default" ]; then echo "refuses: not on the default branch ($here; default is $default)"; exit 1; fi
+    # Minutes. The default is three hours; a fraction is one job, or a test.
+    # GNU timeout is not on macOS, so the stop below is a sleep and a signal.
+    timeout_min=${DELEGATE_TIMEOUT:-180}
+    if ! awk -v t="$timeout_min" 'BEGIN { exit !(t ~ /^[0-9]+(\.[0-9]+)?$/ && t+0 > 0) }'; then
+      echo "refuses: DELEGATE_TIMEOUT must be a positive number of minutes"; exit 1
+    fi
+    timeout_secs=$(awk -v t="$timeout_min" 'BEGIN { printf "%.3f", t * 60 }')
     # The same fold as `_slug`. Inlined: a nested `just` looks for a Justfile
     # from this folder, and a run pointed at another directory has none.
     slug=$(printf '%s' "$task" | perl -CS -Mutf8 -pe 'tr/çğıöşüÇĞİÖŞÜ/cgiosucgiosu/; $_=lc; s/[^a-z0-9]+/-/g; s/^-+|-+$//g')
@@ -1387,7 +1394,11 @@ delegate task="":
     fi
     echo $$ > "$lock/pid"
     printf '%s\n' "$branch" > "$lock/branch"
-    trap 'rm -rf "$lock"' EXIT
+    # wpid and tpid are empty until the worker starts. The trap stops whichever
+    # of them is still running, then drops the lock.
+    wpid=""
+    tpid=""
+    trap 'if [ -n "$tpid" ]; then kill -TERM -"$tpid" 2>/dev/null || kill -TERM "$tpid" 2>/dev/null || true; fi; if [ -n "$wpid" ]; then kill -TERM -"$wpid" 2>/dev/null || kill -TERM "$wpid" 2>/dev/null || true; fi; rm -rf "$lock"' EXIT
     git checkout -q -b "$branch"
     # Adapters: how to call the CLI headless, in this folder, with the prompt.
     # `exec` so a later stop reaches the CLI and not the shell around it. The
@@ -1407,12 +1418,65 @@ delegate task="":
     prompt=$(printf '%s\n\n%s\n' "$preamble" "$task")
     id="${branch#delegate/}"
     log="$dir/${id}.log"
+    # What the worker must not change (spec 034), taken after this branch
+    # exists so the branch itself is not a change. The branch list is names
+    # only: a commit on the worker's own branch is the job. A rebase that
+    # rewrites only that branch is not one of these three, and is not called
+    # a breach. A network remote is not asked (no git ls-remote). A remote
+    # whose URL is a local path is read directly, so a push is seen even when
+    # the remote-tracking refs are put back.
+    origin_url=$(git remote get-url origin 2>/dev/null || true)
+    origin_dir=""
+    case "$origin_url" in
+      file://*)
+        origin_dir=${origin_url#file://}
+        origin_dir=${origin_dir#localhost}
+        ;;
+      /*|[A-Za-z]:*) origin_dir=$origin_url ;;
+    esac
+    if [ -n "$origin_dir" ] && [ ! -d "$origin_dir" ]; then origin_dir=""; fi
+    snap_remotes() {
+      git for-each-ref refs/remotes --format='%(objectname) %(refname)'
+      if [ -n "$origin_dir" ]; then git -C "$origin_dir" for-each-ref --format='%(objectname) %(refname)'; fi
+    }
+    before_remotes=$(snap_remotes)
+    before_default=$(git rev-parse "refs/heads/$default")
+    before_branches=$(git for-each-ref refs/heads --format='%(refname)')
+    # Job control puts the worker in its own process group, so the stop
+    # reaches the CLI and the children it started. The "Terminated" line that
+    # job control prints is not the report, and is dropped.
+    rm -f "$dir/${id}.timedout"
+    set -m
+    set +e
+    ( delegate_"$worker" "$prompt" ) >"$log" 2>&1 &
+    wpid=$!
+    (
+      sleep "$timeout_secs"
+      if kill -0 "$wpid" 2>/dev/null; then
+        printf x > "$dir/${id}.timedout"
+        kill -TERM -"$wpid" 2>/dev/null || kill -TERM "$wpid" 2>/dev/null || true
+      fi
+    ) >/dev/null 2>&1 &
+    tpid=$!
+    { wait "$wpid"; rc=$?; } 2>/dev/null
+    kill -TERM -"$tpid" 2>/dev/null || kill -TERM "$tpid" 2>/dev/null || true
+    { wait "$tpid"; } 2>/dev/null || true
+    wpid=""
+    tpid=""
+    set +e
+    set +m
+    timed_out=0
+    if [ -f "$dir/${id}.timedout" ]; then timed_out=1; rc=124; rm -f "$dir/${id}.timedout"; fi
+    set -e
+    after_remotes=$(snap_remotes)
+    after_default=$(git rev-parse "refs/heads/$default" 2>/dev/null || echo missing)
+    after_branches=$(git for-each-ref refs/heads --format='%(refname)')
+    breach=0
+    if [ "$after_remotes" != "$before_remotes" ]; then echo "BREACH: remote refs changed"; breach=1; fi
+    if [ "$after_default" != "$before_default" ]; then echo "BREACH: default branch $default moved"; breach=1; fi
+    if [ "$after_branches" != "$before_branches" ]; then echo "BREACH: branch list changed"; breach=1; fi
     # The worker's whole output stays in the log. The last 15 lines are the
     # report: the preamble tells the worker to end with it.
-    set +e
-    ( delegate_"$worker" "$prompt" ) >"$log" 2>&1
-    rc=$?
-    set -e
     tail -n 15 "$log"
     echo
     echo "commits on $branch:"
@@ -1423,7 +1487,9 @@ delegate task="":
     fi
     echo
     if [ -n "$(git status --porcelain)" ]; then echo "tree: dirty"; else echo "tree: clean"; fi
-    echo "exit status: $rc"
+    if [ "$timed_out" -eq 1 ]; then echo "exit status: timeout"; else echo "exit status: $rc"; fi
+    if [ "$breach" -eq 1 ]; then exit 1; fi
+    if [ "$timed_out" -eq 1 ]; then exit 124; fi
     exit "$rc"
 
 # Whether a job of this project is running, its last report, and the open delegate branches.

@@ -66,12 +66,12 @@ its own worker.
       worker there with a fixed preamble: read AGENTS.md, stay on this branch,
       commit with `just save`, the forbidden list, the report's shape. The
       manager's text follows the preamble. The worker sees nothing else.
-- [ ] Forbidden to the worker, said in the preamble and checked afterwards:
+- [x] Forbidden to the worker, said in the preamble and checked afterwards:
       `just publish`, `git push`, `just ship`, `just deploy`, any server or
       GitHub call, merge, rebase, branch deletion. After the run the recipe
       compares the remote refs, the default branch and the branch list with
       before. Any change prints `BREACH: …` first and exits non-zero.
-- [ ] The run stops after `DELEGATE_TIMEOUT` (default 180 min, any value for one job). The full output
+- [x] The run stops after `DELEGATE_TIMEOUT` (default 180 min, any value for one job). The full output
       goes to `~/.cache/ai-backbone/delegate/<project>/<id>.log`, never the
       repo. The recipe prints only the worker's report, the branch's commits
       with `--stat`, whether the tree is clean, and the exit status.
@@ -89,7 +89,7 @@ its own worker.
       task, one report, review, then accept, fix or drop; the publish and ship
       gates unchanged; two failures go to the maintainer. They also say what to
       do when no worker is installed: the session works as before.
-- [ ] Tests with a fake worker (a script) cover each refusal, a clean run, a
+- [x] Tests with a fake worker (a script) cover each refusal, a clean run, a
       timeout, a worker that pushes or moves the default branch (BREACH), and
       accept and drop. They pass on macOS and Linux.
 - [ ] A real run in a fixture project with Grok finishes with a report and an
@@ -99,7 +99,7 @@ its own worker.
 
 - [x] The recipes `delegate`, `delegate-status`, `delegate-accept` and
       `delegate-drop`, the grok adapter, the preamble, and the fake-worker tests.
-- [ ] The BREACH check and the timeout, with their tests.
+- [x] The BREACH check and the timeout, with their tests.
 - [ ] The manager rules in the core instructions, the skill text (team or a new
       `delegate` skill), `docs/`, and the changelog.
 - [ ] A real Grok run in a fixture. Release, and then each project's
