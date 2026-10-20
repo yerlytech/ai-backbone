@@ -1512,10 +1512,15 @@ delegate task="":
     before_branches=$(git for-each-ref refs/heads --format='%(refname)')
     # Job control puts the worker in its own process group, so the stop
     # reaches the CLI and the children it started. The "Terminated" line that
-    # job control prints is not the report, and is dropped. With job control
-    # on, a background job keeps this shell's input, and a session holds that
-    # open: a CLI that reads it to the end never exits after its report. The
-    # worker reads nothing, so its input is empty.
+    # job control prints is not the report. The redirected wait drops the
+    # worker's. It does not drop the sleeper's: the macOS suite printed that
+    # line for this wait after the wait's own redirect had ended, ahead of
+    # BREACH (macos-latest, the two fix-round breach checks). The sleeper is
+    # removed from the job table before it is killed, and that kill shares a
+    # redirect with turning job control off. With job control on, a background
+    # job keeps this shell's input, and a session holds that open: a CLI that
+    # reads it to the end never exits after its report. The worker reads
+    # nothing, so its input is empty.
     rm -f "$dir/${id}.timedout"
     set -m
     set +e
@@ -1530,12 +1535,16 @@ delegate task="":
     ) >/dev/null 2>&1 &
     tpid=$!
     { wait "$wpid"; rc=$?; } 2>/dev/null
-    kill -TERM -"$tpid" 2>/dev/null || kill -TERM "$tpid" 2>/dev/null || true
-    { wait "$tpid"; } 2>/dev/null || true
+    {
+      # The worker was just waited, so the current job is the sleeper.
+      disown %+ 2>/dev/null || true
+      kill -TERM -"$tpid" 2>/dev/null || kill -TERM "$tpid" 2>/dev/null || true
+      wait "$tpid" 2>/dev/null || true
+      set +m
+    } 2>/dev/null
     wpid=""
     tpid=""
     set +e
-    set +m
     timed_out=0
     if [ -f "$dir/${id}.timedout" ]; then timed_out=1; rc=124; rm -f "$dir/${id}.timedout"; fi
     set -e

@@ -22,7 +22,9 @@ exited after its report: the job ran to `DELEGATE_TIMEOUT` and said
 starts with empty input. With `WORKER` set, the freshness block's first job
 says to hand an upgrade over with `just delegate` instead of doing it in the
 session. The delegate skill says how to start a job that may outlast the
-harness's two-hour limit for a background command. Nothing to do.
+harness's two-hour limit for a background command. Stopping the timeout
+sleeper no longer prints its `Terminated` line ahead of a breach report.
+Nothing to do.
 
 ## 3.45.0 — 2026-10-20
 

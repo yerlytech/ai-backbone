@@ -4016,7 +4016,7 @@ d_run ok grok "" delegate "add a line"
 d_run move grok "" delegate "move main"
 first=${d_out%%$'\n'*}
 check "a fix round that moves the default branch is still a breach" \
-  "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: default branch main moved' ]"
+  "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: default branch main moved' ] && ! grep -q Terminated <<<\"\$d_out\""
 # tr_TR prints the timeout with a comma. BSD sleep then returns at once and
 # the old timer killed the worker, so this line was not the breach. The
 # locale is exported only in a subshell, so the checks after this one keep
@@ -4093,7 +4093,7 @@ DELEGATE_BASE=migration d_run ok grok "" delegate "add a line"
 FAKE_WORKER_TARGET=migration d_run movebase grok "" delegate "move the base again"
 first=${d_out%%$'\n'*}
 check "a fix round protects the recorded base when DELEGATE_BASE is unset" \
-  "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: base branch migration moved' ]"
+  "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: base branch migration moved' ] && ! grep -q Terminated <<<\"\$d_out\""
 d_new dropyes
 d_run ok grok "" delegate "add a line"
 nbr=$(git -C "$dproj" symbolic-ref --short HEAD)
