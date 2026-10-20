@@ -1400,10 +1400,15 @@ delegate task="":
     # Minutes. The default is three hours; a fraction is one job, or a test.
     # GNU timeout is not on macOS, so the stop below is a sleep and a signal.
     timeout_min=${DELEGATE_TIMEOUT:-180}
-    if ! awk -v t="$timeout_min" 'BEGIN { exit !(t ~ /^[0-9]+(\.[0-9]+)?$/ && t+0 > 0) }'; then
+    # C locale so the fraction is read with a point, on a machine whose
+    # decimal mark is a comma. The same locale formats the number below.
+    if ! LC_ALL=C awk -v t="$timeout_min" 'BEGIN { exit !(t ~ /^[0-9]+(\.[0-9]+)?$/ && t+0 > 0) }'; then
       echo "refuses: DELEGATE_TIMEOUT must be a positive number of minutes"; exit 1
     fi
-    timeout_secs=$(awk -v t="$timeout_min" 'BEGIN { printf "%.3f", t * 60 }')
+    # printf "%.3f" follows the decimal mark. tr_TR prints "10800,000", and
+    # BSD sleep rejects that at once. The timer would kill the worker before
+    # a breach line exists. A fraction is one job, or the 0.05 minute test.
+    timeout_secs=$(LC_ALL=C awk -v t="$timeout_min" 'BEGIN { printf "%.3f", t * 60 }')
     # The same fold as `_slug`. Inlined: a nested `just` looks for a Justfile
     # from this folder, and a run pointed at another directory has none.
     # A fix round already has its branch, so the task needs no slug.
@@ -1477,7 +1482,9 @@ delegate task="":
       git for-each-ref refs/remotes --format='%(objectname) %(refname)'
       if [ -n "$origin_dir" ]; then git -C "$origin_dir" for-each-ref --format='%(objectname) %(refname)'; fi
     }
-    before_remotes=$(snap_remotes)
+    # stderr included: a fsmonitor or "hint" line from git is not the report,
+    # and on a pipe it would be the first line the breach check reads.
+    before_remotes=$(snap_remotes 2>/dev/null)
     # The protected branch is the default, or the base when DELEGATE_BASE is
     # set. A fix round with the variable unset still protects the base the
     # branch recorded, or the check would be looking at the default while the
@@ -1492,36 +1499,52 @@ delegate task="":
       if [ -n "$recorded" ]; then protect=$recorded; protect_kind=base; fi
     fi
     before_protect=$(git rev-parse "refs/heads/$protect" 2>/dev/null || echo missing)
-    before_branches=$(git for-each-ref refs/heads --format='%(refname)')
+    before_branches=$(git for-each-ref refs/heads --format='%(refname)' 2>/dev/null)
     # Job control puts the worker in its own process group, so the stop
-    # reaches the CLI and the children it started. The "Terminated" line that
-    # job control prints is not the report, and is dropped.
+    # reaches the CLI and the children it started. bash 3.2 prints "Done"
+    # when the next background job starts if this one has already exited,
+    # which is outside a redirected wait, and prints "Terminated" for the
+    # timer. Neither line is the report. The block is the current shell, so
+    # rc survives it; its stderr does not. set +m runs inside the block, or
+    # the notice is saved and printed on the next command, ahead of BREACH.
     rm -f "$dir/${id}.timedout"
-    set -m
     set +e
-    ( delegate_"$worker" "$prompt" ) >"$log" 2>&1 &
-    wpid=$!
-    (
-      sleep "$timeout_secs"
-      if kill -0 "$wpid" 2>/dev/null; then
-        printf x > "$dir/${id}.timedout"
-        kill -TERM -"$wpid" 2>/dev/null || kill -TERM "$wpid" 2>/dev/null || true
-      fi
-    ) >/dev/null 2>&1 &
-    tpid=$!
-    { wait "$wpid"; rc=$?; } 2>/dev/null
-    kill -TERM -"$tpid" 2>/dev/null || kill -TERM "$tpid" 2>/dev/null || true
-    { wait "$tpid"; } 2>/dev/null || true
-    wpid=""
-    tpid=""
+    {
+      set -m
+      ( delegate_"$worker" "$prompt" ) >"$log" 2>&1 &
+      wpid=$!
+      (
+        # C locale again: the digits are already dotted, and sleep must not
+        # apply a comma mark of its own. A failed sleep is not a timeout.
+        # Without the exit, set +e lets the shell fall through and kill the
+        # worker at once, and a fix round that moved main never prints BREACH.
+        LC_ALL=C sleep "$timeout_secs" || exit 0
+        if kill -0 "$wpid" 2>/dev/null; then
+          printf x > "$dir/${id}.timedout"
+          kill -TERM -"$wpid" 2>/dev/null || kill -TERM "$wpid" 2>/dev/null || true
+        fi
+      ) >/dev/null 2>&1 &
+      tpid=$!
+      # A caught signal makes wait return while the worker is still running.
+      # The snapshot below would then miss a breach that lands a moment later.
+      while true; do
+        wait "$wpid"
+        rc=$?
+        if [ "$rc" -le 128 ] || ! kill -0 "$wpid" 2>/dev/null; then break; fi
+      done
+      kill -TERM -"$tpid" 2>/dev/null || kill -TERM "$tpid" 2>/dev/null || true
+      wait "$tpid" || true
+      wpid=""
+      tpid=""
+      set +m
+    } 2>/dev/null
     set +e
-    set +m
     timed_out=0
     if [ -f "$dir/${id}.timedout" ]; then timed_out=1; rc=124; rm -f "$dir/${id}.timedout"; fi
     set -e
-    after_remotes=$(snap_remotes)
+    after_remotes=$(snap_remotes 2>/dev/null)
     after_protect=$(git rev-parse "refs/heads/$protect" 2>/dev/null || echo missing)
-    after_branches=$(git for-each-ref refs/heads --format='%(refname)')
+    after_branches=$(git for-each-ref refs/heads --format='%(refname)' 2>/dev/null)
     breach=0
     if [ "$after_remotes" != "$before_remotes" ]; then echo "BREACH: remote refs changed"; breach=1; fi
     if [ "$after_protect" != "$before_protect" ]; then

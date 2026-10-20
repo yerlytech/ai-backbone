@@ -3569,6 +3569,17 @@ fi
 cd "$tmp" || exit 1
 
 section "delegate (spec 034)"
+# The recipe's text is in d_out. The shared check prints the eval's own
+# stdout, which this section leaves empty, so a red CI line had nothing
+# under it (macos-latest, run 39407850519). Show what the recipe printed.
+check() {
+  : > "$tmp/check.out"; : > "$tmp/says.out"
+  if eval "$2" >"$tmp/check.out" 2>&1; then ok "$1"; else bad "$1"
+    if [ -s "$tmp/check.out" ] || [ -s "$tmp/says.out" ]; then cat "$tmp/check.out" "$tmp/says.out"; else printf '%s\n' "${out:-}"; fi | tail -12 | sed 's/^/        /'
+    if [ -n "${d_out-}" ]; then printf '%s\n' "$d_out" | sed -n '1,30s/^/        | /p'
+    else printf '%s\n' '        | (no recipe output)'; fi
+  fi
+}
 # A script stands in for the worker. The recipes call the resolved path; on
 # PATH that is this script. It records the prompt and does what FAKE_WORKER_MODE
 # says. FAKE_WORKER_BINLOG, when set, receives the path the recipe executed.
@@ -3829,7 +3840,7 @@ check "drop with two delegate branches asks for the name and deletes none" \
 d_new fail
 d_run fail grok "" delegate "break it"
 check "the worker's exit status is the recipe's, and a dirty tree is said" \
-  "[ \$d_rc -eq 3 ] && grep -qx 'exit status: 3' <<<\"\$d_out\""
+  "[ \$d_rc -eq 3 ] && grep -qx 'exit status: 3' <<<\"\$d_out\" && ! grep -q Terminated <<<\"\$d_out\" && ! grep -q ' Done ' <<<\"\$d_out\""
 d_new dirt
 d_run dirty grok "" delegate "leave a file"
 check "a worker that leaves a file is reported as a dirty tree" "grep -qx 'tree: dirty' <<<\"\$d_out\" && [ -f \"\$dproj/left-dirty.txt\" ]"
@@ -3886,6 +3897,29 @@ d_run move grok "" delegate "move main"
 first=${d_out%%$'\n'*}
 check "a fix round that moves the default branch is still a breach" \
   "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: default branch main moved' ]"
+# tr_TR prints the timeout with a comma. BSD sleep then returns at once and
+# the old timer killed the worker, so this line was not the breach. The
+# locale is exported only in a subshell, so the checks after this one keep
+# the caller's mark. Skip where the locale is absent.
+locale -a > "$tmp/locales.txt" 2>/dev/null || true
+if grep -qx 'tr_TR.UTF-8' "$tmp/locales.txt"; then
+  d_new fixmovelocale
+  d_run ok grok "" delegate "add a line"
+  dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+  before_main=$(git -C "$dproj" rev-parse refs/heads/main)
+  (
+    export LC_ALL=tr_TR.UTF-8 LANG=tr_TR.UTF-8
+    d_run move grok "" delegate "move main"
+    printf '%s\n' "$d_rc" > "$tmp/locale-rc"
+    printf '%s\n' "$d_out" > "$tmp/locale-out"
+  )
+  d_rc=$(cat "$tmp/locale-rc")
+  d_out=$(cat "$tmp/locale-out")
+  first=${d_out%%$'\n'*}
+  after_main=$(git -C "$dproj" rev-parse refs/heads/main)
+  check "a comma decimal mark still reports a fix round that moves main, first" \
+    "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: default branch main moved' ] && [ \"\$before_main\" != \"\$after_main\" ] && [ \"\$(git -C \"\$dproj\" symbolic-ref --short HEAD)\" != \"\$dbr\" ] && [ \"\$(git -C \"\$dproj\" branch --list 'delegate/*' | wc -l | tr -d ' ')\" = 1 ]"
+fi
 d_new fixside
 d_run ok grok "" delegate "add a line"
 d_run branch grok "" delegate "add a branch"
