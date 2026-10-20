@@ -3317,12 +3317,13 @@ d_new() {
 d_run() {
   local mode="$1" worker="$2" model="$3"; shift 3
   # shellcheck disable=SC2086
-  d_out=$(env -u WORKER -u WORKER_MODEL -u DELEGATE_TIMEOUT -u WORKER_BIN -u DELEGATE_BASE -u FAKE_WORKER_TARGET \
+  d_out=$(env -u WORKER -u WORKER_MODEL -u DELEGATE_TIMEOUT -u WORKER_BIN -u DELEGATE_BASE -u DELEGATE_YES -u FAKE_WORKER_TARGET \
     HOME="$dhome" PATH="$dbin:$PATH" \
     FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE="$mode" FAKE_WORKER_GO="$dgo" \
     ${worker:+WORKER=$worker} ${model:+WORKER_MODEL=$model} \
     ${WORKER_BIN:+WORKER_BIN=$WORKER_BIN} \
     ${DELEGATE_BASE:+DELEGATE_BASE=$DELEGATE_BASE} \
+    ${DELEGATE_YES:+DELEGATE_YES=$DELEGATE_YES} \
     ${FAKE_WORKER_TARGET:+FAKE_WORKER_TARGET=$FAKE_WORKER_TARGET} \
     just -f "$root/Justfile" -d "$dproj" "$@" 2>&1) && d_rc=0 || d_rc=$?
 }
@@ -3576,6 +3577,25 @@ FAKE_WORKER_TARGET=migration d_run movebase grok "" delegate "move the base agai
 first=${d_out%%$'\n'*}
 check "a fix round protects the recorded base when DELEGATE_BASE is unset" \
   "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: base branch migration moved' ]"
+d_new dropyes
+d_run ok grok "" delegate "add a line"
+nbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+d_out=$(env -u WORKER -u DELEGATE_YES HOME="$dhome" just -f "$root/Justfile" -d "$dproj" delegate-drop --yes </dev/null 2>&1) && d_rc=0 || d_rc=$?
+check "delegate-drop --yes deletes with no terminal and does not ask" \
+  "[ \$d_rc -eq 0 ] && grep -qx \"dropped \$nbr\" <<<\"\$d_out\" && ! grep -q 'Delete ' <<<\"\$d_out\" && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ] && [ \"\$(git -C \"\$dproj\" symbolic-ref --short HEAD)\" = main ]"
+d_new dropenv
+d_run ok grok "" delegate "add a line"
+nbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+d_out=$(env -u WORKER HOME="$dhome" DELEGATE_YES=1 just -f "$root/Justfile" -d "$dproj" delegate-drop </dev/null 2>&1) && d_rc=0 || d_rc=$?
+check "DELEGATE_YES=1 deletes with no terminal and does not ask" \
+  "[ \$d_rc -eq 0 ] && grep -qx \"dropped \$nbr\" <<<\"\$d_out\" && ! grep -q 'Delete ' <<<\"\$d_out\" && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ] && [ \"\$(git -C \"\$dproj\" symbolic-ref --short HEAD)\" = main ]"
+d_new dropclosed
+d_run ok grok "" delegate "add a line"
+nbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+d_out=$(env -u WORKER -u DELEGATE_YES HOME="$dhome" just -f "$root/Justfile" -d "$dproj" delegate-drop </dev/null 2>&1) && d_rc=0 || d_rc=$?
+if git -C "$dproj" show-ref --verify --quiet "refs/heads/$nbr"; then kept_branch=yes; else kept_branch=no; fi
+check "without --yes, a closed stdin still asks once and keeps the branch" \
+  "[ \$d_rc -ne 0 ] && grep -q \"Delete \$nbr\" <<<\"\$d_out\" && grep -q \"kept \$nbr\" <<<\"\$d_out\" && [ \"\$kept_branch\" = yes ]"
 
 sec_times="$sec_times$((SECONDS-sec_start)) $sec_name"$'\n'
 echo

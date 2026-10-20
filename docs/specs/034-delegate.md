@@ -15,8 +15,8 @@ its own branch, runs the tests, commits locally and ends with a report of at mos
 15 lines. The manager reads only that report and the branch's summary. Then it
 either takes the work with `just delegate-accept`, sends a fix with another
 `just delegate` on that same branch, or drops the branch with
-`just delegate-drop`. Publishing,
-shipping and talking to the maintainer stay with the manager.
+`just delegate-drop`. Publishing, shipping and talking to the maintainer stay
+with the manager.
 
 ## Why
 
@@ -89,7 +89,9 @@ its own worker.
       or the recorded base when the job started from `DELEGATE_BASE`, and
       deletes it. It refuses when that is not a fast-forward.
       `just delegate-drop [branch]` asks once, then deletes the branch and
-      returns to that same base.
+      returns to that same base. `--yes` or `DELEGATE_YES=1` deletes without
+      asking, so a manager with no terminal can drop. Without that, it still
+      asks once.
 - [x] `WORKER` (machine-local; unset or `off` means no delegation) chooses the
       adapter. Each adapter is one function: how to call the CLI headless in a
       folder with a prompt. The binary is `WORKER_BIN` when that is executable,

@@ -1640,7 +1640,9 @@ delegate-accept branch="":
     git branch -d "$branch" >/dev/null
     echo "accepted $branch onto $onto"
 
-# Ask once, then delete a delegate branch.
+# Ask once, then delete a delegate branch. A manager has no terminal: --yes
+# or DELEGATE_YES=1 answers that question. Without them it is still asked
+# once, and a closed stdin keeps the branch.
 [group('session')]
 [no-exit-message]
 [positional-arguments]
@@ -1659,7 +1661,19 @@ delegate-drop branch="":
       git symbolic-ref -q --short HEAD
     }
     default=$(default_branch)
-    branch="${1:-}"
+    branch=""
+    yes=0
+    if [ "${DELEGATE_YES:-}" = 1 ]; then yes=1; fi
+    for a in "$@"; do
+      case "$a" in
+        --yes) yes=1 ;;
+        -*) echo "refuses: unknown option $a"; exit 1 ;;
+        *)
+          if [ -n "$branch" ]; then echo "refuses: name one branch"; exit 1; fi
+          branch=$a
+          ;;
+      esac
+    done
     if [ -z "$branch" ]; then
       branch=$(git for-each-ref refs/heads/delegate/ --format='%(refname:short)')
       n=$(printf '%s\n' "$branch" | grep -c . || true)
@@ -1675,13 +1689,15 @@ delegate-drop branch="":
     onto=$default
     recorded=$(git config --get "branch.${branch}.delegateBase" 2>/dev/null || true)
     if [ -n "$recorded" ]; then onto=$recorded; fi
-    printf 'Delete %s? [y/N]\n' "$branch"
-    ans=""
-    read -r ans || true
-    case "$ans" in
-      y|Y|yes|YES) ;;
-      *) echo "kept $branch"; exit 1 ;;
-    esac
+    if [ "$yes" -eq 0 ]; then
+      printf 'Delete %s? [y/N]\n' "$branch"
+      ans=""
+      read -r ans || true
+      case "$ans" in
+        y|Y|yes|YES) ;;
+        *) echo "kept $branch"; exit 1 ;;
+      esac
+    fi
     here=$(git symbolic-ref -q --short HEAD || echo "no branch")
     if [ "$here" = "$branch" ]; then
       git show-ref --verify --quiet "refs/heads/$onto" || { echo "refuses: base branch $onto does not exist"; exit 1; }

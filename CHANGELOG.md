@@ -18,21 +18,22 @@ below are the record of every version.
 **A session can hand one task to a worker on its own branch.**
 `just delegate "<task>"` runs the worker named by `WORKER` (`grok` or `claude`)
 on `delegate/<date>-<slug>` and prints the report, the commits, whether the
-tree is clean, and the exit. It refuses a dirty tree, any branch but the
-default, a second job, or a worker that is not installed. Afterwards it says
-if the worker pushed, moved the default branch, or changed the branch list.
-`just delegate-accept` fast-forwards the default branch onto the work.
-`just delegate-drop` asks once, then deletes the branch. `just delegate-status`
-shows a running job, the last report, and the open branches. With `WORKER`
-unset or `off`, nothing is delegated and the session does the work as before.
-The binary is `WORKER_BIN` when that is set, otherwise the name on `PATH`,
-otherwise the place that worker installs itself (`~/.grok/bin/grok`; Claude at
-`~/.claude/local/claude`, then `~/.local/bin/claude`). A second `just delegate`
-on a `delegate/*` branch, with a clean tree, runs on that branch and does not
-make a new one, so a fix keeps the first round. `DELEGATE_BASE` names a
-long-lived branch to start from instead of the default. The branch records it,
-`delegate-accept` fast-forwards onto it, `delegate-drop` returns to it, and the
-breach check protects it instead of the default.
+tree is clean, and the exit. It refuses a dirty tree, a branch other than the
+default (or `DELEGATE_BASE`) and other than an open `delegate/*` branch, a
+second job, a base that does not exist, or a worker that is not installed.
+Afterwards it says if the worker pushed, moved the protected branch, or changed
+the branch list. A second `just delegate` on a `delegate/*` branch, with a
+clean tree, runs on that branch and does not make a new one, so a fix keeps
+the first round. `DELEGATE_BASE` names a long-lived branch to start from. The
+branch records it, `delegate-accept` fast-forwards onto it, `delegate-drop`
+returns to it, and the breach check protects it instead of the default.
+`just delegate-drop` asks once, then deletes the branch. `--yes` or
+`DELEGATE_YES=1` deletes without asking. `just delegate-status` shows a running
+job, the last report, and the open branches. With `WORKER` unset or `off`,
+nothing is delegated and the session does the work as before. The binary is
+`WORKER_BIN` when that is set, otherwise the name on `PATH`, otherwise the
+place that worker installs itself (`~/.grok/bin/grok`; Claude at
+`~/.claude/local/claude`, then `~/.local/bin/claude`).
 
 Nothing to do in a project until the release (`template-update` then).
 

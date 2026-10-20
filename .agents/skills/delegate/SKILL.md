@@ -18,7 +18,8 @@ With `WORKER` set to `grok` or `claude`, this session is the manager.
    exit. The log stays outside the repo.
 3. Read that. Then `just delegate-accept`, another `just delegate` with the
    fix, or `just delegate-drop`. The fix runs on the same branch. A new branch
-   would drop the first round's commits.
+   would drop the first round's commits. `just delegate-drop --yes`, or
+   `DELEGATE_YES=1`, drops with no terminal. Without that, it asks once.
 4. `just publish` and `just ship` stay here. They are not the worker's.
 5. Two failed tries at one job: stop and tell the maintainer. Do not do the
    job yourself instead.
