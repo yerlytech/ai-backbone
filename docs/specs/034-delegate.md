@@ -85,7 +85,7 @@ its own worker.
       folder with a prompt. `grok` uses `grok -p … --output-format plain`;
       `claude` uses `claude -p …` with a cheaper model (`WORKER_MODEL`). With
       `off`, `just delegate` says so and the manager rules do not apply.
-- [ ] The core rules give the manager role: no product code by the manager; one
+- [x] The core rules give the manager role: no product code by the manager; one
       task, one report, review, then accept, fix or drop; the publish and ship
       gates unchanged; two failures go to the maintainer. They also say what to
       do when no worker is installed: the session works as before.
@@ -100,7 +100,7 @@ its own worker.
 - [x] The recipes `delegate`, `delegate-status`, `delegate-accept` and
       `delegate-drop`, the grok adapter, the preamble, and the fake-worker tests.
 - [x] The BREACH check and the timeout, with their tests.
-- [ ] The manager rules in the core instructions, the skill text (team or a new
+- [x] The manager rules in the core instructions, the skill text (team or a new
       `delegate` skill), `docs/`, and the changelog.
 - [ ] A real Grok run in a fixture. Release, and then each project's
       `just template-update`.

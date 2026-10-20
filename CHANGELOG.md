@@ -13,6 +13,21 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## Unreleased
+
+**A session can hand one task to a worker on its own branch.**
+`just delegate "<task>"` runs the worker named by `WORKER` (`grok` or `claude`)
+on `delegate/<date>-<slug>` and prints the report, the commits, whether the
+tree is clean, and the exit. It refuses a dirty tree, any branch but the
+default, a second job, or a worker that is not installed. Afterwards it says
+if the worker pushed, moved the default branch, or changed the branch list.
+`just delegate-accept` fast-forwards the default branch onto the work.
+`just delegate-drop` asks once, then deletes the branch. `just delegate-status`
+shows a running job, the last report, and the open branches. With `WORKER`
+unset or `off`, nothing is delegated and the session does the work as before.
+
+Nothing to do in a project until the release (`template-update` then).
+
 ## 3.44.0 — 2026-10-19
 
 **A Flutter device test names its emulator, and stops when it goes quiet.**

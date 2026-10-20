@@ -100,3 +100,12 @@ task needs it, so the roster costs a few lines of context, not a few pages.
 A role is not a subagent. Start a subagent only for a job that gains from its
 own context, such as wide research or a pile of numbers, give it the role's
 skill to follow, and say how many before starting them.
+
+## When a worker builds
+
+With `WORKER` set to `grok` or `claude`, the session manages and writes no
+product code. One task goes out with `just delegate`, then the report, then
+accept, fix or drop. The steps are the `delegate` skill. `just publish` and
+`just ship` stay with the session. Two failed tries at one job go to the
+maintainer. With `WORKER` unset or `off`, or that worker not installed, the
+session does the work itself, as before.

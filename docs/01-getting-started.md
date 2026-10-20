@@ -194,8 +194,20 @@ just ref-add old.bundle "why" # or a git bundle, the only copy an old repo often
 just ref-add <folder> "why" live   # or a sibling project, read where it stands and never copied
 just project-note <project> "one line"   # a note for another project on this machine (or ai-backbone); its next session-start, save or session-end shows it
 just save "msg" <path>...                # save only those paths, and hear what was left unsaved
+just delegate "<task>"                  # hand one task to a worker on its own branch
+just delegate-status                    # whether a job is running, the last report, the open delegate branches
+just delegate-accept [branch]           # fast-forward the default branch onto that work, then delete the branch
+just delegate-drop [branch]             # ask once, then delete the branch
 just --list          # everything
 ```
+
+When `WORKER` is `grok` or `claude`, the session manages. It sends one task,
+reads the report, and accepts, fixes or drops. It writes no product code.
+`just publish` and `just ship` stay with that session. `WORKER` unset or `off`
+is the default on a new machine, and then the session does the work as before,
+including when the named worker is not installed. `DELEGATE_TIMEOUT` is how
+many minutes one job may run (180 if you do not set it). `WORKER_MODEL` is the
+model the `claude` worker uses, when you set one.
 
 ## The backbone gets stronger while you work
 

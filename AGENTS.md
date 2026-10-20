@@ -19,10 +19,10 @@ Fill this in once, at the start of the project.
 | managed_by | none |
 
 You answer `project`, `brain_lang` and `chat_lang`. The agent fills `stack` and
-`source_dir` when the time comes. `tools`: the AI tools you use (`claude`, `gemini`,
-`copilot`, `junie`, `codex`, `cursor`), comma-separated. `all` generates copies for
-every tool. `managed_by`: a repository whose decisions, cited by id, outrank this
-file's; a conflict goes there with `just project-note`, never settled here.
+`source_dir`. `tools` is a comma-separated list (`claude`, `gemini`, `copilot`,
+`junie`, `codex`, `cursor`); `all` generates every copy. `managed_by` names a
+repository whose decisions outrank this file; a conflict goes there with
+`just project-note`, never settled here.
 
 ## 1. Contract
 
@@ -41,15 +41,14 @@ You are the senior engineer. Behave like one.
 - Code, comments, commit messages and `docs/`: the value of `code_lang` above.
 - `brain/` and conversation with the maintainer: the value of `brain_lang` above.
 
-Never mix the two. A Turkish commit message in an English repo is a bug.
+Never mix the two.
 
 ## 3. Session protocol
 
 - **Start:** run `just session-start`. Read the last journal entries before touching code.
 - **End:** run `just session-end`. Record what changed and why.
 - Never leave a session with uncommitted work.
-- Before saving a change to `.ai-backbone/core.just`, run `just self-test`. It builds
-  throwaway projects and shows what a person would see. Red means not saved.
+- Before saving a change to `.ai-backbone/core.just`, run `just self-test`. Red means not saved.
 - **The backbone is yours to improve.** A bug, gap or idea about the backbone found
   while working in a project is never patched in the project. Write it down with
   `just backbone-note "one line"`, or fix it in the backbone right away (the
@@ -60,12 +59,12 @@ Never mix the two. A Turkish commit message in an English repo is a bug.
 - **Spec first.** Anything bigger than a small fix starts as a one-page spec in
   `docs/specs/` (`just spec <name>`). No code until the maintainer says approved.
 - **Docs follow code.** If a change alters something `docs/` describes, update
-  `docs/` in the same session. Stale documentation is a bug.
+  `docs/` in the same session. Stale docs are a bug.
+- When `WORKER` is `grok` or `claude`, manage and write no product code. One task with `just delegate`, then the report, then accept, fix or drop. `just publish` and `just ship` stay here. Two failed tries go to the maintainer. Unset, `off`, or not installed: do the work, as before.
 - **Audit at the end of a phase**, with the maintainer's approval, and again
-  before publishing or releasing. Many lenses, and every finding argued against
-  by three skeptics before the maintainer reads it (the `audit` skill). Never on
-  a commit: it is expensive and deliberate. An audit reads code, so it is not a
-  substitute for running the thing on a real machine. Do both.
+  before publishing or releasing. Many lenses, every finding argued by three
+  skeptics before the maintainer reads it (the `audit` skill). Never on a
+  commit. An audit reads code, so it is not a substitute for running the thing. Do both.
 
 ## 4. Reading the codebase
 
@@ -96,7 +95,7 @@ Do not read the whole codebase. Use the map.
 | `.ai-backbone/CHANGELOG.md` | what each backbone version changed and why. In the backbone itself it sits in the root. |
 
 Rules change in one place: this file. Then run `just sync-rules`.
-The copies are whole, not pointers: some editors stop at the first file they find.
+The copies are whole, not pointers.
 
 ## 6. Commands
 
@@ -113,7 +112,7 @@ Three files, three owners:
 `.ai-backbone/manifest.txt` lists every file the backbone owns. Nothing outside that
 list is ever touched by an update.
 
-If you need a new repeatable command, add a recipe. Do not leave it in chat history.
+If you need a new repeatable command, add a recipe.
 
 ## 7. Safety
 

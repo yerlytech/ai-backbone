@@ -246,7 +246,9 @@ n=$(git ls-files | wc -l | tr -d ' ')
 # 61 since 3.41.3: .claude/skills/.ai-backbone-owned, the record of which skill
 # copies sync-rules wrote (spec 033). Raised in the attended session of
 # 2026-10-19, when that task was started.
-check "tracked files at most 61 (got $n)"             "[ $n -le 61 ]"
+# 63 since spec 034: the delegate skill and the Claude Code copy sync-rules
+# writes. The maintainer approved that spec on 2026-10-20.
+check "tracked files at most 63 (got $n)"             "[ $n -le 63 ]"
 # Two more ceilings, set at what a new project measured on 2026-09-19 (spec 012).
 # An agent nobody watches works on this backbone every day and builds ideas it
 # read about; every one of them is small and sensible, and a hundred of them are
