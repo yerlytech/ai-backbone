@@ -104,11 +104,16 @@ its own worker.
       task, one report, review, then accept, fix or drop; the publish and ship
       gates unchanged; two failures go to the maintainer. They also say what to
       do when no worker is installed: the session works as before.
-- [x] Tests with a fake worker (a script) cover each refusal, a clean run, a
+- [~] Tests with a fake worker (a script) cover each refusal, a clean run, a
       timeout, a worker that pushes or moves the default branch (BREACH), and
       accept and drop. They pass on macOS and Linux.
-- [ ] A real run in a fixture project with Grok finishes with a report and an
+      macOS green (delegate section 42 ok, full suite); Linux waits for the
+      checks of the first publish.
+- [x] A real run in a fixture project with Grok finishes with a report and an
       accepted branch. Missing Grok leaves this line pending, not failed.
+      2026-10-20, grok 1.0.62 off PATH (~/.grok/bin): a throwaway repo, one
+      file committed on its delegate branch, report printed, tree clean, exit
+      0, `delegate-status` then `delegate-accept` onto main.
 
 ## Tasks
 
