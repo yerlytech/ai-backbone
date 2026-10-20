@@ -33,7 +33,7 @@ a commit touches the core.
 
 `just projects` lists every project built on this backbone that sits next to it:
 backbone version, unsaved work, GitHub address, last save, and what its last
-weekly upstream check found newer than its pins. A folder that sits somewhere
+daily check found newer than its pins. A folder that sits somewhere
 else is named, one path a line, in `brain/project-roots.txt` (that file stays
 on this machine). A missing path is reported, and the same folder is listed once.
 

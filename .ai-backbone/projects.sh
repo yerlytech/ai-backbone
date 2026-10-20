@@ -34,7 +34,7 @@ one() {
   else
     unsaved="-"; remote="-"; last="no git"
   fi
-  # What the project's own weekly check last found newer than its pins, read
+  # What the project's own daily check last found newer than its pins, read
   # from the cache it left (spec 026): no network, nothing asked. "-" for a
   # project with no watch list or no check yet.
   # "-" too when python3 cannot read it (a stand-in python3 on Windows).

@@ -333,8 +333,7 @@ on (`just backbone-note "decision: <the line's id> ..."`). A yes is built by an 
 working with, never by the scheduled one.
 
 Before the backlog, every run looks at the tools the backbone is built on
-(`docs/upstream.toml`: just, prek, gitleaks, graphify, uv and the gate's
-`actions/checkout`). When one has a new release, moving to it is that run's
+(`docs/upstream.toml`). When one has a new release, moving to it is that run's
 item, and the gate tests it on the three machines before it reaches `main`; a
 change to a workflow is left for a session you are in (spec 021).
 
@@ -420,13 +419,19 @@ just upstream-init   # start the watch list, docs/upstream.toml; its example row
 just outdated        # which of the project's dependencies have newer versions (with a language layer)
 ```
 
-`just session-start` checks the tools' releases and runs `just upstream` once a week on
-their own; the agent runs `just tools-update` when a tool is behind, and tells
-you in a paragraph what a release upstream would change if you followed it.
-Nothing is ever upgraded because it is newer: an upgrade is work, with a spec
-and a test that proves what it might have broken still holds. `just doctor`
-says when a tool on this machine is older than its pin, and when a project with
-a language has no watch list yet.
+`just session-start` shows a FRESHNESS block: what is behind, which pins moved,
+the backbone's version, ideas to read, and one first job. The online check runs
+once a day per machine, and every project that watches the same source shares
+that answer (`~/.cache/ai-backbone/upstream/`, or `XDG_CACHE_HOME`). `just
+upstream --refresh` asks again. Offline, rate-limited or past ten seconds, the
+session still starts and shows the last result with its age and why it is old.
+When just, prek, graphify or uv is behind, the agent runs `just tools-update`,
+then saves. Any other pin is a job. An idea to read (`kind = "idea"`, with
+`why` and `look_for`) is a ten-line note, and you hear it only when it is worth
+a decision. Nothing is ever upgraded because it is newer: an upgrade is work,
+with a spec and a test that proves what it might have broken still holds.
+`just doctor` says when a tool on this machine is older than its pin, and when
+a project with a language has no watch list yet.
 
 A machine whose owner keeps heavy work in check (one reached by remote desktop
 that must stay usable) says so once, and every save's checks and the Rust

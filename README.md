@@ -48,9 +48,10 @@ update replaces only the files the backbone owns and never yours.
   a session it is mirrored into one folder you name once — a second disk, a
   cloud-drive folder — so a lost laptop does not take it.
 - **A project that stays current.** Every session says whether the backbone
-  has a newer version (`just template-check`), and once the agent has started
-  the watch list (`just upstream-init`), once a week what the things your
-  project is built on have released (`just upstream`).
+  has a newer version (`just template-check`), and, once the agent has started
+  the watch list (`just upstream-init`), what the things the project is built
+  on have released. That check runs once a day per machine and is shared by
+  every project that watches the same thing (`just upstream`).
 - **Work that goes on without you.** A project can run a scheduled agent
   once a week that finishes one task of an approved spec
   (`just routine-install`, on a Mac today). The backbone itself is developed

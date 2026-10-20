@@ -54,8 +54,7 @@ Never mix the two.
   `just backbone-note "one line"`, or fix it in the backbone right away (the
   backbone-dev skill says how). Do not ask the maintainer; their attention belongs to
   their project. Ask only when the fix changes what they type or must do by hand.
-- When `just session-start` says a tool is behind, run `just tools-update`, then
-  `just save`. Do not ask.
+- A FRESHNESS block with something behind is the first job. just, prek, graphify, uv: `just tools-update`, then `just save`. Do not ask. Another pin is a job (`just delegate` when `WORKER` is set). An idea to read: ten lines for the worker; the maintainer only if worth a decision.
 - **Spec first.** Anything bigger than a small fix starts as a one-page spec in
   `docs/specs/` (`just spec <name>`). No code until the maintainer says approved.
 - **Docs follow code.** If a change alters something `docs/` describes, update
@@ -132,7 +131,6 @@ If you need a new repeatable command, add a recipe.
 - Do not invent a command. Run `just --list` first.
 - Do not mark research as fact. Write `status: abandoned` on notes that no longer apply,
   or the next agent will follow a dead plan.
-- Do not use a feature of a pinned version from memory. Your training ended on a day
-  and the pin may be past it: read its notes (`just upstream <name>`) or its source on
-  this machine, or measure it. In an ADR that rests on it, write
-  `measured on <name> <version>`.
+- Do not use a pinned version's feature from memory. Your training ended on
+  a day: read `just upstream <name>` or its source, or measure it. An ADR
+  writes `measured on <name> <version>`.
