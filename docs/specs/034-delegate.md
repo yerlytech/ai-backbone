@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 date: 2026-10-20
 ---
 
@@ -40,17 +40,22 @@ never pulled.
   hears when it ends because its shell call returns, not by polling.
 - No writing into the Zed Grok thread. The headless run is a separate session,
   kept in the worker's own history.
-- No worker other than Grok until its headless call is tested here. An unknown
-  `WORKER` refuses with the list it knows.
+- No worker other than Grok and Claude until its headless call is tested here.
+  An unknown `WORKER` refuses with the list it knows.
+- Delegation is never required. With `WORKER` unset or `off`, the session works
+  as before and does the work itself; that is the default on a new machine.
 - No change to how publish and ship work, or who may run them.
 
 ## Questions
 
-None open. The choices made, each the maintainer can overturn at approval:
-one job per project at a time; a 60-minute limit per job; the log outside the
-repo; the manager may also delegate docs and spec drafts, but shows a spec to
-the maintainer itself; after two failed tries at one job, the manager stops and
-tells the maintainer instead of doing it itself.
+None open. Approved by the maintainer on 2026-10-20 with these choices: one job
+per project at a time; a 3-hour limit per job by default, longer for one job
+with `DELEGATE_TIMEOUT` (Rust builds and full test runs can pass an hour); the
+log outside the repo; the manager may also delegate docs and spec drafts, but
+shows a spec to the maintainer itself; after two failed tries at one job, the
+manager stops and tells the maintainer instead of doing it itself; delegation
+is optional, so a machine with only Claude works the old way or uses Claude as
+its own worker.
 
 ## Acceptance
 
@@ -66,7 +71,7 @@ tells the maintainer instead of doing it itself.
       GitHub call, merge, rebase, branch deletion. After the run the recipe
       compares the remote refs, the default branch and the branch list with
       before. Any change prints `BREACH: …` first and exits non-zero.
-- [ ] The run stops after `DELEGATE_TIMEOUT` (default 60 min). The full output
+- [ ] The run stops after `DELEGATE_TIMEOUT` (default 180 min, any value for one job). The full output
       goes to `~/.cache/ai-backbone/delegate/<project>/<id>.log`, never the
       repo. The recipe prints only the worker's report, the branch's commits
       with `--stat`, whether the tree is clean, and the exit status.
@@ -75,9 +80,11 @@ tells the maintainer instead of doing it itself.
       `just delegate-accept [branch]` fast-forwards the default branch onto it
       and deletes it. It refuses when that is not a fast-forward.
       `just delegate-drop [branch]` asks once, then deletes the branch.
-- [ ] `WORKER` (machine-local, default `grok`) chooses the adapter. Each adapter
-      is one function: how to call the CLI headless in a folder with a prompt.
-      `grok` uses `~/.grok/bin/grok -p … --output-format plain`.
+- [ ] `WORKER` (machine-local; unset or `off` means no delegation) chooses the
+      adapter. Each adapter is one function: how to call the CLI headless in a
+      folder with a prompt. `grok` uses `grok -p … --output-format plain`;
+      `claude` uses `claude -p …` with a cheaper model (`WORKER_MODEL`). With
+      `off`, `just delegate` says so and the manager rules do not apply.
 - [ ] The core rules give the manager role: no product code by the manager; one
       task, one report, review, then accept, fix or drop; the publish and ship
       gates unchanged; two failures go to the maintainer. They also say what to
