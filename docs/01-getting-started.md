@@ -194,8 +194,27 @@ just ref-add old.bundle "why" # or a git bundle, the only copy an old repo often
 just ref-add <folder> "why" live   # or a sibling project, read where it stands and never copied
 just project-note <project> "one line"   # a note for another project on this machine (or ai-backbone); its next session-start, save or session-end shows it
 just save "msg" <path>...                # save only those paths, and hear what was left unsaved
+just delegate "<task>"                  # hand one task to a worker on its own branch
+just delegate-status                    # whether a job is running, the last report, the open delegate branches
+just delegate-accept [branch]           # fast-forward the default branch, or the recorded base, onto that work
+just delegate-drop [branch]             # ask once (--yes skips it), then delete the branch and return to that base
 just --list          # everything
 ```
+
+When `WORKER` is `grok` or `claude`, the session manages. It sends one task,
+reads the report, and accepts, fixes or drops. A fix is another `just delegate`
+on that same `delegate/*` branch, so the first round's commits stay. It writes
+no product code.
+`just publish` and `just ship` stay with that session. `WORKER` unset or `off`
+is the default on a new machine, and then the session does the work as before,
+including when the named worker is not installed. The binary is `WORKER_BIN`
+when that is set, otherwise the name on `PATH`, otherwise `~/.grok/bin/grok`
+(Claude looks in `~/.claude/local/claude`, then `~/.local/bin/claude`).
+`DELEGATE_TIMEOUT` is how many minutes one job may run (180 if you do not set
+it). `DELEGATE_BASE` is a long-lived branch to start from instead of the
+default, when you set one. `just delegate-drop --yes`, or `DELEGATE_YES=1`,
+deletes the branch without asking. `WORKER_MODEL` is the model the `claude`
+worker uses, when you set one.
 
 ## The backbone gets stronger while you work
 
@@ -314,8 +333,7 @@ on (`just backbone-note "decision: <the line's id> ..."`). A yes is built by an 
 working with, never by the scheduled one.
 
 Before the backlog, every run looks at the tools the backbone is built on
-(`docs/upstream.toml`: just, prek, gitleaks, graphify, uv and the gate's
-`actions/checkout`). When one has a new release, moving to it is that run's
+(`docs/upstream.toml`). When one has a new release, moving to it is that run's
 item, and the gate tests it on the three machines before it reaches `main`; a
 change to a workflow is left for a session you are in (spec 021).
 
@@ -401,13 +419,19 @@ just upstream-init   # start the watch list, docs/upstream.toml; its example row
 just outdated        # which of the project's dependencies have newer versions (with a language layer)
 ```
 
-`just session-start` checks the tools' releases and runs `just upstream` once a week on
-their own; the agent runs `just tools-update` when a tool is behind, and tells
-you in a paragraph what a release upstream would change if you followed it.
-Nothing is ever upgraded because it is newer: an upgrade is work, with a spec
-and a test that proves what it might have broken still holds. `just doctor`
-says when a tool on this machine is older than its pin, and when a project with
-a language has no watch list yet.
+`just session-start` shows a FRESHNESS block: what is behind, which pins moved,
+the backbone's version, ideas to read, and one first job. The online check runs
+once a day per machine, and every project that watches the same source shares
+that answer (`~/.cache/ai-backbone/upstream/`, or `XDG_CACHE_HOME`). `just
+upstream --refresh` asks again. Offline, rate-limited or past ten seconds, the
+session still starts and shows the last result with its age and why it is old.
+When just, prek, graphify or uv is behind, the agent runs `just tools-update`,
+then saves. Any other pin is a job. An idea to read (`kind = "idea"`, with
+`why` and `look_for`) is a ten-line note, and you hear it only when it is worth
+a decision. Nothing is ever upgraded because it is newer: an upgrade is work,
+with a spec and a test that proves what it might have broken still holds.
+`just doctor` says when a tool on this machine is older than its pin, and when
+a project with a language has no watch list yet.
 
 A machine whose owner keeps heavy work in check (one reached by remote desktop
 that must stay usable) says so once, and every save's checks and the Rust

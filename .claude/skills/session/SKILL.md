@@ -7,9 +7,13 @@ description: How to start and end a work session in a repo built on ai-backbone.
 
 ## Start
 
-1. Run `just session-start`. It prints the last two journal entries, recent
-   commits, the working tree, what the project is built on, and whether the
-   backbone has updates.
+1. Run `just session-start`. It prints a FRESHNESS block near the top: what is behind
+   (pin to newest), which pins moved, the backbone's version, ideas to read,
+   and one first job. Then the last two journal entries, recent commits, the
+   working tree, what the project is built on, and whether the backbone has
+   updates. Something behind is the first job. An idea to read is a ten-line
+   note from the worker, and the maintainer hears it only when it is worth a
+   decision.
 2. Read the journal before touching code. A note marked `status: abandoned`
    is history, not a plan.
 3. If the working tree is dirty, ask what it is before building on it.
@@ -55,7 +59,7 @@ in `docs/upstream.toml` first, but a lockfile pin too — is used from memory.
 
 With a watch list, every `just session-start` prints what the project is built
 on and which of those pins came out in the last twelve months, with dates, from
-the weekly check's cache. With none it prints nothing about pins, which means
+the daily check's cache. With none it prints nothing about pins, which means
 nobody is watching, not that nothing is new: `just upstream-init` starts the
 list. A version released after your training ended is one you do not know. The
 list stops at twelve months: if your training ended before that, or you cannot
@@ -77,10 +81,12 @@ claim without it is a memory, and a memory is older than the pin.
 
 ## When something upstream has moved
 
-Once a week `just session-start` prints what the things this project is built on
-have released since it pinned them — the language, the database, the framework,
-the protocol — from `docs/upstream.toml`. Start that list with
-`just upstream-init` in a project that has none.
+Every session `just session-start` prints a FRESHNESS block: what the things
+this project is built on have released since it pinned them, and any idea it
+follows, from `docs/upstream.toml`. The online check runs at most once a day
+per machine, and later sessions that day read the shared result. `just upstream
+--refresh` asks again. Start the list with `just upstream-init` in a project
+that has none.
 
 A version number is the least useful half of the answer, so do not report one.
 
@@ -97,6 +103,10 @@ A version number is the least useful half of the answer, so do not report one.
    list has drifted from the code. Fix the list first; it is lying.
 5. A release that matters and cannot be taken yet is written down where it will
    be seen again: a line in the journal, or a task in the spec. Not in chat.
+6. An idea listed under "To read" is not behind. The worker writes ten lines:
+   what the release added, and what it means for this project. The maintainer
+   hears it only when that note is worth a decision. A row says so with
+   `kind = "idea"`, `why` and `look_for`.
 
 ### Before following one upstream, pin what would break in silence
 

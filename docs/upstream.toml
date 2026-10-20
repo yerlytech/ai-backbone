@@ -4,26 +4,40 @@
 # <name>` prints that project's own release notes, so the decision is made on
 # what changed rather than on a version number. Neither upgrades anything.
 #
-# The backbone watches its own four tools. A project built on it watches its
+# The backbone watches the tools it is built with, the agent tools a session
+# runs in, and two ideas taken for spec 034. A project built on it watches its
 # language, its database, its framework and its protocol — see the template at
 # `.ai-backbone/templates/upstream.toml`.
 
 # Read where each is installed from: just, prek, graphify and uv come through
 # uv from PyPI, so PyPI says what can be installed and when (spec 021); GitHub's
 # tags ran ahead of it once. gitleaks is fetched by prek from GitHub, and
-# actions/checkout is what GitHub runs the gate with.
+# actions/checkout is what GitHub runs the gate with. grok and Claude Code are
+# npm packages. Zed publishes GitHub releases.
+#
+# Pins dated 2026-10-20. just 1.59.0, prek 0.5.6, graphify 0.9.92 and uv 0.13.3
+# are the newest releases. gitleaks v8.30.1 and actions/checkout v7 are what
+# the files named in pinned_in hold. grok 1.0.62 is what `~/.grok/bin/grok
+# version` printed. claude-code 2.1.296 is the last version this repo recorded
+# (docs/radar.toml, read 2026-10-13); no claude binary was on this machine.
+# zed v1.24.3 is what `zed --version` printed, written with the v this list
+# uses for a GitHub tag. agent-orchestrator v0.14.3 is its newest release,
+# read 2026-10-20: a pin of 0 counted every release before that as to read.
+# claude-delegator publishes no release (the releases list was empty that
+# day), so it is pinned by the newest commit on its default branch, read the
+# same day. The commit itself is dated 2026-10-12. A later commit is to read.
 
 [[watch]]
 name = "just"
 source = "pypi:rust-just"
-pin = "1.58.0"
+pin = "1.59.0"
 why = "every repeatable command in every project built on this is a recipe"
 check = "recipe syntax, [group] attributes, whether --list output changed, and whether the floor setup.sh names (1.29.0) is still the oldest just that reads core.just"
 
 [[watch]]
 name = "prek"
 source = "pypi:prek"
-pin = "0.5.5"
+pin = "0.5.6"
 why = "runs the git hooks: lint before a commit, and the secret scanner"
 check = "whether .pre-commit-config.yaml is still read the same way"
 
@@ -38,14 +52,14 @@ check = "new rules that would make an existing project's commit fail"
 [[watch]]
 name = "graphify"
 source = "pypi:graphifyy"
-pin = "0.9.91"
+pin = "0.9.92"
 why = "the code map an agent reads instead of the whole codebase"
 check = "whether the query commands or the output folder changed"
 
 [[watch]]
 name = "uv"
 source = "pypi:uv"
-pin = "0.13.1"
+pin = "0.13.3"
 why = "installs just, prek and graphify, and finds the Python the helpers run on"
 check = "whether `uv tool install`, `uv tool upgrade` and `uv python find` still answer the way setup.sh and _py read them"
 
@@ -57,3 +71,42 @@ major = true
 pinned_in = ".github/workflows/checks.yml"
 why = "the first step of every job of the gate, and of the workflow ci-init writes into a project"
 check = "what the new major drops or changes (fetch-depth, credentials, the Node it runs on); the workflows are carried to main by an attended session only"
+
+[[watch]]
+name = "grok"
+source = "npm:@xai-official/grok"
+pin = "1.0.62"
+why = "the worker CLI a delegated job is handed to"
+check = "what a headless run accepts, and whether the binary still answers `grok version`"
+
+[[watch]]
+name = "claude-code"
+source = "npm:@anthropic-ai/claude-code"
+pin = "2.1.296"
+why = "the other worker, and the session that reads these rules"
+check = "what SessionStart shows, and whether a skill is still read from .claude/skills"
+
+[[watch]]
+name = "zed"
+source = "github:zed-industries/zed"
+pin = "v1.24.3"
+why = "the editor a session is written in"
+check = "whether a project opened in it still reads the same settings"
+
+[[watch]]
+name = "agent-orchestrator"
+kind = "idea"
+source = "github:OrchestratorInc/agent-orchestrator"
+pin = "v0.14.3"
+why = "an idea taken for spec 034"
+look_for = "a board of every running job across projects"
+check = "whether that board exists, and what it would change about a delegated job"
+
+[[watch]]
+name = "claude-delegator"
+kind = "idea"
+source = "ghcommit:jarrodwatts/claude-delegator"
+pin = "8e2ea57c9b8e6f0790b1596d98e35632ca48a59c"
+why = "an idea taken for spec 034"
+look_for = "an ask-only mode"
+check = "whether an ask-only mode exists, and what it would change about a worker"

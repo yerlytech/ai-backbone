@@ -23,6 +23,10 @@ export AI_BACKBONE_OFFLINE=1   # never reach GitHub or a registry from a test
 # session line reads these (spec 014), and the budget section points them at its
 # own fixtures. Until then: no meter, no transcripts, one quiet line.
 export AI_BACKBONE_BUDGET_PROJECTS="$tmp/no-projects" AI_BACKBONE_BUDGET_METER="$tmp/no-meter" AI_BACKBONE_BUDGET_CACHE="$tmp/budget-cache.json"
+# Nor the machine's shared upstream cache (spec 035). A copy under a day old
+# there would make an offline check read as current. This folder starts empty.
+export AI_BACKBONE_UPSTREAM_CACHE="$tmp/upstream-cache"
+mkdir -p "$AI_BACKBONE_UPSTREAM_CACHE"
 mkdir -p "$tmp/T"; export TMPDIR="$tmp/T"
 # Nor the projects next to the real backbone: doctor adds up their build caps,
 # and a build's trim may go into their folders (spec 032).
@@ -246,7 +250,9 @@ n=$(git ls-files | wc -l | tr -d ' ')
 # 61 since 3.41.3: .claude/skills/.ai-backbone-owned, the record of which skill
 # copies sync-rules wrote (spec 033). Raised in the attended session of
 # 2026-10-19, when that task was started.
-check "tracked files at most 61 (got $n)"             "[ $n -le 61 ]"
+# 63 since spec 034: the delegate skill and the Claude Code copy sync-rules
+# writes. The maintainer approved that spec on 2026-10-20.
+check "tracked files at most 63 (got $n)"             "[ $n -le 63 ]"
 # Two more ceilings, set at what a new project measured on 2026-09-19 (spec 012).
 # An agent nobody watches works on this backbone every day and builds ideas it
 # read about; every one of them is small and sensible, and a hundred of them are
@@ -264,7 +270,9 @@ r=$(just --summary 2>/dev/null | wc -w | tr -d ' ')
 # 027: `just trim-build`, named in the spec the maintainer approved on 2026-10-10
 # in an attended session; in the core, so that the disk warning every project
 # can show points at a recipe every project has.
-check "recipes a new project shows at most 41 (got $r)" "[ $r -le 41 ]"
+# 45 since spec 034: `just delegate`, `delegate-status`, `delegate-accept` and
+# `delegate-drop`, named in the spec the maintainer approved on 2026-10-20.
+check "recipes a new project shows at most 45 (got $r)" "[ $r -le 45 ]"
 b=$(wc -c < AGENTS.md | tr -d ' ')
 check "AGENTS.md at most 7000 bytes (got $b)"         "[ $b -le 7000 ]"
 # What a Claude Code session loads, not one file (spec 022): since 2.1.281 its
@@ -1227,20 +1235,19 @@ check "a project with no GitHub address hears so at every session, offline too" 
 git remote add origin https://github.com/example/no-such-repo.git
 check "and no longer once it has one"                  "says '^=== LAST COMMITS' just session-start && ! says '^GitHub: no address' just session-start"
 git remote remove origin
-# The weekly upstream check used up its week even when it had read nothing. The
-# offline switch is lifted for these three, because offline the block never runs:
-# there is no backbone nearby to bring level, the other weekly block is stamped,
-# a proxy nothing listens on stands behind it all, and the only source is a kind
-# upstream.py refuses before it asks anybody. The real upstream.py says the
-# sentence session-start listens for; a stand-in plays the week that went well.
+# The daily check replaced the weekly one (spec 035). These three lift the
+# offline switch: there is no backbone nearby to bring level, the tool-release
+# block is stamped so it does not ask, a proxy nothing listens on stands behind
+# it all, and the only source is a kind upstream.py refuses before it asks
+# anybody. A stand-in plays a check that could not run, and one that printed.
 weekly() { env -u AI_BACKBONE_OFFLINE AI_BACKBONE="$tmp/none" https_proxy=$dead http_proxy=$dead no_proxy= just session-start; }
 printf '[[watch]]\nname = "nowhere"\nsource = "nosuchkind:nothing"\npin = "1.0.0"\n' > docs/upstream.toml
 touch .git/ai-backbone.last-check; rm -f .git/ai-backbone.last-upstream
-check "a weekly check that read nothing does not use up the week" "says '^No source gave an answer' weekly && [ ! -e .git/ai-backbone.last-upstream ]"
+check "a check that read nothing does not stamp a week" "says '=== FRESHNESS' weekly && says 'unknown source' weekly && says nowhere weekly && [ ! -e .git/ai-backbone.last-upstream ]"
 printf 'raise SystemExit(1)\n' > .ai-backbone/upstream.py
 check "nor does one that could not run, and it says so"  "says '^upstream: could not run' weekly && [ ! -e .git/ai-backbone.last-upstream ]"
 printf 'print("Everything watched is current.")\n' > .ai-backbone/upstream.py
-check "one that read something does"                     "says '^Everything watched' weekly && [ -e .git/ai-backbone.last-upstream ]"
+check "a session shows what the check printed and does not stamp a week" "says '^Everything watched' weekly && [ ! -e .git/ai-backbone.last-upstream ]"
 cp "$root/.ai-backbone/upstream.py" .ai-backbone/upstream.py; rm -f docs/upstream.toml .git/ai-backbone.last-check .git/ai-backbone.last-upstream
 # tools-update upgraded graphify and left its pin behind: 0.9.62 in the list, 0.9.64
 # installed. Every tool is a stand-in and brew is off the PATH, as in the two
@@ -1577,8 +1584,12 @@ printf '[[watch]]\nname = "tool"\nsource = "github:a/b"\npin = "1.2.0"\n' > "$tm
 : > "$tmp/gitconfig-empty"
 sandbox() { hostile env -u AI_BACKBONE_OFFLINE https_proxy=$dead http_proxy=$dead no_proxy= PATH="$gitbin:/usr/bin:/bin" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="$tmp/gitconfig-empty" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.$(fileurl "$1")/.insteadOf" GIT_CONFIG_VALUE_0="https://github.com/"; }
 check "when the GitHub API refuses, the tags are asked of git" "says '^  tool +1\\.2\\.0 .* v1\\.10\\.0 +1 newer' sandbox '$tmp/tags'"
+# The line above stored a successful read of github:a/b. A shared copy under a
+# day old is that answer, so a missing folder would never be asked. This check
+# is the ask itself failing, and it uses an empty cache.
 # The FAIL names what was seen: on a runner nobody can run the line by hand.
-saw_full=$(sandbox "$tmp/no-such-folder" 2>&1)
+mkdir -p "$tmp/upstream-cache-miss"
+saw_full=$(AI_BACKBONE_UPSTREAM_CACHE="$tmp/upstream-cache-miss" sandbox "$tmp/no-such-folder" 2>&1)
 saw=$(printf '%s' "$saw_full" | tr '\n' ' ' | tail -c 300)
 check "and when git cannot list them either, that is unreachable, never current (saw: …$saw)" "grep -q 'git could not list the tags either' <<<\"\$saw_full\" && grep -qE '^  tool +1\\.2\\.0 .* unreachable' <<<\"\$saw_full\""
 # spec 013, upstream: what a tag says, what a list does not say, Flutter's own
@@ -1640,7 +1651,7 @@ fl() { ( cd "$tmp/hostile" && cp "$tmp/flutter.toml" docs/upstream.toml && "$py"
 check "flutter:stable reads Flutter's own list, one row per version" "says '^  flutter +3\\.44\\.0 +2026-05-18 +3\\.47\\.5 +2 newer' fl"
 check "a version built more than once is dated by its first day" "says '^  rebuilt +3\\.13\\.3 +2023-09-08 +3\\.47\\.5 +3 newer' fl"
 check "on the beta channel a beta is the release"          "says '^  beta +3\\.48\\.0-0\\.4\\.pre +2026-09-03 +3\\.48\\.0-0\\.5\\.pre +1 newer' fl"
-check "a channel that is not there is said, with the ones that are" "says '^  typo: .*stabel.* beta, stable' fl && says '^  kind: unknown source .* flutter:stable or hf:owner/name' fl"
+check "a channel that is not there is said, with the ones that are" "says '^  typo: .*stabel.* beta, stable' fl && says '^  kind: unknown source .* flutter:stable, hf:owner/name or ghcommit:owner/repo' fl"
 check "the template names Flutter's own source"           "grep -q 'flutter:stable' '$root/.ai-backbone/templates/upstream.toml'"
 # pin_is_real asked whether the file held the pin anywhere in its text, so a file
 # that had moved on to 1.38.20 still "held" 1.38.2 and MOVED was never said. And
@@ -1674,10 +1685,291 @@ check "the template says where a pub pin lives"            "grep -q 'pubspec.loc
 printf '\n[[watch]]\nname = "flame"\nsource = "pub:flame"\npin = "1.38.2"\n' >> docs/upstream.toml
 mkdir -p "$tmp/pub-cache/hosted/pub.dev/flame-1.38.2" && echo x > "$tmp/pub-cache/hosted/pub.dev/flame-1.38.2/CHANGELOG.md"
 check "a pub.dev package is watched like the rest"      "says '^  flame: offline' just upstream && ! says 'unknown source' just upstream && says 'docs +https://pub.dev/documentation/flame/1.38.2/\$' just upstream flame && says 'notes +$(winpath "$tmp")/pub-cache/hosted/pub.dev/flame-1.38.2/CHANGELOG.md' env PUB_CACHE='$tmp/pub-cache' just upstream flame"
+# spec 035: one answer per source per machine, for a day. Each mode has its own
+# folder. fetch_json is replaced before main runs, so nothing here is asked of
+# a registry. The recipe check below is the one that goes through `just`.
+cat > "$tmp/spec035.py" <<'PY'
+import datetime
+import importlib.util
+import io
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+root, mode, base = sys.argv[1:]
+os.environ["AI_BACKBONE_UPSTREAM_CACHE"] = str(Path(base) / mode)
+os.environ.pop("AI_BACKBONE_OFFLINE", None)
+if mode == "fresh-slow":
+    os.environ["AI_BACKBONE_UPSTREAM_BUDGET"] = "0"
+spec = importlib.util.spec_from_file_location("u", str(Path(root) / ".ai-backbone" / "upstream.py"))
+u = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(u)
+u.OFFLINE = False
+fixture = {"releases": {
+    "1.0.0": [{"upload_time_iso_8601": "2026-01-01T00:00:00Z"}],
+    "1.2.0": [{"upload_time_iso_8601": "2026-06-01T00:00:00Z"}],
+}}
+calls = {"n": 0, "rate": False}
+
+def fake(url, headers=None):
+    calls["n"] += 1
+    if calls["rate"]:
+        raise u.urllib.error.HTTPError(url, 403, "Forbidden", {}, io.BytesIO(b"API rate limit exceeded"))
+    if url != "https://pypi.org/pypi/tool/json":
+        raise SystemExit("asked " + url)
+    return fixture
+
+u.fetch_json = fake
+
+def fail(msg):
+    print(msg, file=sys.stderr)
+    raise SystemExit(1)
+
+def project(path):
+    p = Path(path)
+    (p / "docs").mkdir(parents=True, exist_ok=True)
+    (p / ".git").mkdir(parents=True, exist_ok=True)
+    (p / "docs" / "upstream.toml").write_text(
+        '[[watch]]\nname = "tool"\nsource = "pypi:tool"\npin = "1.0.0"\n')
+    return p
+
+def run(path, *args):
+    os.chdir(path)
+    sys.argv = ["upstream.py", *args]
+    buf = io.StringIO()
+    old = sys.stdout
+    sys.stdout = buf
+    try:
+        rc = u.main()
+    finally:
+        sys.stdout = old
+    return rc, buf.getvalue()
+
+def rewind(hours):
+    path = u.share_file("pypi:tool")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    when = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=hours)
+    data["fetched"] = when.replace(microsecond=0).isoformat()
+    data["failed_at"] = ""
+    data["error"] = ""
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+work = Path(base) / (mode + "-work")
+one = project(work / "a")
+
+if mode == "age-fresh":
+    rc, out = run(one)
+    if rc != 0 or calls["n"] != 1 or "1.2.0" not in out:
+        fail(f"seed rc={rc} calls={calls['n']}\n{out}")
+    rewind(2)
+    calls["n"] = 0
+    rc, out = run(one)
+    if calls["n"] != 0 or "1.2.0" not in out:
+        fail(f"fresh copy was asked ({calls['n']})\n{out}")
+elif mode == "age-stale":
+    run(one)
+    rewind(25)
+    calls["n"] = 0
+    rc, out = run(one)
+    if calls["n"] != 1:
+        fail(f"a day-old copy was not asked ({calls['n']})\n{out}")
+elif mode == "refresh":
+    run(one)
+    calls["n"] = 0
+    rc, out = run(one, "--refresh")
+    if rc != 0 or calls["n"] != 1:
+        fail(f"--refresh rc={rc} calls={calls['n']}\n{out}")
+elif mode == "shared":
+    two = project(work / "b")
+    rc, out = run(one)
+    rc2, out2 = run(two)
+    files = [p for p in u.share_root().glob("*.json")]
+    if calls["n"] != 1 or len(files) != 1 or "1.2.0" not in out or "1.2.0" not in out2:
+        fail(f"shared calls={calls['n']} files={files}\n{out}\n{out2}")
+    (two / "docs" / "upstream.toml").write_text(
+        '[[watch]]\nname = "other"\nsource = "pypi:other"\npin = "1.0.0"\n')
+
+    def fake_other(url, headers=None):
+        calls["n"] += 1
+        if url == "https://pypi.org/pypi/other/json":
+            return {"releases": {"9.0.0": [{"upload_time_iso_8601": "2026-06-01T00:00:00Z"}]}}
+        raise SystemExit("asked " + url)
+
+    u.fetch_json = fake_other
+    run(two)
+    files = [p for p in u.share_root().glob("*.json")]
+    if len(files) != 2:
+        fail(f"two sources wrote {len(files)} files")
+elif mode == "offline-empty":
+    u.OFFLINE = True
+    rc, out = run(one)
+    if rc != 0 or calls["n"] != 0 or "offline" not in out or "1.2.0" in out:
+        fail(f"rc={rc} calls={calls['n']}\n{out}")
+elif mode == "offline-stale":
+    run(one)
+    rewind(30)
+    calls["n"] = 0
+    u.OFFLINE = True
+    rc, out = run(one)
+    if rc != 0 or calls["n"] != 0 or "1.2.0" not in out or "offline" not in out or "hours ago" not in out:
+        fail(f"rc={rc} calls={calls['n']}\n{out}")
+elif mode == "rate":
+    run(one)
+    rewind(30)
+    calls["n"] = 0
+    calls["rate"] = True
+    rc, out = run(one)
+    if calls["n"] != 1 or "1.2.0" not in out or "rate-limited" not in out or "hours ago" not in out:
+        fail(f"first calls={calls['n']}\n{out}")
+    calls["n"] = 0
+    rc, out = run(one)
+    if calls["n"] != 0 or "rate-limited" not in out or "1.2.0" not in out:
+        fail(f"second calls={calls['n']}\n{out}")
+elif mode == "slow":
+    run(one)
+    rewind(30)
+    calls["n"] = 0
+    os.chdir(one)
+    entry = {"name": "tool", "source": "pypi:tool", "pin": "1.0.0"}
+    releases, old, live = u.obtain(entry, False, time.monotonic() - 1)
+    if calls["n"] != 0 or old != "slow" or live:
+        fail(f"calls={calls['n']} old={old} live={live}")
+    if not any(r.get("version") == "1.2.0" for r in releases):
+        fail(repr(releases))
+    releases, old, live = u.obtain(entry, False, time.monotonic() + 100)
+    if calls["n"] != 0 or old != "slow":
+        fail(f"retried calls={calls['n']} old={old}")
+elif mode == "budget-cap":
+    u.CALL_DEADLINE = time.monotonic() + 0.2
+    got = u.call_timeout(30)
+    if got > 0.25 or got < 0.05:
+        fail(f"a call in flight was given {got}s")
+    u.CALL_DEADLINE = time.monotonic() - 1
+    if abs(u.call_timeout(30) - 0.05) > 0.001:
+        fail("past the deadline a call still waited")
+elif mode == "fresh":
+    rc, out = run(one, "--freshness")
+    if rc != 0 or "=== FRESHNESS (checked " not in out or "Behind: tool 1.0.0 → 1.2.0" not in out:
+        fail(f"rc={rc}\n{out}")
+    if f"Backbone: {u.backbone_version()}" not in out or "First job: update tool (1.0.0 → 1.2.0)" not in out:
+        fail(out)
+    if "To read: nothing" not in out or "MOVED: nothing" not in out:
+        fail(out)
+    calls["n"] = 0
+    rc, out = run(one, "--freshness")
+    if calls["n"] != 0 or "Behind: tool 1.0.0 → 1.2.0" not in out:
+        fail(f"second run asked ({calls['n']})\n{out}")
+elif mode == "fresh-offline":
+    run(one)
+    rewind(30)
+    calls["n"] = 0
+    u.OFFLINE = True
+    rc, out = run(one, "--freshness")
+    if rc != 0 or calls["n"] != 0 or "1.2.0" not in out or "offline" not in out or "hours ago" not in out:
+        fail(f"rc={rc} calls={calls['n']}\n{out}")
+    if "Behind: tool 1.0.0 → 1.2.0" not in out:
+        fail(out)
+elif mode == "fresh-empty":
+    u.OFFLINE = True
+    rc, out = run(one, "--freshness")
+    if rc != 0 or calls["n"] != 0 or "=== FRESHNESS" not in out or "offline" not in out or "1.2.0" in out:
+        fail(f"rc={rc} calls={calls['n']}\n{out}")
+    if "Could not check:" not in out or "no earlier result" not in out:
+        fail(out)
+elif mode == "fresh-slow":
+    run(one)
+    rewind(30)
+    calls["n"] = 0
+    rc, out = run(one, "--freshness")
+    if rc != 0 or calls["n"] != 0 or "slow" not in out or "1.2.0" not in out or "hours ago" not in out:
+        fail(f"rc={rc} calls={calls['n']}\n{out}")
+elif mode == "fresh-moved":
+    (one / "docs" / "held.txt").write_text("version = 0.0.1\n", encoding="utf-8")
+    (one / "docs" / "upstream.toml").write_text(
+        '[[watch]]\nname = "tool"\nsource = "pypi:tool"\npin = "1.2.0"\npinned_in = "docs/held.txt"\n',
+        encoding="utf-8")
+    rc, out = run(one, "--freshness")
+    if rc != 0 or "MOVED: tool" not in out or "Behind: nothing" not in out:
+        fail(f"rc={rc}\n{out}")
+    if "First job: fix the pin for tool" not in out:
+        fail(out)
+elif mode == "fresh-idea":
+    (one / "docs" / "upstream.toml").write_text(
+        '[[watch]]\nname = "tool"\nsource = "pypi:tool"\npin = "1.2.0"\n\n'
+        '[[watch]]\nname = "orch"\nkind = "idea"\nsource = "pypi:tool"\npin = "1.0.0"\n'
+        'why = "an idea"\nlook_for = "a board of every running job across projects"\n',
+        encoding="utf-8")
+    rc, out = run(one, "--freshness")
+    if rc != 0 or calls["n"] != 1 or "Behind: nothing" not in out:
+        fail(f"rc={rc} calls={calls['n']}\n{out}")
+    if "To read: orch 1.0.0 → 1.2.0 (a board of every running job across projects)" not in out:
+        fail(out)
+    if "First job: read orch:" not in out or "Behind: orch" in out:
+        fail(out)
+elif mode == "idea-table":
+    (one / "docs" / "upstream.toml").write_text(
+        '[[watch]]\nname = "tool"\nsource = "pypi:tool"\npin = "1.2.0"\n\n'
+        '[[watch]]\nname = "orch"\nkind = "idea"\nsource = "pypi:tool"\npin = "1.0.0"\n'
+        'why = "an idea"\nlook_for = "a board of every running job across projects"\n',
+        encoding="utf-8")
+    rc, out = run(one)
+    if rc != 0 or "To read: orch" not in out or "Newer:" in out:
+        fail(f"rc={rc}\n{out}")
+    if "An idea is not an upgrade" not in out:
+        fail(out)
+    cache = json.loads((one / ".git" / "upstream-cache.json").read_text(encoding="utf-8"))
+    if cache.get("behind"):
+        fail("an idea was counted behind: " + repr(cache["behind"]))
+elif mode == "npm-scope":
+    seen = {}
+
+    def fake(url, headers=None):
+        seen["url"] = url
+        return {"versions": {"1.0.62": {}}, "time": {"1.0.62": "2026-10-20T00:00:00.000Z"}}
+
+    u.fetch_json = fake
+    rows = u.from_npm("@xai-official/grok")
+    if seen.get("url") != "https://registry.npmjs.org/@xai-official%2Fgrok":
+        fail("asked " + seen.get("url", ""))
+    if not rows or rows[0]["version"] != "1.0.62":
+        fail(repr(rows))
+else:
+    fail("unknown mode " + mode)
+PY
+fresh035() { env -u AI_BACKBONE_OFFLINE "$py" "$tmp/spec035.py" "$rootw" "$1" "$tmp/spec035"; }
+check "a shared copy under a day old is not asked again"          "fresh035 age-fresh"
+check "a shared copy a day old is asked again"                    "fresh035 age-stale"
+check "--refresh asks even when the copy is new"                  "fresh035 refresh"
+check "two projects share one lookup of one source"               "fresh035 shared"
+check "offline, with no copy, says so and does not ask"           "fresh035 offline-empty"
+check "offline, an old copy is shown with its age"                "fresh035 offline-stale"
+check "a rate limit keeps the last result and is not asked again" "fresh035 rate"
+check "past the time budget the last result is kept"              "fresh035 slow"
+check "a call already in flight stops at the time that is left"       "fresh035 budget-cap"
+check "session start's block names what is behind and one first job"  "fresh035 fresh"
+check "offline, the block shows the last result, its age, and why"    "fresh035 fresh-offline"
+check "offline, with no copy, the block says so and still exits 0"    "fresh035 fresh-empty"
+check "past ten seconds the block keeps the last result and says slow" "fresh035 fresh-slow"
+check "a pin the file does not hold is the job when nothing is behind" "fresh035 fresh-moved"
+check "an idea's newer release is to read, never behind"              "fresh035 fresh-idea"
+check "the table lists an idea apart, and not as newer"             "fresh035 idea-table"
+check "a scoped npm package is asked with the slash encoded"        "fresh035 npm-scope"
+check "the backbone's tool pins are the releases of 2026-10-20" \
+  "grep -qx 'pin = \"1.59.0\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"0.5.6\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"0.9.92\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"0.13.3\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"v8.30.1\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"v7\"' '$root/docs/upstream.toml'"
+check "the backbone watches grok, claude-code, zed and the two ideas" \
+  "grep -qx 'source = \"npm:@xai-official/grok\"' '$root/docs/upstream.toml' && grep -qx 'source = \"npm:@anthropic-ai/claude-code\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:zed-industries/zed\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:OrchestratorInc/agent-orchestrator\"' '$root/docs/upstream.toml' && grep -qx 'source = \"ghcommit:jarrodwatts/claude-delegator\"' '$root/docs/upstream.toml' && grep -qx 'look_for = \"a board of every running job across projects\"' '$root/docs/upstream.toml' && grep -qx 'look_for = \"an ask-only mode\"' '$root/docs/upstream.toml'"
+check "the two ideas are pinned at what was read on 2026-10-20" \
+  "grep -qx 'pin = \"v0.14.3\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"8e2ea57c9b8e6f0790b1596d98e35632ca48a59c\"' '$root/docs/upstream.toml'"
+check "the template says what an idea row is" "grep -q 'kind' '$root/.ai-backbone/templates/upstream.toml' && grep -q 'look_for' '$root/.ai-backbone/templates/upstream.toml'"
+check "just upstream --refresh is a real run, and offline it says so" \
+  "says offline env AI_BACKBONE_UPSTREAM_CACHE='$tmp/spec035-refresh' just upstream --refresh && env AI_BACKBONE_UPSTREAM_CACHE='$tmp/spec035-refresh' just upstream --refresh >/dev/null"
 # session-start's two weekly blocks ask GitHub and the registries. Offline they
 # are skipped, and an offline session does not use up the week either.
 rm -f .git/ai-backbone.last-check .git/ai-backbone.last-upstream
 check "session-start asks no source for anything while offline" "! says '[(]weekly check[)]' just session-start && [ ! -e .git/ai-backbone.last-upstream ] && [ ! -e .git/ai-backbone.last-check ]"
+check "session-start shows FRESHNESS, and offline it still finishes" "says '=== FRESHNESS' just session-start && says offline just session-start"
 # Until 3.19.1 a source that could not be read was never counted blind: the
 # reason landed in the column the summary read from, so a report that read
 # nothing at all still ended with "Everything watched is current". An unknown
@@ -2715,6 +3007,81 @@ u.fetch_json = page
 $1"; }
 check "a pin past the first page of fifty is found on the next, and no page after it is asked" "hfp \"r = u.from_hf('o/m', '%040x' % 49); ahead, at, why = u.commits_after({'pin': '%040x' % 49}, r); sys.exit(0 if len(ahead) == 51 and not why and len(asked) == 2 else 1)\""
 check "a gated model says so and names HF_TOKEN" "says 'gated or private; set HF_TOKEN' hfp \"u.from_hf('o/gated')\""
+# A repository that publishes no release is watched by the commits on its
+# default branch (spec 035). The request names no branch. From stand-in pages,
+# with every other address refused, and gh never called.
+cat > "$tmp/ghcommit.py" <<'PY'
+import importlib.util
+import os
+import sys
+from pathlib import Path
+
+root, mode, base = sys.argv[1:]
+os.environ.pop("AI_BACKBONE_OFFLINE", None)
+spec = importlib.util.spec_from_file_location("u", str(Path(root) / ".ai-backbone" / "upstream.py"))
+u = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(u)
+u.OFFLINE = False
+u.shutil_which = lambda name: None
+asked = []
+
+def row(n):
+    sha = "%040x" % n
+    return {"sha": sha, "html_url": "https://github.com/o/r/commit/" + sha,
+            "commit": {"message": "t", "committer": {"date": "2026-01-01T00:00:00Z"}}}
+
+def fake(url, headers=None):
+    asked.append(url)
+    prefix = "https://api.github.com/repos/o/r/commits?per_page=30&page="
+    if not url.startswith(prefix):
+        raise SystemExit("asked " + url)
+    page = int(url[len(prefix):])
+    if mode == "page":
+        if page == 1:
+            return [row(n) for n in range(100, 70, -1)]
+        if page == 2:
+            return [row(n) for n in range(70, 40, -1)]
+        return []
+    if page == 1:
+        return [
+            {"sha": "a" * 40, "html_url": "https://github.com/o/r/commit/" + "a" * 40,
+             "commit": {"message": "Ask only\n\nA flag.", "committer": {"date": "2026-10-20T08:00:00Z"}}},
+            {"sha": "b" * 40, "html_url": "https://github.com/o/r/commit/" + "b" * 40,
+             "commit": {"message": "Start", "committer": {"date": "2026-10-01T08:00:00Z"}}},
+        ]
+    return []
+
+u.fetch_json = fake
+
+def fail(msg):
+    print(msg, file=sys.stderr)
+    raise SystemExit(1)
+
+if mode == "page":
+    pin = "%040x" % 41
+    rows = u.from_ghcommit("o/r", pin)
+    ahead, _at, why = u.commits_after({"pin": pin}, rows)
+    bad = [url for url in asked if "sha=" in url or "/commits/" in url]
+    if why or len(ahead) != 59 or len(asked) != 2 or bad:
+        fail(f"ahead={len(ahead)} why={why} asked={asked}")
+else:
+    project = Path(base) / mode
+    os.chdir(project)
+    # main() reads sys.argv. This file's own arguments are the fixture, not a
+    # name on the watch list.
+    sys.argv = ["upstream.py", "--freshness"] if mode == "fresh" else ["upstream.py"]
+    sys.exit(u.main())
+PY
+mkdir -p "$tmp/ghc/table/docs" "$tmp/ghc/table/.git" "$tmp/ghc/fresh/docs" "$tmp/ghc/fresh/.git"
+printf '[[watch]]\nname = "idea"\nkind = "idea"\nsource = "ghcommit:o/r"\npin = "bbbbbbb"\nlook_for = "an ask-only mode"\n\n[[watch]]\nname = "tip"\nkind = "idea"\nsource = "ghcommit:o/r"\npin = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"\nlook_for = "an ask-only mode"\n\n[[watch]]\nname = "lost"\nsource = "ghcommit:o/r"\npin = "0000000"\n' > "$tmp/ghc/table/docs/upstream.toml"
+cp "$tmp/ghc/table/docs/upstream.toml" "$tmp/ghc/fresh/docs/upstream.toml"
+ghc() { env -u AI_BACKBONE_OFFLINE AI_BACKBONE_UPSTREAM_CACHE="$tmp/ghc-cache-$1" "$py" "$tmp/ghcommit.py" "$rootw" "$1" "$tmp/ghc"; }
+check "ghcommit: a pin past the first page is found on the next, and the request names no branch" "ghc page"
+check "ghcommit: a pin one commit behind is 1 newer, dated by its own commit" "says '^  idea +bbbbbbb +2026-10-01 +aaaaaaaaaaaa +1 newer +-\$' ghc table"
+check "ghcommit: the newest commit, written in full, is current" "says '^  tip +a{40} +2026-10-20 +— +current +-\$' ghc table"
+check "ghcommit: a commit the list does not hold is no answer" "says '^  lost: lists no commit 0000000 among its last 2; the newest is aaaaaaaaaaaa\$' ghc table"
+check "an idea pinned by commit is to read, never behind" "says 'To read: idea bbbbbbb → aaaaaaaaaaaa [(]an ask-only mode[)]' ghc fresh && says 'Behind: nothing' ghc fresh && ! says 'Behind: idea' ghc fresh"
+check "the template names a GitHub commit source" "grep -q 'ghcommit:owner/repo' '$root/.ai-backbone/templates/upstream.toml'"
 # Claude Code's agent checkouts are repositories of their own; a save must not take them.
 check "a new project ignores Claude Code's agent worktrees" "( cd '$tmp/plain' && git check-ignore -q .claude/worktrees/agent-1/file )"
 check "the session skill says what to do when the context fills up" "grep -q '^## When the context fills up' '$root/.agents/skills/session/SKILL.md' && grep -q 'new chat' '$root/.agents/skills/session/SKILL.md' && grep -q 'Do not compact on your own' '$root/.agents/skills/session/SKILL.md'"
@@ -3200,6 +3567,398 @@ else
   check "without tomllib, the gate says it could not tell" "o=\$(\"\$py\" \"\$root/.ai-backbone/upstream.py\" --advisories gate Cargo.lock 2>&1); [ \$? -eq 2 ] && grep -q '^error needs Python 3.11' <<<\"\$o\""
 fi
 cd "$tmp" || exit 1
+
+section "delegate (spec 034)"
+# A script stands in for the worker. The recipes call the resolved path; on
+# PATH that is this script. It records the prompt and does what FAKE_WORKER_MODE
+# says. FAKE_WORKER_BINLOG, when set, receives the path the recipe executed.
+dhome="$tmp/delegate-home"
+dbin="$tmp/delegate-bin"
+dprompt="$tmp/delegate-prompt"
+dgo="$tmp/delegate-go"
+mkdir -p "$dbin" "$dhome"
+cat > "$dbin/grok" << 'EOF'
+#!/usr/bin/env bash
+prompt=""
+fmt=""
+model=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -p) prompt=$2; shift 2 ;;
+    --output-format) fmt=$2; shift 2 ;;
+    --model) model=$2; shift 2 ;;
+    *) echo "unexpected: $1" >&2; exit 2 ;;
+  esac
+done
+if [ -n "${FAKE_WORKER_PROMPT:-}" ]; then
+  printf '%s\n' "$prompt" > "$FAKE_WORKER_PROMPT"
+  printf '%s\n' "$fmt" > "$FAKE_WORKER_PROMPT.fmt"
+  printf '%s\n' "$model" > "$FAKE_WORKER_PROMPT.model"
+fi
+if [ -n "${FAKE_WORKER_BINLOG:-}" ]; then printf '%s\n' "$0" > "$FAKE_WORKER_BINLOG"; fi
+mode=${FAKE_WORKER_MODE:-ok}
+case "$mode" in
+  ok)
+    printf 'done\n' > worker-did.txt
+    git add worker-did.txt
+    git commit -qm "chore: worker did the task" --no-verify
+    n=1
+    while [ "$n" -le 20 ]; do printf 'line-%02d\n' "$n"; n=$((n+1)); done
+    ;;
+  slow)
+    echo started
+    i=0
+    while [ "$i" -lt 100 ]; do
+      [ -n "${FAKE_WORKER_GO:-}" ] && [ -f "$FAKE_WORKER_GO" ] && break
+      i=$((i+1))
+      sleep 0.2
+    done
+    echo report
+    ;;
+  dirty)
+    echo report
+    echo x > left-dirty.txt
+    ;;
+  fail)
+    echo report
+    exit 3
+    ;;
+  push)
+    git push -q origin HEAD:refs/heads/from-the-worker
+    git update-ref -d refs/remotes/origin/from-the-worker 2>/dev/null || true
+    echo report
+    ;;
+  move)
+    git checkout -q main
+    printf 'moved\n' >> README.md
+    git add README.md
+    git commit -qm "chore: moved the default branch" --no-verify
+    echo report
+    ;;
+  branch)
+    git branch from-the-worker
+    echo report
+    ;;
+  fix)
+    printf 'fixed\n' >> worker-did.txt
+    git add worker-did.txt
+    git commit -qm "chore: worker fixed the task" --no-verify
+    echo report
+    ;;
+  movebase)
+    target=${FAKE_WORKER_TARGET:-main}
+    git checkout -q "$target"
+    printf 'moved\n' >> README.md
+    git add README.md
+    git commit -qm "chore: moved the base branch" --no-verify
+    echo report
+    ;;
+  timeout)
+    echo report
+    sleep 30
+    echo finished
+    ;;
+  *) echo "unknown mode $mode" >&2; exit 2 ;;
+esac
+EOF
+cp "$dbin/grok" "$dbin/claude"
+chmod +x "$dbin/grok" "$dbin/claude"
+d_new() {
+  dproj="$tmp/delegate-$1"
+  rm -rf "$dproj"
+  mkdir -p "$dproj"
+  git -C "$dproj" init -qb main
+  git -C "$dproj" config user.email "delegate-test@example.com"
+  git -C "$dproj" config user.name "Delegate Test"
+  git -C "$dproj" config commit.gpgsign false
+  printf 'seed\n' > "$dproj/README.md"
+  git -C "$dproj" add README.md
+  git -C "$dproj" commit -qm "chore: init"
+  rm -f "$dgo" "$dprompt" "$dprompt.fmt" "$dprompt.model"
+}
+# d_run MODE WORKER WORKER_MODEL -- just args. An empty WORKER is unset.
+d_run() {
+  local mode="$1" worker="$2" model="$3"; shift 3
+  # shellcheck disable=SC2086
+  d_out=$(env -u WORKER -u WORKER_MODEL -u DELEGATE_TIMEOUT -u WORKER_BIN -u DELEGATE_BASE -u DELEGATE_YES -u FAKE_WORKER_TARGET \
+    HOME="$dhome" PATH="$dbin:$PATH" \
+    FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE="$mode" FAKE_WORKER_GO="$dgo" \
+    ${worker:+WORKER=$worker} ${model:+WORKER_MODEL=$model} \
+    ${WORKER_BIN:+WORKER_BIN=$WORKER_BIN} \
+    ${DELEGATE_BASE:+DELEGATE_BASE=$DELEGATE_BASE} \
+    ${DELEGATE_YES:+DELEGATE_YES=$DELEGATE_YES} \
+    ${FAKE_WORKER_TARGET:+FAKE_WORKER_TARGET=$FAKE_WORKER_TARGET} \
+    just -f "$root/Justfile" -d "$dproj" "$@" 2>&1) && d_rc=0 || d_rc=$?
+}
+d_one() {
+  local n=0 line
+  while IFS= read -r line; do [ -n "$line" ] && n=$((n+1)); done <<EOF
+$d_out
+EOF
+  [ "$n" -eq 1 ]
+}
+d_new off
+d_run ok "" "" delegate "add a line"
+check "with WORKER unset, delegate says so in one line and makes no branch" "[ \$d_rc -ne 0 ] && d_one && grep -q 'delegation is off (WORKER is unset)' <<<\"\$d_out\" && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ]"
+d_run ok off "" delegate "add a line"
+check "with WORKER=off, delegate says so and makes no branch" "[ \$d_rc -ne 0 ] && grep -q 'delegation is off (WORKER=off)' <<<\"\$d_out\" && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ]"
+d_run ok glm "" delegate "add a line"
+check "an unknown worker is refused with the list this recipe knows" "[ \$d_rc -ne 0 ] && d_one && grep -q \"unknown worker 'glm'\" <<<\"\$d_out\" && grep -q 'claude' <<<\"\$d_out\" && grep -q 'grok' <<<\"\$d_out\""
+d_plain="$(dirname "$(command -v just)"):$(dirname "$(command -v git)"):/usr/bin:/bin"
+d_out=$(env -u WORKER -u WORKER_BIN HOME="$dhome" PATH="$d_plain" \
+  WORKER=grok just -f "$root/Justfile" -d "$dproj" delegate "add a line" 2>&1) && d_rc=0 || d_rc=$?
+check "a worker that is not installed is refused in one line" "[ \$d_rc -ne 0 ] && d_one && grep -qx 'refuses: grok is not installed' <<<\"\$d_out\""
+d_new found
+mkdir -p "$dhome/.grok/bin"
+cp "$dbin/grok" "$dhome/.grok/bin/grok"
+chmod +x "$dhome/.grok/bin/grok"
+rm -f "$tmp/delegate-binlog"
+d_out=$(env -u WORKER -u WORKER_BIN HOME="$dhome" PATH="$d_plain" \
+  FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE=ok FAKE_WORKER_BINLOG="$tmp/delegate-binlog" \
+  WORKER=grok just -f "$root/Justfile" -d "$dproj" delegate "add a line" 2>&1) && d_rc=0 || d_rc=$?
+check "a grok that lives only at ~/.grok/bin/grok is the binary the adapter runs" \
+  "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$tmp/delegate-binlog\")\" = \"\$dhome/.grok/bin/grok\" ] && [ -f \"\$dproj/worker-did.txt\" ] && [ \"\$(cat \"\$dprompt.fmt\")\" = plain ]"
+rm -f "$dhome/.grok/bin/grok"
+d_new foundc
+mkdir -p "$dhome/.claude/local" "$dhome/.local/bin"
+cp "$dbin/claude" "$dhome/.claude/local/claude"
+cp "$dbin/claude" "$dhome/.local/bin/claude"
+chmod +x "$dhome/.claude/local/claude" "$dhome/.local/bin/claude"
+rm -f "$tmp/delegate-binlog"
+d_out=$(env -u WORKER -u WORKER_BIN -u WORKER_MODEL HOME="$dhome" PATH="$d_plain" \
+  FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE=ok FAKE_WORKER_BINLOG="$tmp/delegate-binlog" \
+  WORKER=claude just -f "$root/Justfile" -d "$dproj" delegate "use claude" 2>&1) && d_rc=0 || d_rc=$?
+check "claude is taken from ~/.claude/local/claude before ~/.local/bin/claude" \
+  "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$tmp/delegate-binlog\")\" = \"\$dhome/.claude/local/claude\" ] && [ -z \"\$(cat \"\$dprompt.fmt\")\" ]"
+rm -f "$dhome/.claude/local/claude"
+rm -f "$tmp/delegate-binlog"
+d_new foundc2
+d_out=$(env -u WORKER -u WORKER_BIN -u WORKER_MODEL HOME="$dhome" PATH="$d_plain" \
+  FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE=ok FAKE_WORKER_BINLOG="$tmp/delegate-binlog" \
+  WORKER=claude just -f "$root/Justfile" -d "$dproj" delegate "use claude" 2>&1) && d_rc=0 || d_rc=$?
+check "claude falls through to ~/.local/bin/claude when the first place is empty" \
+  "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$tmp/delegate-binlog\")\" = \"\$dhome/.local/bin/claude\" ]"
+rm -f "$dhome/.local/bin/claude"
+d_new binover
+cp "$dbin/grok" "$tmp/only-via-worker-bin"
+chmod +x "$tmp/only-via-worker-bin"
+rm -f "$tmp/delegate-binlog"
+WORKER_BIN="$tmp/only-via-worker-bin" FAKE_WORKER_BINLOG="$tmp/delegate-binlog" d_run ok grok "" delegate "add a line"
+check "WORKER_BIN is the binary, ahead of the name on PATH" \
+  "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$tmp/delegate-binlog\")\" = \"\$tmp/only-via-worker-bin\" ]"
+d_new dirty
+printf 'x\n' >> "$dproj/README.md"
+d_run ok grok "" delegate "add a line"
+check "a dirty tree is refused in one line, before any branch" "[ \$d_rc -ne 0 ] && d_one && grep -qx 'refuses: the working tree is not clean' <<<\"\$d_out\" && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ]"
+d_new branch
+git -C "$dproj" checkout -qb other
+d_run ok grok "" delegate "add a line"
+check "a branch other than the default is refused in one line" "[ \$d_rc -ne 0 ] && d_one && grep -q 'refuses: not on the default branch' <<<\"\$d_out\" && grep -q 'other' <<<\"\$d_out\" && grep -q 'main' <<<\"\$d_out\""
+d_new clean
+d_run ok grok "" delegate "add a line"
+dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+dlog=""
+for f in "$dhome/.cache/ai-backbone/delegate/delegate-clean"/*.log; do
+  [ -f "$f" ] || continue
+  dlog=$f
+done
+check "a clean run makes delegate/<date>-<slug>, commits, and prints the report, the stat, a clean tree and the exit" \
+  "[ \$d_rc -eq 0 ] && case \"\$dbr\" in delegate/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-add-a-line) ;; *) false ;; esac && grep -qx 'tree: clean' <<<\"\$d_out\" && grep -qx 'exit status: 0' <<<\"\$d_out\" && grep -q 'worker-did.txt' <<<\"\$d_out\" && grep -q 'line-20' <<<\"\$d_out\" && grep -q 'line-06' <<<\"\$d_out\" && ! grep -q 'line-01' <<<\"\$d_out\" && grep -q \"commits on \$dbr\" <<<\"\$d_out\" && ! grep -q '^BREACH:' <<<\"\$d_out\" && [ -n \"\$dlog\" ] && grep -q 'line-01' \"\$dlog\" && [ -z \"\$(find \"\$dproj\" -name '*.log' -type f)\" ] && [ -z \"\$(git -C \"\$dproj\" status --porcelain)\" ]"
+check "the worker's prompt is the preamble, then the task, and grok is called headless" \
+  "grep -q 'Read AGENTS.md' \"\$dprompt\" && grep -q \"You are on branch \$dbr; stay on it.\" \"\$dprompt\" && grep -q 'just save' \"\$dprompt\" && grep -q 'just publish' \"\$dprompt\" && grep -q 'git push' \"\$dprompt\" && grep -q 'just ship' \"\$dprompt\" && grep -q 'just deploy' \"\$dprompt\" && grep -q 'server or GitHub' \"\$dprompt\" && grep -q 'merge, rebase, or delete a branch' \"\$dprompt\" && grep -q 'at most 15 lines' \"\$dprompt\" && [ \"\$(tail -n 1 \"\$dprompt\")\" = 'add a line' ] && [ \"\$(cat \"\$dprompt.fmt\")\" = plain ] && [ -z \"\$(cat \"\$dprompt.model\")\" ]"
+git -C "$dproj" checkout -q main
+d_run ok grok "" delegate "add a line"
+check "the same task on the same day is refused, and the first branch stays" "[ \$d_rc -ne 0 ] && grep -q 'already exists' <<<\"\$d_out\" && git -C \"\$dproj\" show-ref --verify --quiet \"refs/heads/\$dbr\""
+d_new model
+d_run ok claude cheap delegate "use claude"
+check "the claude adapter calls claude -p with WORKER_MODEL" "[ \$d_rc -eq 0 ] && grep -q 'Read AGENTS.md' \"\$dprompt\" && [ -z \"\$(cat \"\$dprompt.fmt\")\" ] && [ \"\$(cat \"\$dprompt.model\")\" = cheap ]"
+d_new running
+env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE=slow FAKE_WORKER_GO="$dgo" \
+  WORKER=grok just -f "$root/Justfile" -d "$dproj" delegate "wait here" > "$tmp/delegate-bg.out" 2>&1 &
+dbg=$!
+i=0
+while [ "$i" -lt 50 ]; do
+  [ -s "$dhome/.cache/ai-backbone/delegate/delegate-running/running/branch" ] && break
+  i=$((i+1)); sleep 0.1
+done
+d_run ok grok "" delegate "second task"
+dst=$(env -u WORKER HOME="$dhome" just -f "$root/Justfile" -d "$dproj" delegate-status 2>&1 || true)
+# The job deletes its lock as it exits, so remember the file before letting it go.
+if [ -s "$dhome/.cache/ai-backbone/delegate/delegate-running/running/branch" ]; then lock_seen=yes; else lock_seen=no; fi
+touch "$dgo"
+wait "$dbg" || true
+check "while a job runs, a second delegate is refused in one line and status names its branch" \
+  "[ \"\$lock_seen\" = yes ] && [ \$d_rc -ne 0 ] && d_one && grep -q 'refuses: a job is already running on delegate/' <<<\"\$d_out\" && grep -q 'job: running on delegate/' <<<\"\$dst\""
+d_new report
+d_run ok grok "" delegate "add a line"
+dst=$(env -u WORKER HOME="$dhome" just -f "$root/Justfile" -d "$dproj" delegate-status 2>&1 || true)
+check "with no job running, status shows the last report and the open delegate branch" \
+  "grep -qx 'job: none' <<<\"\$dst\" && grep -q 'line-20' <<<\"\$dst\" && ! grep -q 'line-01' <<<\"\$dst\" && grep -q 'delegate/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-add-a-line' <<<\"\$dst\""
+d_new accept
+d_run ok grok "" delegate "add a line"
+d_run ok "" "" delegate-accept
+check "accept fast-forwards the default branch and deletes the delegate branch" \
+  "[ \$d_rc -eq 0 ] && grep -q '^accepted delegate/.* onto main$' <<<\"\$d_out\" && [ \"\$(git -C \"\$dproj\" symbolic-ref --short HEAD)\" = main ] && [ -f \"\$dproj/worker-did.txt\" ] && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ] && git -C \"\$dproj\" merge-base --is-ancestor HEAD HEAD"
+d_new noff
+d_run ok grok "" delegate "add a line"
+nbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+git -C "$dproj" checkout -q main
+printf 'more\n' >> "$dproj/README.md"
+git -C "$dproj" add README.md
+git -C "$dproj" commit -qm "chore: main moved"
+d_run ok "" "" delegate-accept
+check "accept refuses when the delegate branch is not a fast-forward, and keeps it" \
+  "[ \$d_rc -ne 0 ] && grep -qx \"refuses: \$nbr is not a fast-forward of main\" <<<\"\$d_out\" && git -C \"\$dproj\" show-ref --verify --quiet \"refs/heads/\$nbr\""
+d_new drop
+d_run ok grok "" delegate "add a line"
+nbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+d_out=$(printf 'n\n' | env -u WORKER HOME="$dhome" just -f "$root/Justfile" -d "$dproj" delegate-drop 2>&1) && d_rc=0 || d_rc=$?
+kept=$d_rc
+kept_msg=$d_out
+if git -C "$dproj" show-ref --verify --quiet "refs/heads/$nbr"; then kept_branch=yes; else kept_branch=no; fi
+d_out2=$(printf 'y\n' | env -u WORKER HOME="$dhome" just -f "$root/Justfile" -d "$dproj" delegate-drop 2>&1) && d_rc=0 || d_rc=$?
+check "drop asks once: no keeps the branch, yes deletes it" \
+  "[ \$kept -ne 0 ] && grep -q \"kept \$nbr\" <<<\"\$kept_msg\" && [ \"\$kept_branch\" = yes ] && [ \$d_rc -eq 0 ] && grep -q \"^dropped \$nbr\$\" <<<\"\$d_out2\" && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ] && [ \"\$(git -C \"\$dproj\" symbolic-ref --short HEAD)\" = main ]"
+d_new two
+d_run ok grok "" delegate "one thing"
+git -C "$dproj" checkout -q main
+d_run ok grok "" delegate "two things"
+d_run ok "" "" delegate-drop
+check "drop with two delegate branches asks for the name and deletes none" \
+  "[ \$d_rc -ne 0 ] && grep -q 'refuses: name the branch' <<<\"\$d_out\" && [ \"\$(git -C \"\$dproj\" branch --list 'delegate/*' | wc -l | tr -d ' ')\" = 2 ]"
+d_new fail
+d_run fail grok "" delegate "break it"
+check "the worker's exit status is the recipe's, and a dirty tree is said" \
+  "[ \$d_rc -eq 3 ] && grep -qx 'exit status: 3' <<<\"\$d_out\""
+d_new dirt
+d_run dirty grok "" delegate "leave a file"
+check "a worker that leaves a file is reported as a dirty tree" "grep -qx 'tree: dirty' <<<\"\$d_out\" && [ -f \"\$dproj/left-dirty.txt\" ]"
+d_new badt
+d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=ok WORKER=grok DELEGATE_TIMEOUT=no \
+  just -f "$root/Justfile" -d "$dproj" delegate "add a line" 2>&1) && d_rc=0 || d_rc=$?
+d_out0=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=ok WORKER=grok DELEGATE_TIMEOUT=0 \
+  just -f "$root/Justfile" -d "$dproj" delegate "add a line" 2>&1) && d_rc0=0 || d_rc0=$?
+check "a DELEGATE_TIMEOUT that is not a positive number of minutes is refused in one line" \
+  "[ \$d_rc -ne 0 ] && d_one && grep -qx 'refuses: DELEGATE_TIMEOUT must be a positive number of minutes' <<<\"\$d_out\" && [ \$d_rc0 -ne 0 ] && grep -qx 'refuses: DELEGATE_TIMEOUT must be a positive number of minutes' <<<\"\$d_out0\" && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ]"
+d_new tout
+t0=$SECONDS
+d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=timeout FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_GO="$dgo" \
+  WORKER=grok DELEGATE_TIMEOUT=0.05 just -f "$root/Justfile" -d "$dproj" delegate "sleep it" 2>&1) && d_rc=0 || d_rc=$?
+elapsed=$((SECONDS - t0))
+check "the run stops when DELEGATE_TIMEOUT passes and says timeout, before the worker finishes" \
+  "[ \$d_rc -eq 124 ] && [ \$elapsed -lt 15 ] && grep -qx 'exit status: timeout' <<<\"\$d_out\" && grep -q '^report$' <<<\"\$d_out\" && ! grep -q finished <<<\"\$d_out\" && ! grep -q Terminated <<<\"\$d_out\""
+d_new push
+bare="$tmp/delegate-bare-push"
+git init -q --bare "$bare"
+git -C "$dproj" remote add origin "$bare"
+git -C "$dproj" push -q origin main
+d_run push grok "" delegate "push it"
+first=${d_out%%$'\n'*}
+check "a worker that pushes is a breach, said first, and the recipe exits non-zero" \
+  "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: remote refs changed' ] && grep -q '^report$' <<<\"\$d_out\" && ! grep -q 'default branch' <<<\"\$d_out\" && ! grep -q 'branch list changed' <<<\"\$d_out\""
+d_new move
+d_run move grok "" delegate "move main"
+first=${d_out%%$'\n'*}
+check "a worker that moves the default branch is a breach, said first" \
+  "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: default branch main moved' ] && grep -q '^report$' <<<\"\$d_out\" && ! grep -q 'remote refs' <<<\"\$d_out\" && ! grep -q 'branch list changed' <<<\"\$d_out\""
+d_new side
+d_run branch grok "" delegate "add a branch"
+first=${d_out%%$'\n'*}
+check "a worker that adds a branch is a breach, said first" \
+  "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: branch list changed' ] && grep -q '^report$' <<<\"\$d_out\" && git -C \"\$dproj\" show-ref --verify --quiet refs/heads/from-the-worker"
+d_new fixround
+d_run ok grok "" delegate "add a line"
+dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+d_run fix grok "" delegate "fix the line"
+dcount=$(git -C "$dproj" branch --list 'delegate/*' | wc -l | tr -d ' ')
+dahead=$(git -C "$dproj" rev-list --count main..HEAD)
+check "a fix on a delegate branch stays there and keeps the first round's commit" \
+  "[ \$d_rc -eq 0 ] && [ \"\$(git -C \"\$dproj\" symbolic-ref --short HEAD)\" = \"\$dbr\" ] && [ \"\$dcount\" = 1 ] && [ \"\$dahead\" = 2 ] && ! grep -q '^BREACH:' <<<\"\$d_out\" && grep -qx 'tree: clean' <<<\"\$d_out\" && grep -q 'worker fixed the task' <<<\"\$d_out\" && grep -q 'worker did the task' <<<\"\$d_out\" && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*fix-the-line')\" ]"
+d_new fixdirty
+d_run ok grok "" delegate "add a line"
+printf 'x\n' >> "$dproj/README.md"
+d_run fix grok "" delegate "fix the line"
+check "a dirty delegate branch is refused before a second branch" \
+  "[ \$d_rc -ne 0 ] && d_one && grep -qx 'refuses: the working tree is not clean' <<<\"\$d_out\" && [ \"\$(git -C \"\$dproj\" branch --list 'delegate/*' | wc -l | tr -d ' ')\" = 1 ]"
+d_new fixmove
+d_run ok grok "" delegate "add a line"
+d_run move grok "" delegate "move main"
+first=${d_out%%$'\n'*}
+check "a fix round that moves the default branch is still a breach" \
+  "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: default branch main moved' ]"
+d_new fixside
+d_run ok grok "" delegate "add a line"
+d_run branch grok "" delegate "add a branch"
+first=${d_out%%$'\n'*}
+check "a fix round that adds a branch is still a breach" \
+  "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: branch list changed' ] && git -C \"\$dproj\" show-ref --verify --quiet refs/heads/from-the-worker"
+d_migration() {
+  d_new "$1"
+  git -C "$dproj" checkout -qb migration
+  printf 'on the migration\n' >> "$dproj/README.md"
+  git -C "$dproj" add README.md
+  git -C "$dproj" commit -qm "chore: migration"
+}
+d_new nobase
+DELEGATE_BASE=no-such d_run ok grok "" delegate "add a line"
+check "a DELEGATE_BASE that does not exist is refused in one line" \
+  "[ \$d_rc -ne 0 ] && d_one && grep -qx 'refuses: DELEGATE_BASE no-such does not exist' <<<\"\$d_out\" && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ]"
+d_migration noton
+git -C "$dproj" checkout -q main
+DELEGATE_BASE=migration d_run ok grok "" delegate "add a line"
+check "with DELEGATE_BASE set, the job must already be on that branch" \
+  "[ \$d_rc -ne 0 ] && d_one && grep -qx 'refuses: not on the base branch (main; base is migration)' <<<\"\$d_out\" && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ]"
+d_migration frombase
+DELEGATE_BASE=migration d_run ok grok "" delegate "add a line"
+dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+recorded=$(git -C "$dproj" config --get "branch.${dbr}.delegateBase")
+dparent=$(git -C "$dproj" rev-parse HEAD^)
+dmig=$(git -C "$dproj" rev-parse migration)
+check "a job starts from DELEGATE_BASE and records branch.<name>.delegateBase" \
+  "[ \$d_rc -eq 0 ] && [ \"\$recorded\" = migration ] && [ \"\$dparent\" = \"\$dmig\" ] && ! git -C \"\$dproj\" cat-file -e main:worker-did.txt && git -C \"\$dproj\" cat-file -e \"\$dbr:worker-did.txt\""
+d_run ok "" "" delegate-accept
+check "accept fast-forwards the recorded base and leaves the default branch" \
+  "[ \$d_rc -eq 0 ] && grep -qx \"accepted \$dbr onto migration\" <<<\"\$d_out\" && [ \"\$(git -C \"\$dproj\" symbolic-ref --short HEAD)\" = migration ] && git -C \"\$dproj\" cat-file -e migration:worker-did.txt && ! git -C \"\$dproj\" cat-file -e main:worker-did.txt && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ]"
+d_migration basedrop
+DELEGATE_BASE=migration d_run ok grok "" delegate "add a line"
+nbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+d_out=$(printf 'y\n' | env -u WORKER -u DELEGATE_BASE HOME="$dhome" just -f "$root/Justfile" -d "$dproj" delegate-drop 2>&1) && d_rc=0 || d_rc=$?
+check "drop returns to the recorded base" \
+  "[ \$d_rc -eq 0 ] && grep -qx \"dropped \$nbr\" <<<\"\$d_out\" && [ \"\$(git -C \"\$dproj\" symbolic-ref --short HEAD)\" = migration ] && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ] && ! git -C \"\$dproj\" cat-file -e HEAD:worker-did.txt"
+d_migration breachbase
+FAKE_WORKER_TARGET=migration DELEGATE_BASE=migration d_run movebase grok "" delegate "move the base"
+first=${d_out%%$'\n'*}
+check "with DELEGATE_BASE set, moving that branch is the breach" \
+  "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: base branch migration moved' ] && ! grep -q 'default branch' <<<\"\$d_out\""
+d_migration movemain
+DELEGATE_BASE=migration d_run move grok "" delegate "move main"
+check "with DELEGATE_BASE set, moving the default branch is not that breach" \
+  "[ \$d_rc -eq 0 ] && ! grep -q '^BREACH:' <<<\"\$d_out\""
+d_migration fixbase
+DELEGATE_BASE=migration d_run ok grok "" delegate "add a line"
+FAKE_WORKER_TARGET=migration d_run movebase grok "" delegate "move the base again"
+first=${d_out%%$'\n'*}
+check "a fix round protects the recorded base when DELEGATE_BASE is unset" \
+  "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: base branch migration moved' ]"
+d_new dropyes
+d_run ok grok "" delegate "add a line"
+nbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+d_out=$(env -u WORKER -u DELEGATE_YES HOME="$dhome" just -f "$root/Justfile" -d "$dproj" delegate-drop --yes </dev/null 2>&1) && d_rc=0 || d_rc=$?
+check "delegate-drop --yes deletes with no terminal and does not ask" \
+  "[ \$d_rc -eq 0 ] && grep -qx \"dropped \$nbr\" <<<\"\$d_out\" && ! grep -q 'Delete ' <<<\"\$d_out\" && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ] && [ \"\$(git -C \"\$dproj\" symbolic-ref --short HEAD)\" = main ]"
+d_new dropenv
+d_run ok grok "" delegate "add a line"
+nbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+d_out=$(env -u WORKER HOME="$dhome" DELEGATE_YES=1 just -f "$root/Justfile" -d "$dproj" delegate-drop </dev/null 2>&1) && d_rc=0 || d_rc=$?
+check "DELEGATE_YES=1 deletes with no terminal and does not ask" \
+  "[ \$d_rc -eq 0 ] && grep -qx \"dropped \$nbr\" <<<\"\$d_out\" && ! grep -q 'Delete ' <<<\"\$d_out\" && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ] && [ \"\$(git -C \"\$dproj\" symbolic-ref --short HEAD)\" = main ]"
+d_new dropclosed
+d_run ok grok "" delegate "add a line"
+nbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+d_out=$(env -u WORKER -u DELEGATE_YES HOME="$dhome" just -f "$root/Justfile" -d "$dproj" delegate-drop </dev/null 2>&1) && d_rc=0 || d_rc=$?
+if git -C "$dproj" show-ref --verify --quiet "refs/heads/$nbr"; then kept_branch=yes; else kept_branch=no; fi
+check "without --yes, a closed stdin still asks once and keeps the branch" \
+  "[ \$d_rc -ne 0 ] && grep -q \"Delete \$nbr\" <<<\"\$d_out\" && grep -q \"kept \$nbr\" <<<\"\$d_out\" && [ \"\$kept_branch\" = yes ]"
 
 sec_times="$sec_times$((SECONDS-sec_start)) $sec_name"$'\n'
 echo

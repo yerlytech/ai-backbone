@@ -17,7 +17,11 @@
 #               stopped at 3.19, its own list did not; flutter:beta works too) ·
 #               hf:owner/name (a Hugging Face model, pinned by the commit it
 #               downloads: pin = "607a30d" or the whole id; each commit after
-#               it is one newer)
+#               it is one newer) ·
+#               ghcommit:owner/repo (a GitHub repository pinned by a commit on
+#               its default branch, for one that publishes no release: the pin
+#               is the commit id, seven characters or more; each commit after
+#               it is one newer. The request names no branch)
 #   pin         the version this project uses today, written the way the source
 #               writes it when it tags more than one thing: rust-v0.155.0 where
 #               the tags say rust-v…, python/x/v1.0 for a sub-package
@@ -26,6 +30,10 @@
 #               for npm, pubspec.lock for pub. The file beside it holds a range
 #               (flame: ^1.38.2) and still says so after the lockfile has moved
 #   why         one line: what this project uses it for
+#   kind        "idea" for a project an idea is taken from and this one is not
+#               built on. Left off, the row is a tool. A newer idea is listed
+#               as something to read, never as something this project is behind
+#   look_for    for an idea: the one thing a newer release is read for
 #   check       what to look at before following it upstream
 #   prereleases true to count release candidates as newer (for something
 #               deliberately tracked before it is stable)

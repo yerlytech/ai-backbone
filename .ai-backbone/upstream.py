@@ -9,7 +9,13 @@ is what changed and what it costs to follow.
 It also says when each pinned version came out and where that version can be
 read on this machine, because an agent's training ends on a day and a version
 released after it is one the agent has never seen. `--recent` prints that from
-the cache alone, without the network, for every session. `--advisories` reads
+the cache alone, without the network, for every session. A source is asked at
+most once a day per machine: the answer is kept under
+`~/.cache/ai-backbone/upstream/`, keyed by source, and every project that
+watches that source reads the same file. `--refresh` asks again.
+`--freshness` is the short block session start shows: what is behind, what
+moved, and one first job. It stops at ten seconds and still exits 0.
+`--advisories` reads
 a Cargo.lock against the RustSec advisories, and `--crate-sources` says when
 a row reads from GitHub what Cargo.lock locks as a crate (spec 029); what a
 project has looked at and ships anyway is in docs/advisories.toml, and
@@ -21,18 +27,21 @@ Nothing here upgrades anything. It reports.
 import collections
 import datetime
 import glob
+import hashlib
 import http.client
 import io
 import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tarfile
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -50,6 +59,30 @@ CACHE = Path(".git/upstream-cache.json")
 # Every source then counts as unreachable, which is also the one case the report
 # must never dress up as good news (3.20.0).
 OFFLINE = bool(os.environ.get("AI_BACKBONE_OFFLINE"))
+# How long a shared answer is the answer (spec 035). A rate limit and a check
+# that ran out of time count from the try, so the next session does not spend
+# them again. Offline does not: a morning with no network must not use up the day.
+SHARE_DAY = 86400
+# Session start stops starting new lookups once the whole check has taken this
+# long, and shows the last result (spec 035). `just upstream` itself waits: a
+# person who typed it is waiting for the answer. The suite sets the budget to
+# zero to exercise the stop without sleeping.
+FRESH_BUDGET = float(os.environ.get("AI_BACKBONE_UPSTREAM_BUDGET", "10") or "10")
+# The deadline of the check that is running, or None when a person typed
+# `just upstream` and is waiting. A lookup uses the shorter of its own limit
+# and what is left, so one source's thirty seconds cannot spend the ten.
+CALL_DEADLINE = None
+
+
+def call_timeout(default):
+    """How long this one call may take. Past the session's deadline, a fraction
+    of a second: long enough to fail, not long enough to hold the session."""
+    if CALL_DEADLINE is None:
+        return default
+    left = CALL_DEADLINE - time.monotonic()
+    if left <= 0.05:
+        return 0.05
+    return min(default, left)
 
 
 def say(line=""):
@@ -58,7 +91,7 @@ def say(line=""):
 
 def fetch_json(url, headers=None):
     request = urllib.request.Request(url, headers=headers or {"User-Agent": "ai-backbone"})
-    with urllib.request.urlopen(request, timeout=10) as response:
+    with urllib.request.urlopen(request, timeout=call_timeout(10)) as response:
         return json.load(response)
 
 
@@ -100,7 +133,7 @@ def tags_with_git(repo, why):
     try:
         done = subprocess.run(
             ["git", "ls-remote", "--tags", "--refs", f"https://github.com/{repo}"],
-            check=False, capture_output=True, text=True, timeout=30,
+            check=False, capture_output=True, text=True, timeout=call_timeout(30),
             env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
         )
     except (OSError, subprocess.TimeoutExpired):
@@ -127,7 +160,7 @@ def from_github(repo):
     if shutil_which("gh"):
         done = subprocess.run(
             ["gh", "api", f"repos/{repo}/releases?per_page=50"],
-            check=False, capture_output=True, text=True, timeout=30,
+            check=False, capture_output=True, text=True, timeout=call_timeout(30),
         )
         if done.returncode == 0:
             releases = json.loads(done.stdout)
@@ -145,7 +178,7 @@ def from_github(repo):
                 ]
             tags = subprocess.run(
                 ["gh", "api", f"repos/{repo}/tags?per_page=30"],
-                check=False, capture_output=True, text=True, timeout=30,
+                check=False, capture_output=True, text=True, timeout=call_timeout(30),
             )
             if tags.returncode == 0:
                 return tag_rows(repo, json.loads(tags.stdout))
@@ -171,7 +204,7 @@ def github_one(repo, path):
     try:
         if shutil_which("gh"):
             done = subprocess.run(["gh", "api", f"repos/{repo}/{path}"],
-                                  check=False, capture_output=True, text=True, timeout=30)
+                                  check=False, capture_output=True, text=True, timeout=call_timeout(30))
             return json.loads(done.stdout) if done.returncode == 0 else None
         return fetch_json(f"https://api.github.com/repos/{repo}/{path}")
     except (OSError, ValueError, http.client.HTTPException, subprocess.TimeoutExpired):
@@ -190,7 +223,11 @@ def from_crates(name):
 
 
 def from_npm(name):
-    data = fetch_json(f"https://registry.npmjs.org/{name}")
+    """npm. A scoped package is @scope/name. The registry wants that slash
+    written as %2F and the @ left as it is, or the request names a different
+    package and comes back empty."""
+    quoted = urllib.parse.quote(name, safe="@")
+    data = fetch_json(f"https://registry.npmjs.org/{quoted}")
     times = data.get("time", {})
     versions = [v for v in data.get("versions", {})]
     versions.sort(key=lambda v: times.get(v, ""), reverse=True)
@@ -314,10 +351,86 @@ def from_hf(repo, pin=""):
     return out
 
 
+# Kinds whose versions are commits, matched by the id's first characters.
+# hf: is a model. ghcommit: is a repository that publishes no release: what
+# moves is the default branch, and a version comparison would read the pin as
+# unknown forever.
+COMMIT_KINDS = {"hf", "ghcommit"}
+
+
+def github_get(repo, path):
+    """One JSON value from the GitHub API. Through gh when it is installed,
+    since it carries the login; plain HTTPS otherwise, with no name and no
+    token. gh's refusal is the answer: the same call without it would be
+    refused too, and a second try spends a limit the first call already used."""
+    if shutil_which("gh"):
+        try:
+            done = subprocess.run(
+                ["gh", "api", f"repos/{repo}/{path}"],
+                check=False, capture_output=True, text=True, timeout=call_timeout(30),
+            )
+        except (OSError, subprocess.TimeoutExpired) as err:
+            raise Unreachable(f"{repo}: {err}") from err
+        if done.returncode != 0:
+            why = (done.stderr or done.stdout or "the API refused").strip().splitlines()
+            raise Unreachable(f"{repo}: {(why[0] if why else 'the API refused')[:120]}")
+        try:
+            return json.loads(done.stdout)
+        except ValueError as err:
+            raise Unreachable(f"{repo}: the API answered something that is not JSON") from err
+    return fetch_json(f"https://api.github.com/repos/{repo}/{path}")
+
+
+def _commit_row(repo, item):
+    """One commit from the GitHub API, in the shape the other sources use.
+    None when the object has no id: a hole in the page is not a version."""
+    if not isinstance(item, dict):
+        return None
+    sha = item.get("sha") or ""
+    if not sha:
+        return None
+    commit = item.get("commit") or {}
+    message = (commit.get("message") or "").strip()
+    when = commit.get("committer") or commit.get("author") or {}
+    return {
+        "version": sha[:12],
+        "commit": sha,
+        "at": (when.get("date") or "")[:10],
+        "title": message.split("\n", 1)[0],
+        "notes": message,
+        "url": item.get("html_url") or f"https://github.com/{repo}/commit/{sha}",
+        "prerelease": False,
+    }
+
+
+def from_ghcommit(repo, pin=""):
+    """Commits on the repository's default branch, newest first. For a project
+    that publishes no release and no tag: the pin is a commit id, and each
+    commit after it is one newer. The request names no branch. Naming `main`
+    would miss a repository whose default branch is something else, and the
+    commits API's own default is that branch. Pages of thirty until the pin is
+    among them, twenty at most, so a pin that has fallen off the first page
+    is still found."""
+    pin = str(pin).strip().lower()
+    out = []
+    for page in range(1, 21):
+        data = github_get(repo, f"commits?per_page=30&page={page}")
+        if not isinstance(data, list):
+            raise ValueError(  # noqa: TRY004
+                f"{repo}: GitHub answered something that is not a list of commits")
+        for item in data:
+            row = _commit_row(repo, item)
+            if row:
+                out.append(row)
+        if len(data) < 30 or (len(pin) >= 7 and any(r["commit"].lower().startswith(pin) for r in out)):
+            break
+    return out
+
+
 def by_commit(entry):
-    """Whether a row's versions are commits (hf:), so its pin is a commit id
-    and is matched by its first characters, not compared as a number."""
-    return entry.get("source", "").partition(":")[0] == "hf"
+    """Whether a row's versions are commits, so its pin is a commit id and is
+    matched by its first characters, not compared as a number."""
+    return entry.get("source", "").partition(":")[0] in COMMIT_KINDS
 
 
 def commits_after(entry, releases):
@@ -503,19 +616,21 @@ def unanswered(pin, releases):
             " if that is what is pinned, write the pin that way")
 
 
-def released_at(entry, releases, known=""):
+def released_at(entry, releases, known="", ask=True):
     """The day the pinned version itself came out — not the newest one, the one
     this project runs on. From what the source listed when it is there; a tag
     may carry a v the pin does not, or the other way round. A date learned in an
     earlier week (`known`) is kept, since it does not change. Only then does a
     GitHub pin older than the fifty fetched cost one more call per tag form,
-    and a project that tags without releasing answers with the commit's date."""
+    and a project that tags without releasing answers with the commit's date.
+    `ask` is false when this run is showing the shared copy: that extra call is
+    the online check, and a second project must not pay it."""
     pin = str(entry.get("pin", "")).strip()
     for release in releases:
         if release["version"].lstrip("vV") == pin.lstrip("vV") and release["at"]:
             return release["at"]
     kind, _, repo = entry.get("source", "").partition(":")
-    if known or kind != "github" or not pin or OFFLINE:
+    if known or kind != "github" or not pin or OFFLINE or not ask:
         return known
     tags = list(dict.fromkeys([tag_of(entry, pin)] if entry.get("tag") else
                               [pin, "v" + pin.lstrip("vV"), pin.lstrip("vV")]))
@@ -547,6 +662,8 @@ def where(entry):
         out.append(("docs", f"https://pub.dev/documentation/{rest}/{bare}/"))
     elif kind == "hf" and pin:
         out.append(("docs", f"https://huggingface.co/{rest}/tree/{pin}"))
+    elif kind == "ghcommit" and pin:
+        out.append(("docs", f"https://github.com/{rest}/commit/{pin}"))
     if entry.get("pinned_in"):
         if pin_is_real(entry):
             out.append(("pinned in", entry["pinned_in"]))
@@ -559,7 +676,7 @@ def where(entry):
                    or Path(os.environ.get("HF_HOME") or Path.home() / ".cache" / "huggingface") / "hub")
         folders += sorted(glob.glob(str(hub / f"models--{rest.replace('/', '--')}" / "snapshots"
                                         / (glob.escape(pin) + "*"))))
-    elif bare:
+    elif bare and kind not in COMMIT_KINDS:
         cargo = Path(os.environ.get("CARGO_HOME") or Path.home() / ".cargo")
         crate = rest if kind == "crates" else name
         folders += sorted(glob.glob(str(cargo / "registry" / "src" / "*" / glob.escape(f"{crate}-{bare}"))))
@@ -575,9 +692,10 @@ def where(entry):
         tools = said(["uv", "tool", "dir"])
         if tools and Path(tools, name).is_dir():
             folders.append(str(Path(tools, name)))
-    # A model is no program: a binary that shares its name says nothing about it.
-    exe = None if kind == "hf" else shutil_which("flutter" if kind == "flutter" else name)
-    repo = {"github": rest, "flutter": "flutter/flutter"}.get(kind)
+    # A model, and a repository watched by its commits, is no program: a binary
+    # that shares its name says nothing about it.
+    exe = None if kind in COMMIT_KINDS else shutil_which("flutter" if kind == "flutter" else name)
+    repo = {"github": rest, "ghcommit": rest, "flutter": "flutter/flutter"}.get(kind)
     sdk = checkout(exe, repo) if exe and repo else ""
     if sdk:
         folders.append(sdk)
@@ -614,7 +732,7 @@ def said(command):
     keyboard: a binary that happens to be named like a watch must not be able
     to hold `just upstream <name>` for as long as it likes."""
     try:
-        done = subprocess.run(command, check=False, capture_output=True, text=True, timeout=5,
+        done = subprocess.run(command, check=False, capture_output=True, text=True, timeout=call_timeout(5),
                               stdin=subprocess.DEVNULL)
     except (OSError, subprocess.SubprocessError):
         return ""
@@ -677,7 +795,7 @@ def pin_is_real(entry):
 
 
 SOURCES = {"github": from_github, "crates": from_crates, "npm": from_npm, "pub": from_pub,
-           "pypi": from_pypi, "flutter": from_flutter, "hf": from_hf}
+           "pypi": from_pypi, "flutter": from_flutter, "hf": from_hf, "ghcommit": from_ghcommit}
 
 
 def look(entry):
@@ -687,12 +805,234 @@ def look(entry):
     kind, _, rest = source.partition(":")
     if kind not in SOURCES or not rest:
         raise ValueError(f"unknown source `{source}` — use github:owner/repo, crates:name, npm:name,"
-                         " pub:name, pypi:name, flutter:stable or hf:owner/name")
+                         " pub:name, pypi:name, flutter:stable, hf:owner/name or ghcommit:owner/repo")
     if OFFLINE:
         raise Unreachable("offline: AI_BACKBONE_OFFLINE is set")
-    if kind == "hf":
-        return from_hf(rest, entry.get("pin", ""))
+    if kind in COMMIT_KINDS:
+        return SOURCES[kind](rest, entry.get("pin", ""))
     return SOURCES[kind](rest)
+
+
+def share_root():
+    """Where this machine keeps one answer per source. The suite points it at a
+    temp folder; `XDG_CACHE_HOME` is honoured the way the advisory database is."""
+    override = os.environ.get("AI_BACKBONE_UPSTREAM_CACHE")
+    if override:
+        return Path(override)
+    base = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
+    return base / "ai-backbone" / "upstream"
+
+
+def cache_key(entry):
+    """The shared file's name. Two projects that watch the same source share one
+    lookup. A commit row is read only until its own pin, so the pin is part of
+    that key: a newer pin must not hide the commits an older one needs."""
+    source = entry.get("source", "")
+    if source.partition(":")[0] in COMMIT_KINDS:
+        return source + " pin=" + str(entry.get("pin", "")).strip()
+    return source
+
+
+def share_file(key):
+    slug = re.sub(r"[^A-Za-z0-9._+-]+", "_", key).strip("_") or "source"
+    digest = hashlib.sha256(key.encode()).hexdigest()[:12]
+    return share_root() / f"{slug}--{digest}.json"
+
+
+def _parse_time(text):
+    if not text or not isinstance(text, str):
+        return None
+    try:
+        when = datetime.datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=datetime.timezone.utc)
+    return when
+
+
+def _now_iso():
+    return datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
+
+
+def share_read(key):
+    try:
+        data = json.loads(share_file(key).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict) or data.get("source") != key:
+        return None
+    if not isinstance(data.get("releases"), list):
+        return None
+    return data
+
+
+def _share_write(key, record):
+    path = share_file(key)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(record, indent=1) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def share_ok(key, releases):
+    _share_write(key, {"source": key, "fetched": _now_iso(), "releases": releases,
+                       "error": "", "detail": "", "failed_at": ""})
+
+
+def share_fail(key, previous, reason, detail):
+    prev = previous or {}
+    text = " ".join(str(detail).split())[:140]
+    # The word is what the next run and the report both look for. An HTTP 403
+    # says "Forbidden" and not "rate limit"; the body was read once, already.
+    if reason and reason not in text.lower():
+        text = f"{reason}: {text}"[:160]
+    _share_write(key, {
+        "source": key,
+        "fetched": prev.get("fetched") or "",
+        "releases": prev.get("releases") or [],
+        "error": reason,
+        "detail": text,
+        "failed_at": _now_iso(),
+    })
+
+
+def share_recent(record, now=None):
+    """True when the last try, success or failure, was under a day ago."""
+    moments = [t for t in (_parse_time(record.get("failed_at")), _parse_time(record.get("fetched"))) if t]
+    if not moments:
+        return False
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    return (now - max(moments)).total_seconds() < SHARE_DAY
+
+
+def share_usable(record, refresh):
+    """A copy this run may show without asking. A rate limit and a check that
+    ran out of time are the day's answer. Offline, and a source that did not
+    answer, are asked again: the network may be back."""
+    if refresh or not record or not share_recent(record):
+        return False
+    if not record.get("error"):
+        return True
+    return record.get("error") in ("rate-limited", "slow")
+
+
+def age_phrase(record):
+    """How old the last successful answer is, in words. The failure's own time
+    is not this: a rate limit an hour ago can be sitting on a result from
+    yesterday, and the row is that result."""
+    when = _parse_time((record or {}).get("fetched"))
+    if when is None:
+        return "no earlier result"
+    hours = int((datetime.datetime.now(datetime.timezone.utc) - when).total_seconds() // 3600)
+    if hours < 1:
+        return "less than an hour ago"
+    if hours == 1:
+        return "1 hour ago"
+    if hours < 48:
+        return f"{hours} hours ago"
+    days = hours // 24
+    return "1 day ago" if days == 1 else f"{days} days ago"
+
+
+def classify(err):
+    """Why a lookup failed, in one word the report can say, and the sentence."""
+    detail = " ".join(str(err).split())[:160]
+    blob = detail.lower()
+    if isinstance(err, urllib.error.HTTPError):
+        try:
+            blob += " " + err.read().decode("utf-8", "replace").lower()
+        except (OSError, ValueError, AttributeError):
+            pass
+        if err.code == 429 or "rate limit" in blob or "secondary rate" in blob:
+            return "rate-limited", detail or "rate limit"
+    if "rate limit" in blob or "rate-limited" in blob:
+        return "rate-limited", detail or "rate limit"
+    if "offline" in blob:
+        return "offline", detail or "offline"
+    # "slow" is the whole check running past its ten seconds, said by obtain
+    # before it asks. One source that times out did not answer; the next
+    # session asks it again, the way a dead network is asked again.
+    if blob.startswith("slow"):
+        return "slow", detail or "slow"
+    return "unreachable", detail or "unreachable"
+
+
+def _timed_out(err):
+    """A call that used up its own seconds. Python 3.9's socket timeout is an
+    OSError, and urllib wraps that as the reason of a URLError."""
+    if isinstance(err, (subprocess.TimeoutExpired, TimeoutError, socket.timeout)):
+        return True
+    return isinstance(getattr(err, "reason", None), (TimeoutError, socket.timeout))
+
+
+def _after_fail(key, err):
+    """The previous answer when there is one; otherwise the error `look` raised,
+    unchanged, so a source that does not answer still counts toward the three
+    that stop the rest of the list."""
+    record = share_read(key)
+    if record and record.get("releases"):
+        return record["releases"], record.get("error") or "unreachable", False
+    raise err
+
+
+def _take_refresh(argv):
+    """`--refresh` asks every source again. It may sit before or after a name."""
+    refresh = False
+    rest = []
+    for arg in argv:
+        if arg == "--refresh":
+            refresh = True
+        else:
+            rest.append(arg)
+    return refresh, rest
+
+
+def obtain(entry, refresh, deadline):
+    """Releases for this row, whether they are an old result, and whether this
+    call asked the source. The old-result word is "" when the answer is from
+    today. It is offline, rate-limited, slow or unreachable when this run
+    wanted a new answer, could not have one, and is showing the previous one.
+    With nothing saved, the error is raised the way `look` raises it.
+    `deadline` also caps the call already in flight: one source's thirty
+    seconds must not spend a session's ten, and that timeout counts as slow."""
+    global CALL_DEADLINE
+    previous = CALL_DEADLINE
+    if deadline is not None:
+        CALL_DEADLINE = deadline
+    try:
+        return _obtain(entry, refresh, deadline)
+    finally:
+        CALL_DEADLINE = previous
+
+
+def _obtain(entry, refresh, deadline):
+    key = cache_key(entry)
+    kind, _, rest = entry.get("source", "").partition(":")
+    if kind not in SOURCES or not rest:
+        return look(entry), "", True
+    record = share_read(key)
+    if share_usable(record, refresh):
+        # An empty list is an answer (nothing published). A failure with nothing
+        # saved is not: say why, and do not ask again when the day is used up.
+        if record.get("error") and not record.get("releases"):
+            raise Unreachable(record.get("detail") or record.get("error") or "unreachable")
+        return list(record.get("releases") or []), record.get("error") or "", False
+    if deadline is not None and time.monotonic() >= deadline:
+        detail = "slow: the check ran past 10 seconds"
+        share_fail(key, record, "slow", detail)
+        return _after_fail(key, Unreachable(detail))
+    try:
+        releases = look(entry)
+    except (OSError, ValueError, http.client.HTTPException,
+            subprocess.TimeoutExpired, Unreachable) as err:
+        reason, detail = classify(err)
+        if CALL_DEADLINE is not None and _timed_out(err):
+            reason, detail = "slow", "slow: the check ran past 10 seconds"
+        share_fail(key, record, reason, detail)
+        return _after_fail(key, err)
+    share_ok(key, releases)
+    return releases, "", True
 
 
 def read_list():
@@ -722,7 +1062,7 @@ def read_list():
 
 
 def recent():
-    """Every session, without the network, from what the weekly run cached: what
+    """Every session, without the network, from what the daily check cached: what
     the project is built on and which of those pins came out in the last twelve
     months. Read with tomllib where the interpreter has it; a Mac with only its
     own python3 gets the pins from the cache, and the lines, not a nag."""
@@ -750,7 +1090,7 @@ def recent():
         at = held.get("at", "") if isinstance(held, dict) and held.get("pin") == pin else ""
         (dated if at else undated).append((at, name, pin))
     if not dated:
-        say("Released in the last 12 months: not known yet. The weekly check fills it in"
+        say("Released in the last 12 months: not known yet. The daily check fills it in"
             " when the sources can be reached: just upstream")
         return 0
     since = (datetime.date.today() - datetime.timedelta(days=365)).isoformat()
@@ -761,7 +1101,7 @@ def recent():
             " Read it first: just upstream <name>")
     if undated:
         say("Release date not known yet: " + ", ".join(f"{name} {pin}" for _, name, pin in undated)
-            + ". The weekly check fills it in when the source can be reached.")
+            + ". The daily check fills it in when the source can be reached.")
     return 0
 
 
@@ -924,7 +1264,7 @@ def adv_fetch(db):
     Only crates/**/*.md is taken from it, and only by its plain name."""
     db.parent.mkdir(parents=True, exist_ok=True)
     request = urllib.request.Request(ADV_URL, headers={"User-Agent": "ai-backbone"})
-    with urllib.request.urlopen(request, timeout=15) as response:
+    with urllib.request.urlopen(request, timeout=call_timeout(15)) as response:
         data = response.read()
     new = Path(tempfile.mkdtemp(prefix="advisory-db.", dir=db.parent))
     try:
@@ -1477,33 +1817,39 @@ def crate_sources(locks):
     return 0
 
 
-def main():
-    # Before the list is read, and so before tomllib: these lines need neither.
-    if len(sys.argv) > 1 and sys.argv[1] == "--recent":
-        return recent()
-    if len(sys.argv) > 1 and sys.argv[1] == "--crate-sources":
-        return crate_sources(sys.argv[2:])
-    if len(sys.argv) > 2 and sys.argv[1] == "--advisories" and sys.argv[2] == "gate":
-        return advisories_gate(sys.argv[3:])
-    if len(sys.argv) > 3 and sys.argv[1] == "--advisories" and sys.argv[2] in ("doctor", "session"):
-        return advisories(sys.argv[2], sys.argv[3:])
-    if not LIST.is_file():
-        say(f"No {LIST}. Run: just upstream-init")
-        return 0
-    watched = read_list()
-    if watched is None:
-        return 1
-    if not watched:
-        say(f"{LIST} watches nothing yet. Add a [[watch]] block per thing this project is built on.")
-        return 0
+def backbone_version():
+    """The version on the first line of the core.just beside this script."""
+    path = Path(__file__).resolve().parent / "core.just"
+    try:
+        first = path.read_text(encoding="utf-8").splitlines()[0]
+    except (OSError, IndexError):
+        return "?"
+    found = re.search(r"version (\d+\.\d+\.\d+)", first)
+    return found.group(1) if found else "?"
 
-    only = sys.argv[1] if len(sys.argv) > 1 else ""
+
+# The tools `just tools-update` moves itself. Any other pin is a job, done in
+# the session or handed to a worker, and never an upgrade this script runs.
+OWN_TOOLS = {"just", "prek", "graphify", "uv"}
+
+
+def _is_idea(entry):
+    return str(entry.get("kind", "")).strip() == "idea"
+
+
+def survey(watched, refresh, deadline, only=""):
+    """One pass over the watch list. `deadline` is a monotonic time after which
+    no new source is asked; None waits, which is what `just upstream` does.
+    The rows are what the table prints: name, pin, released, newest, how, real."""
     found = {}
     rows = []
     whynot = {}
     unlisted = set()
+    stale = []
+    held = []
     before = cached_dates()
     silent = 0
+    live_any = False
     for entry in watched:
         name = entry.get("name") or entry.get("source", "?")
         if only and only != name:
@@ -1518,10 +1864,11 @@ def main():
         # A source not read this week keeps the date an earlier week learned, as
         # long as the pin is the same one: a week behind a proxy, or offline,
         # must not blank an answer that does not change.
-        held = before.get(name)
-        known = held.get("at", "") if isinstance(held, dict) and held.get("pin") == entry.get("pin", "?") else ""
+        held_date = before.get(name)
+        known = held_date.get("at", "") if isinstance(held_date, dict) and held_date.get("pin") == entry.get("pin", "?") else ""
         try:
-            releases = tagged(entry, look(entry))
+            got, old, live = obtain(entry, refresh, deadline)
+            releases = tagged(entry, got)
         except (OSError, ValueError, http.client.HTTPException,
                 subprocess.TimeoutExpired, Unreachable) as err:
             # The reason goes to `whynot`, not into the table: it is a sentence,
@@ -1537,6 +1884,13 @@ def main():
             rows.append((name, entry.get("pin", "?"), known or "?", "?", "unreachable", pin_is_real(entry)))
             continue
         silent = 0
+        record = share_read(cache_key(entry)) or {}
+        if old:
+            stale.append((name, old, record))
+        elif not live:
+            held.append(record)
+        if live:
+            live_any = True
         if by_commit(entry):
             ahead, at, silence = commits_after(entry, releases)
             at = at or known or "?"
@@ -1549,7 +1903,7 @@ def main():
             rows.append((name, entry.get("pin", "?"), at, ahead[0]["version"] if ahead else "—",
                          f"{len(ahead)} newer" if ahead else "current", pin_is_real(entry)))
             continue
-        at = released_at(entry, releases, known) or "?"
+        at = released_at(entry, releases, known, ask=live) or "?"
         if not releases:
             rows.append((name, entry.get("pin", "?"), at, "nothing published", "unknown", pin_is_real(entry)))
             continue
@@ -1574,6 +1928,181 @@ def main():
             f"{len(ahead)} newer" if ahead else "current",
             pin_is_real(entry),
         ))
+    return {"rows": rows, "whynot": whynot, "unlisted": unlisted, "stale": stale,
+            "found": found, "live": live_any, "held": held}
+
+
+def fresh_header(live_any, held_ok, stale, whynot=None):
+    """When the block was checked. A copy under a day old is that time. A run
+    that could not check says how old the last answer is, and why."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    reasons = []
+    for _name, reason, _record in stale:
+        if reason and reason not in reasons:
+            reasons.append(reason)
+    # A failure with nothing saved never becomes a stale row. The sentence is
+    # still why, and the header says the short word rather than "no answer".
+    if not reasons:
+        for text in (whynot or {}).values():
+            low = text.lower()
+            word = next((w for w in ("offline", "rate-limited", "slow", "unreachable") if w in low), "")
+            if word and word not in reasons:
+                reasons.append(word)
+    times = []
+    for record in list(held_ok) + [item[2] for item in stale]:
+        when = _parse_time((record or {}).get("fetched"))
+        if when:
+            times.append(when)
+    when = now if live_any or not times else max(times)
+    stamp = when.astimezone().strftime("%Y-%m-%d %H:%M")
+    if not reasons and (live_any or times):
+        return f"=== FRESHNESS (checked {stamp}) ==="
+    if not times:
+        why = ", ".join(reasons) if reasons else "no answer"
+        return f"=== FRESHNESS (checked {stamp}, no earlier result; {why}) ==="
+    phrase = age_phrase({"fetched": min(times).replace(microsecond=0).isoformat()})
+    why = ", ".join(reasons) if reasons else "no answer"
+    return f"=== FRESHNESS (checked {stamp}, {phrase}; {why}) ==="
+
+
+def first_job(behind, moved, ideas):
+    """One job. Something behind comes before a drifted pin, and a drifted pin
+    before an idea to read. Nothing here upgrades anything."""
+    if behind:
+        name, pin, newest = behind[0]
+        change = f"{name} ({pin} → {newest})"
+        if name in OWN_TOOLS:
+            return (f"update {change}: just tools-update, then just save."
+                    " Nothing is upgraded on its own.")
+        worker = os.environ.get("WORKER", "").strip().lower()
+        if worker and worker != "off":
+            return (f"update {change}. A worker is set: delegate that job."
+                    " Nothing is upgraded on its own.")
+        return f"update {change}. Do it in this session. Nothing is upgraded on its own."
+    if moved:
+        return f"fix the pin for {moved[0]}: the file no longer holds it."
+    if ideas:
+        return (f"read {ideas[0][0]}: ten lines on what is new and what it means."
+                " The maintainer hears it only when it is worth a decision.")
+    return "none"
+
+
+def print_fresh(watched, report):
+    """The FRESHNESS block. An idea's newer release is 'to read', never behind."""
+    by_name = {(e.get("name") or e.get("source", "?")): e for e in watched}
+    behind, moved, ideas = [], [], []
+    for name, pin, _at, newest, how, real in report["rows"]:
+        entry = by_name.get(name, {})
+        if real is False:
+            moved.append(name)
+        if _is_idea(entry):
+            if str(how).endswith("newer"):
+                ideas.append((name, pin, newest, str(entry.get("look_for") or "").strip()))
+            continue
+        if str(how).endswith("newer"):
+            behind.append((name, pin, newest))
+    say(fresh_header(report["live"], report["held"], report["stale"], report["whynot"]))
+    if behind:
+        say("Behind: " + ", ".join(f"{name} {pin} → {newest}" for name, pin, newest in behind))
+    else:
+        say("Behind: nothing")
+    say("MOVED: " + (", ".join(moved) if moved else "nothing"))
+    say(f"Backbone: {backbone_version()}")
+    if ideas:
+        parts = []
+        for name, pin, newest, look in ideas:
+            bit = f"{name} {pin} → {newest}"
+            if look:
+                bit += f" ({look})"
+            parts.append(bit)
+        say("To read: " + ", ".join(parts))
+    else:
+        say("To read: nothing")
+    if report["whynot"]:
+        say("Could not check: " + "; ".join(f"{name} ({report['whynot'][name]})" for name in report["whynot"]))
+    say("First job: " + first_job(behind, moved, ideas))
+    return [name for name, _pin, _newest in behind], moved
+
+
+def write_project_cache(rows, behind, moved):
+    """The per-project cache `just projects` and `--recent` read. Ideas are not
+    put in `behind`: a newer idea is something to read, not something to upgrade."""
+    if not CACHE.parent.is_dir():
+        return
+    released = {name: {"pin": pin, "at": "" if at == "?" else at} for name, pin, at, *_ in rows}
+    CACHE.write_bytes(json.dumps({"behind": behind, "moved": moved, "released": released}, indent=1).encode("utf-8"))
+
+
+def _fresh_empty(why):
+    stamp = datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M")
+    say(f"=== FRESHNESS (checked {stamp}, no earlier result; {why}) ===")
+    say("Behind: nothing")
+    say("MOVED: nothing")
+    say(f"Backbone: {backbone_version()}")
+    say("To read: nothing")
+    say(f"Could not check: {why}")
+    say("First job: none")
+
+
+def freshness():
+    """What session start shows. Always returns 0: offline, rate-limited or
+    past the ten seconds is a line in the block, and the session goes on."""
+    global CALL_DEADLINE
+    deadline = time.monotonic() + FRESH_BUDGET
+    previous = CALL_DEADLINE
+    CALL_DEADLINE = deadline
+    try:
+        if not LIST.is_file():
+            _fresh_empty(f"no {LIST}. Run: just upstream-init")
+            return 0
+        watched = read_list()
+        if watched is None:
+            return 0
+        if not watched:
+            _fresh_empty(f"{LIST} watches nothing yet")
+            return 0
+        report = survey(watched, False, deadline, "")
+        behind, moved = print_fresh(watched, report)
+        write_project_cache(report["rows"], behind, moved)
+        return 0
+    finally:
+        CALL_DEADLINE = previous
+
+
+def main():
+    # Before the list is read, and so before tomllib: these lines need neither.
+    if len(sys.argv) > 1 and sys.argv[1] == "--recent":
+        return recent()
+    if len(sys.argv) > 1 and sys.argv[1] == "--freshness":
+        return freshness()
+    if len(sys.argv) > 1 and sys.argv[1] == "--crate-sources":
+        return crate_sources(sys.argv[2:])
+    if len(sys.argv) > 2 and sys.argv[1] == "--advisories" and sys.argv[2] == "gate":
+        return advisories_gate(sys.argv[3:])
+    if len(sys.argv) > 3 and sys.argv[1] == "--advisories" and sys.argv[2] in ("doctor", "session"):
+        return advisories(sys.argv[2], sys.argv[3:])
+    if not LIST.is_file():
+        say(f"No {LIST}. Run: just upstream-init")
+        return 0
+    watched = read_list()
+    if watched is None:
+        return 1
+    if not watched:
+        say(f"{LIST} watches nothing yet. Add a [[watch]] block per thing this project is built on.")
+        return 0
+
+    refresh, rest = _take_refresh(sys.argv[1:])
+    if any(a.startswith("-") for a in rest):
+        bad = next(a for a in rest if a.startswith("-"))
+        say(f"Unknown option {bad}. The option is --refresh.")
+        return 1
+    if len(rest) > 1:
+        say("Name one thing to read, or pass --refresh.")
+        return 1
+    only = rest[0] if rest else ""
+    report = survey(watched, refresh, None, only)
+    rows, whynot, unlisted, stale, found = (
+        report["rows"], report["whynot"], report["unlisted"], report["stale"], report["found"])
 
     if only:
         # Looked up in the list, not in what answered: a name whose source was
@@ -1582,6 +2111,9 @@ def main():
         if entry is None:
             say(f"`{only}` is not in {LIST}.")
             return 1
+        held_old = next((item for item in stale if item[0] == only), None)
+        if held_old:
+            say(f"Last result, {age_phrase(held_old[2])} ({held_old[1]}).")
         say(f"== {only}: pinned at {entry.get('pin')} — {entry.get('why', '')}")
         at = rows[0][2] if rows else "?"
         say(f"   released {at}" if at != "?" else "   released: not known")
@@ -1622,7 +2154,16 @@ def main():
     for name, pin, at, newest, how, real in rows:
         mark = "ok" if real else ("MOVED" if real is False else "-")
         say(f"  {name:<{wn}}{pin:<{wp}}{at:<12}{newest:<{wv}}{how:<12}{mark}")
-    behind = [name for name, _, _, _, how, _ in rows if how.endswith("newer")]
+    # An idea is listed apart, and never as something this project is behind on.
+    by_name = {(e.get("name") or e.get("source", "?")): e for e in watched}
+    behind, to_read = [], []
+    for name, _pin, _at, _newest, how, _real in rows:
+        if not str(how).endswith("newer"):
+            continue
+        if _is_idea(by_name.get(name, {})):
+            to_read.append(name)
+        else:
+            behind.append(name)
     blind = [name for name, _, _, _, how, _ in rows if how in ("unknown", "unreachable")]
     moved = [name for name, _, _, _, _, real in rows if real is False]
     say()
@@ -1644,10 +2185,14 @@ def main():
         say(f"Everything readable is current. No answer for: {', '.join(blind)}.")
     else:
         say("Everything watched is current.")
+    if to_read:
+        say(f"To read: {', '.join(to_read)}. An idea is not an upgrade. Read one: just upstream {to_read[0]}")
+    if stale:
+        say("Last result, kept because this run could not check:")
+        for name, reason, record in stale:
+            say(f"  {name}: {age_phrase(record)} ({reason}).")
 
-    if CACHE.parent.is_dir():
-        released = {name: {"pin": pin, "at": "" if at == "?" else at} for name, pin, at, *_ in rows}
-        CACHE.write_bytes(json.dumps({"behind": behind, "moved": moved, "released": released}, indent=1).encode("utf-8"))
+    write_project_cache(rows, behind, moved)
     return 0
 
 

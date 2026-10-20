@@ -13,6 +13,52 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## 3.45.0 — 2026-10-20
+
+**A session can hand one task to a worker on its own branch.**
+`just delegate "<task>"` runs the worker named by `WORKER` (`grok` or `claude`)
+on `delegate/<date>-<slug>` and prints the report, the commits, whether the
+tree is clean, and the exit. It refuses a dirty tree, a branch other than the
+default (or `DELEGATE_BASE`) and other than an open `delegate/*` branch, a
+second job, a base that does not exist, or a worker that is not installed.
+Afterwards it says if the worker pushed, moved the protected branch, or changed
+the branch list. A second `just delegate` on a `delegate/*` branch, with a
+clean tree, runs on that branch and does not make a new one, so a fix keeps
+the first round. `DELEGATE_BASE` names a long-lived branch to start from. The
+branch records it, `delegate-accept` fast-forwards onto it, `delegate-drop`
+returns to it, and the breach check protects it instead of the default.
+`just delegate-drop` asks once, then deletes the branch. `--yes` or
+`DELEGATE_YES=1` deletes without asking. `just delegate-status` shows a running
+job, the last report, and the open branches. With `WORKER` unset or `off`,
+nothing is delegated and the session does the work as before. The binary is
+`WORKER_BIN` when that is set, otherwise the name on `PATH`, otherwise the
+place that worker installs itself (`~/.grok/bin/grok`; Claude at
+`~/.claude/local/claude`, then `~/.local/bin/claude`).
+
+**A session starts by saying what is behind, once a day per machine.**
+`just session-start` prints a FRESHNESS block near the top: when it was
+checked, which tools are behind (pin to newest), which pins moved, the
+backbone's version, which ideas released, and one first job. The online check
+runs when the machine's shared result is older than a day, or on `just upstream
+--refresh`. The cache is `~/.cache/ai-backbone/upstream/` (`XDG_CACHE_HOME` is
+honoured), keyed by source, so two projects that watch the same tool share one
+lookup. Offline, rate-limited, or past ten seconds, the session still starts
+and shows the last result with its age and why it is old. `docs/upstream.toml`
+accepts `kind = "idea"` with `why` and `look_for`. An idea is listed apart, and
+a newer release is to read, never behind. The backbone's list now watches grok,
+Claude Code and Zed, and two ideas taken for spec 034 (a board of every running
+job, and an ask-only mode). agent-orchestrator is pinned at v0.14.3, the newest
+release read on 2026-10-20. claude-delegator publishes no release, so it is
+watched by the commits on its default branch (`ghcommit:owner/repo`) and pinned
+at the commit read that day; a later commit is to read. The pins of just, prek,
+graphify and uv are the newest releases of 2026-10-20. A scoped npm package is
+asked with its slash encoded. Something behind is the first job: just, prek, graphify and uv are
+`just tools-update`, then `just save`; any other pin is a job, delegated when a
+worker is set. An idea to read goes to the worker for ten lines, and to the
+maintainer only when it is worth a decision. Nothing is upgraded on its own.
+
+Nothing to do in a project until the release (`template-update` then).
+
 ## 3.44.0 — 2026-10-19
 
 **A Flutter device test names its emulator, and stops when it goes quiet.**
