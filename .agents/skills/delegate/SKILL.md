@@ -39,3 +39,9 @@ A run that pushed, moved the default branch (or the base, when one is set), or
 changed the branch list prints `BREACH:` first and exits non-zero. A fetch
 that moves a remote ref, or someone else pushing a commit this branch does
 not contain, is not a breach. Do not accept a branch that breached.
+
+The harness this session runs in may stop a command after two hours (Claude
+Code's limit for a background command, measured on claude-code 2.1.296), and
+the job goes with it. A job that may run longer is started on its own:
+`nohup just delegate "<task>" > <file outside the repo> 2>&1 &`. Then
+`just delegate-status` says when it is done and shows the report.

@@ -1976,8 +1976,8 @@ def first_job(behind, moved, ideas):
                     " Nothing is upgraded on its own.")
         worker = os.environ.get("WORKER", "").strip().lower()
         if worker and worker != "off":
-            return (f"update {change}. A worker is set: delegate that job."
-                    " Nothing is upgraded on its own.")
+            return (f"update {change}. WORKER is {worker}: hand it over with"
+                    " just delegate, do not do it here. Nothing is upgraded on its own.")
         return f"update {change}. Do it in this session. Nothing is upgraded on its own."
     if moved:
         return f"fix the pin for {moved[0]}: the file no longer holds it."

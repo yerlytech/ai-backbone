@@ -13,6 +13,17 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## 3.45.1 — 2026-10-20
+
+**A delegate job ends when the worker does.** The worker ran with the
+session's input still open, and a CLI that reads its input to the end never
+exited after its report: the job ran to `DELEGATE_TIMEOUT` and said
+`exit status: timeout` (seen with grok 1.0.62 in two projects). The worker now
+starts with empty input. With `WORKER` set, the freshness block's first job
+says to hand an upgrade over with `just delegate` instead of doing it in the
+session. The delegate skill says how to start a job that may outlast the
+harness's two-hour limit for a background command. Nothing to do.
+
 ## 3.45.0 — 2026-10-20
 
 **A session can hand one task to a worker on its own branch.**

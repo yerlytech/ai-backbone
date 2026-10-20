@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.45.0
+# .ai-backbone/core.just — the backbone's recipes, version 3.45.1
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -1512,11 +1512,14 @@ delegate task="":
     before_branches=$(git for-each-ref refs/heads --format='%(refname)')
     # Job control puts the worker in its own process group, so the stop
     # reaches the CLI and the children it started. The "Terminated" line that
-    # job control prints is not the report, and is dropped.
+    # job control prints is not the report, and is dropped. With job control
+    # on, a background job keeps this shell's input, and a session holds that
+    # open: a CLI that reads it to the end never exits after its report. The
+    # worker reads nothing, so its input is empty.
     rm -f "$dir/${id}.timedout"
     set -m
     set +e
-    ( delegate_"$worker" "$prompt" ) >"$log" 2>&1 &
+    ( delegate_"$worker" "$prompt" ) </dev/null >"$log" 2>&1 &
     wpid=$!
     (
       sleep "$timeout_secs"

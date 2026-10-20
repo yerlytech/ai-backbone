@@ -4,6 +4,10 @@
 # Run it with:  just self-test
 # Every check prints ok or FAIL; the script exits 1 if anything failed.
 set -uo pipefail
+# macOS ls paints directories when CLICOLOR_FORCE is set. The escape sorts
+# before "AGENTS.md", and a skill name read from ls comes out painted, so a
+# note about that skill is refused. Measured with CLICOLOR_FORCE=1.
+unset CLICOLOR CLICOLOR_FORCE
 # git hands a hook its own GIT_DIR and GIT_INDEX_FILE, and this suite runs as a
 # hook on every commit that touches the core. From a linked worktree those point
 # into the real repository, so every `git init`, `git add` and `git remote` the
@@ -1857,6 +1861,15 @@ elif mode == "fresh":
         fail(out)
     if "To read: nothing" not in out or "MOVED: nothing" not in out:
         fail(out)
+    if "Do it in this session" not in out:
+        fail(out)
+    behind = [("tool", "1.0.0", "1.2.0")]
+    for worker, want in (("grok", "WORKER is grok: hand it over with just delegate"),
+                         ("off", "Do it in this session"), ("", "Do it in this session")):
+        u.os.environ["WORKER"] = worker
+        if want not in u.first_job(behind, [], []):
+            fail(f"WORKER={worker!r}: {u.first_job(behind, [], [])}")
+    u.os.environ.pop("WORKER", None)
     calls["n"] = 0
     rc, out = run(one, "--freshness")
     if calls["n"] != 0 or "Behind: tool 1.0.0 → 1.2.0" not in out:
@@ -3708,6 +3721,11 @@ case "$mode" in
     sleep 30
     echo finished
     ;;
+  stdin)
+    # A CLI that reads its input until the end before it exits.
+    cat >/dev/null
+    echo report
+    ;;
   *) echo "unknown mode $mode" >&2; exit 2 ;;
 esac
 EOF
@@ -3923,6 +3941,27 @@ d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=timeout 
 elapsed=$((SECONDS - t0))
 check "the run stops when DELEGATE_TIMEOUT passes and says timeout, before the worker finishes" \
   "[ \$d_rc -eq 124 ] && [ \$elapsed -lt 15 ] && grep -qx 'exit status: timeout' <<<\"\$d_out\" && grep -q '^report$' <<<\"\$d_out\" && ! grep -q finished <<<\"\$d_out\" && ! grep -q Terminated <<<\"\$d_out\""
+# The session that runs the recipe keeps its own input open (a harness, an
+# agent's shell). A worker that waits for the end of that input never exits,
+# and the job lasted until DELEGATE_TIMEOUT though the report was written.
+# The open input is a fifo this shell holds, and the sleeper is stopped after
+# the run. On bash 3.2.57, putting `<(sleep 30)` inside the command
+# substitution made that substitution wait out the sleep after the worker had
+# already exited 0 with its stdin on /dev/null (measured).
+d_new stdin
+sessin="$tmp/session-stdin"
+rm -f "$sessin"
+mkfifo "$sessin"
+sleep 30 >"$sessin" &
+sessin_pid=$!
+t0=$SECONDS
+d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=stdin FAKE_WORKER_PROMPT="$dprompt" \
+  WORKER=grok DELEGATE_TIMEOUT=0.25 just -f "$root/Justfile" -d "$dproj" delegate "read nothing" 2>&1 <"$sessin") && d_rc=0 || d_rc=$?
+elapsed=$((SECONDS - t0))
+kill "$sessin_pid" 2>/dev/null || true
+wait "$sessin_pid" 2>/dev/null || true
+check "a worker never waits on the session's open input: the job ends when the worker does" \
+  "[ \$d_rc -eq 0 ] && [ \$elapsed -lt 10 ] && grep -qx 'exit status: 0' <<<\"\$d_out\" && grep -q '^report$' <<<\"\$d_out\""
 d_new push
 bare="$tmp/delegate-bare-push"
 git init -q --bare "$bare"
