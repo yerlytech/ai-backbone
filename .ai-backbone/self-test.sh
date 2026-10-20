@@ -3624,8 +3624,47 @@ case "$mode" in
     exit 3
     ;;
   push)
-    git push -q origin HEAD:refs/heads/from-the-worker
-    git update-ref -d refs/remotes/origin/from-the-worker 2>/dev/null || true
+    printf 'pushed\n' > worker-did.txt
+    git add worker-did.txt
+    git commit -qm "chore: worker did the task" --no-verify
+    git push -q origin HEAD
+    br=$(git symbolic-ref --short HEAD)
+    git update-ref -d "refs/remotes/origin/$br" 2>/dev/null || true
+    echo report
+    ;;
+  fetch)
+    url=$(git remote get-url origin)
+    side=$(mktemp -d)
+    # -b main: a bare repo's HEAD may not be main, and a clone of that
+    # refuses to check out. The new commit has to sit on top of main or the
+    # push is not a fast-forward and origin/main never moves.
+    git clone -q -b main "$url" "$side"
+    git -C "$side" config user.email "delegate-test@example.com"
+    git -C "$side" config user.name "Delegate Test"
+    git -C "$side" config commit.gpgsign false
+    printf 'from-elsewhere\n' >> "$side/README.md"
+    git -C "$side" add README.md
+    git -C "$side" commit -qm "chore: elsewhere moved main" --no-verify
+    git -C "$side" push -q origin HEAD:main
+    # No refspec on the command line: that is what moves origin/main.
+    # `git fetch origin main` writes FETCH_HEAD only (git 2.56).
+    git fetch -q origin
+    rm -rf "$side"
+    echo report
+    ;;
+  third)
+    url=$(git remote get-url origin)
+    side=$(mktemp -d)
+    git clone -q "$url" "$side"
+    git -C "$side" config user.email "delegate-test@example.com"
+    git -C "$side" config user.name "Delegate Test"
+    git -C "$side" config commit.gpgsign false
+    git -C "$side" checkout -q -b unrelated
+    printf 'unrelated\n' > "$side/other.txt"
+    git -C "$side" add other.txt
+    git -C "$side" commit -qm "chore: a third party" --no-verify
+    git -C "$side" push -q origin unrelated
+    rm -rf "$side"
     echo report
     ;;
   move)
@@ -3856,6 +3895,22 @@ d_run push grok "" delegate "push it"
 first=${d_out%%$'\n'*}
 check "a worker that pushes is a breach, said first, and the recipe exits non-zero" \
   "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: remote refs changed' ] && grep -q '^report$' <<<\"\$d_out\" && ! grep -q 'default branch' <<<\"\$d_out\" && ! grep -q 'branch list changed' <<<\"\$d_out\""
+d_new fetch
+bare="$tmp/delegate-bare-fetch"
+git init -q --bare "$bare"
+git -C "$dproj" remote add origin "$bare"
+git -C "$dproj" push -q origin main
+d_run fetch grok "" delegate "fetch main"
+check "a fetch that moves origin/main during the job is not a breach" \
+  "[ \$d_rc -eq 0 ] && ! grep -q '^BREACH:' <<<\"\$d_out\" && [ \"\$(git -C \"\$dproj\" rev-parse refs/heads/main)\" != \"\$(git -C \"\$dproj\" rev-parse refs/remotes/origin/main)\" ]"
+d_new third
+bare="$tmp/delegate-bare-third"
+git init -q --bare "$bare"
+git -C "$dproj" remote add origin "$bare"
+git -C "$dproj" push -q origin main
+d_run third grok "" delegate "someone else pushes"
+check "a third party pushing an unrelated commit is not a breach" \
+  "[ \$d_rc -eq 0 ] && ! grep -q '^BREACH:' <<<\"\$d_out\" && git -C \"\$bare\" show-ref --verify --quiet refs/heads/unrelated && ! git -C \"\$dproj\" show-ref --verify --quiet refs/remotes/origin/unrelated"
 d_new move
 d_run move grok "" delegate "move main"
 first=${d_out%%$'\n'*}

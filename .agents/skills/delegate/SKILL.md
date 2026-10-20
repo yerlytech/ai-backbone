@@ -36,5 +36,6 @@ on `PATH` is used, and otherwise `~/.grok/bin/grok`, or Claude's
 `<bin> -p … --output-format plain`.
 
 A run that pushed, moved the default branch (or the base, when one is set), or
-changed the branch list prints `BREACH:` first and exits non-zero. Do not
-accept that branch.
+changed the branch list prints `BREACH:` first and exits non-zero. A fetch
+that moves a remote ref, or someone else pushing a commit this branch does
+not contain, is not a breach. Do not accept a branch that breached.
