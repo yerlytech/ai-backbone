@@ -58,3 +58,4 @@ prints the last two lines here in the backbone. A report, never an order.
 - 2026-10-19 gate: 2aeb8d0 waits for an attended carry — green on Linux, macOS and Windows; it changes code (.agents/skills/spec/SKILL.md, .ai-backbone/core.just, .ai-backbone/examples/stack-flutter.just and 9 more): an attended session says what changed and why, and on the maintainer's yes runs just carry 2aeb8d0
 - 2026-10-19 gate: cloud not promoted — main moved (1 commit(s) cloud does not have); the next run merges origin/main into cloud and pushes
 - 2026-10-20 gate: cloud not promoted — main moved (1 commit(s) cloud does not have); the next run merges origin/main into cloud and pushes
+- 2026-10-20 gate: cloud not promoted — main moved (1 commit(s) cloud does not have); the next run merges origin/main into cloud and pushes
