@@ -13,7 +13,7 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
-## Unreleased
+## 3.45.0 — 2026-10-20
 
 **A session can hand one task to a worker on its own branch.**
 `just delegate "<task>"` runs the worker named by `WORKER` (`grok` or `claude`)
