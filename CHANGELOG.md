@@ -29,7 +29,10 @@ The binary is `WORKER_BIN` when that is set, otherwise the name on `PATH`,
 otherwise the place that worker installs itself (`~/.grok/bin/grok`; Claude at
 `~/.claude/local/claude`, then `~/.local/bin/claude`). A second `just delegate`
 on a `delegate/*` branch, with a clean tree, runs on that branch and does not
-make a new one, so a fix keeps the first round.
+make a new one, so a fix keeps the first round. `DELEGATE_BASE` names a
+long-lived branch to start from instead of the default. The branch records it,
+`delegate-accept` fast-forwards onto it, `delegate-drop` returns to it, and the
+breach check protects it instead of the default.
 
 Nothing to do in a project until the release (`template-update` then).
 

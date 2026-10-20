@@ -196,8 +196,8 @@ just project-note <project> "one line"   # a note for another project on this ma
 just save "msg" <path>...                # save only those paths, and hear what was left unsaved
 just delegate "<task>"                  # hand one task to a worker on its own branch
 just delegate-status                    # whether a job is running, the last report, the open delegate branches
-just delegate-accept [branch]           # fast-forward the default branch onto that work, then delete the branch
-just delegate-drop [branch]             # ask once, then delete the branch
+just delegate-accept [branch]           # fast-forward the default branch, or the recorded base, onto that work
+just delegate-drop [branch]             # ask once, then delete the branch and return to that base
 just --list          # everything
 ```
 
@@ -211,7 +211,9 @@ including when the named worker is not installed. The binary is `WORKER_BIN`
 when that is set, otherwise the name on `PATH`, otherwise `~/.grok/bin/grok`
 (Claude looks in `~/.claude/local/claude`, then `~/.local/bin/claude`).
 `DELEGATE_TIMEOUT` is how many minutes one job may run (180 if you do not set
-it). `WORKER_MODEL` is the model the `claude` worker uses, when you set one.
+it). `DELEGATE_BASE` is a long-lived branch to start from instead of the
+default, when you set one. `WORKER_MODEL` is the model the `claude` worker
+uses, when you set one.
 
 ## The backbone gets stronger while you work
 

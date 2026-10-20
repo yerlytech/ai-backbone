@@ -26,11 +26,14 @@ With `WORKER` set to `grok` or `claude`, this session is the manager.
 
 `just delegate-status` says whether a job of this project is running, and shows
 the last report and the open `delegate/*` branches. `DELEGATE_TIMEOUT` is
-minutes for one job (180 if unset). `WORKER_MODEL` is the model passed to
+minutes for one job (180 if unset). `DELEGATE_BASE` is a long-lived branch to
+start from instead of the default. The branch records it, accept
+fast-forwards onto it, and drop returns to it. `WORKER_MODEL` is the model passed to
 `claude`, when set. `WORKER_BIN` is the binary, when set. Otherwise the name
 on `PATH` is used, and otherwise `~/.grok/bin/grok`, or Claude's
 `~/.claude/local/claude` then `~/.local/bin/claude`. `grok` is called as
 `<bin> -p … --output-format plain`.
 
-A run that pushed, moved the default branch, or changed the branch list prints
-`BREACH:` first and exits non-zero. Do not accept that branch.
+A run that pushed, moved the default branch (or the base, when one is set), or
+changed the branch list prints `BREACH:` first and exits non-zero. Do not
+accept that branch.

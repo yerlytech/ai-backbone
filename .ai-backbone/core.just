@@ -1389,11 +1389,22 @@ delegate task="":
     # branch from the default would drop that round's commits. Any other
     # branch still refuses. The tree is already clean, or the check above
     # refused it.
+    # A long-lived branch that is not the default yet (a migration, for
+    # example). The job starts from it, and the branch records it so accept
+    # and drop find it later without the variable.
+    base="${DELEGATE_BASE:-}"
+    if [ -n "$base" ] && ! git show-ref --verify --quiet "refs/heads/$base"; then
+      echo "refuses: DELEGATE_BASE $base does not exist"; exit 1
+    fi
     fix_round=0
     case "$here" in
       delegate/*) fix_round=1; branch=$here ;;
       *)
-        if [ "$here" != "$default" ]; then echo "refuses: not on the default branch ($here; default is $default)"; exit 1; fi
+        if [ -n "$base" ]; then
+          if [ "$here" != "$base" ]; then echo "refuses: not on the base branch ($here; base is $base)"; exit 1; fi
+        elif [ "$here" != "$default" ]; then
+          echo "refuses: not on the default branch ($here; default is $default)"; exit 1
+        fi
         ;;
     esac
     # Minutes. The default is three hours; a fraction is one job, or a test.
@@ -1433,7 +1444,10 @@ delegate task="":
     wpid=""
     tpid=""
     trap 'if [ -n "$tpid" ]; then kill -TERM -"$tpid" 2>/dev/null || kill -TERM "$tpid" 2>/dev/null || true; fi; if [ -n "$wpid" ]; then kill -TERM -"$wpid" 2>/dev/null || kill -TERM "$wpid" 2>/dev/null || true; fi; rm -rf "$lock"' EXIT
-    if [ "$fix_round" -eq 0 ]; then git checkout -q -b "$branch"; fi
+    if [ "$fix_round" -eq 0 ]; then
+      git checkout -q -b "$branch"
+      if [ -n "$base" ]; then git config "branch.${branch}.delegateBase" "$base"; fi
+    fi
     # Adapters: how to call the CLI headless, in this folder, with the prompt.
     # `exec` so a later stop reaches the CLI and not the shell around it. The
     # call is always in a subshell, or exec would replace this recipe.
@@ -1474,7 +1488,20 @@ delegate task="":
       if [ -n "$origin_dir" ]; then git -C "$origin_dir" for-each-ref --format='%(objectname) %(refname)'; fi
     }
     before_remotes=$(snap_remotes)
-    before_default=$(git rev-parse "refs/heads/$default")
+    # The protected branch is the default, or the base when DELEGATE_BASE is
+    # set. A fix round with the variable unset still protects the base the
+    # branch recorded, or the check would be looking at the default while the
+    # worker moved the branch the work is built on.
+    protect=$default
+    protect_kind=default
+    if [ -n "$base" ]; then
+      protect=$base
+      protect_kind=base
+    elif [ "$fix_round" -eq 1 ]; then
+      recorded=$(git config --get "branch.${branch}.delegateBase" 2>/dev/null || true)
+      if [ -n "$recorded" ]; then protect=$recorded; protect_kind=base; fi
+    fi
+    before_protect=$(git rev-parse "refs/heads/$protect" 2>/dev/null || echo missing)
     before_branches=$(git for-each-ref refs/heads --format='%(refname)')
     # Job control puts the worker in its own process group, so the stop
     # reaches the CLI and the children it started. The "Terminated" line that
@@ -1503,11 +1530,15 @@ delegate task="":
     if [ -f "$dir/${id}.timedout" ]; then timed_out=1; rc=124; rm -f "$dir/${id}.timedout"; fi
     set -e
     after_remotes=$(snap_remotes)
-    after_default=$(git rev-parse "refs/heads/$default" 2>/dev/null || echo missing)
+    after_protect=$(git rev-parse "refs/heads/$protect" 2>/dev/null || echo missing)
     after_branches=$(git for-each-ref refs/heads --format='%(refname)')
     breach=0
     if [ "$after_remotes" != "$before_remotes" ]; then echo "BREACH: remote refs changed"; breach=1; fi
-    if [ "$after_default" != "$before_default" ]; then echo "BREACH: default branch $default moved"; breach=1; fi
+    if [ "$after_protect" != "$before_protect" ]; then
+      if [ "$protect_kind" = base ]; then echo "BREACH: base branch $protect moved"
+      else echo "BREACH: default branch $protect moved"; fi
+      breach=1
+    fi
     if [ "$after_branches" != "$before_branches" ]; then echo "BREACH: branch list changed"; breach=1; fi
     # The worker's whole output stays in the log. The last 15 lines are the
     # report: the preamble tells the worker to end with it.
@@ -1515,7 +1546,7 @@ delegate task="":
     echo
     echo "commits on $branch:"
     if git show-ref --verify --quiet "refs/heads/$branch"; then
-      git --no-pager -c color.ui=never log --stat "${default}..${branch}"
+      git --no-pager -c color.ui=never log --stat "${protect}..${branch}"
     else
       echo "(branch $branch is gone)"
     fi
@@ -1593,16 +1624,21 @@ delegate-accept branch="":
       *) echo "refuses: $branch is not a delegate branch"; exit 1 ;;
     esac
     git show-ref --verify --quiet "refs/heads/$branch" || { echo "refuses: no branch $branch"; exit 1; }
-    if ! git merge-base --is-ancestor "$default" "$branch"; then
-      echo "refuses: $branch is not a fast-forward of $default"; exit 1
+    # Recorded when the job started from DELEGATE_BASE. Absent, the default.
+    onto=$default
+    recorded=$(git config --get "branch.${branch}.delegateBase" 2>/dev/null || true)
+    if [ -n "$recorded" ]; then onto=$recorded; fi
+    git show-ref --verify --quiet "refs/heads/$onto" || { echo "refuses: base branch $onto does not exist"; exit 1; }
+    if ! git merge-base --is-ancestor "$onto" "$branch"; then
+      echo "refuses: $branch is not a fast-forward of $onto"; exit 1
     fi
     here=$(git symbolic-ref -q --short HEAD || echo "no branch")
-    if [ "$here" != "$default" ]; then git checkout -q "$default"; fi
+    if [ "$here" != "$onto" ]; then git checkout -q "$onto"; fi
     if ! git merge --ff-only "$branch" >/dev/null 2>&1; then
-      echo "refuses: $branch is not a fast-forward of $default"; exit 1
+      echo "refuses: $branch is not a fast-forward of $onto"; exit 1
     fi
     git branch -d "$branch" >/dev/null
-    echo "accepted $branch onto $default"
+    echo "accepted $branch onto $onto"
 
 # Ask once, then delete a delegate branch.
 [group('session')]
@@ -1635,6 +1671,10 @@ delegate-drop branch="":
       *) echo "refuses: $branch is not a delegate branch"; exit 1 ;;
     esac
     git show-ref --verify --quiet "refs/heads/$branch" || { echo "refuses: no branch $branch"; exit 1; }
+    # The same record accept reads. Dropping the branch returns there.
+    onto=$default
+    recorded=$(git config --get "branch.${branch}.delegateBase" 2>/dev/null || true)
+    if [ -n "$recorded" ]; then onto=$recorded; fi
     printf 'Delete %s? [y/N]\n' "$branch"
     ans=""
     read -r ans || true
@@ -1643,7 +1683,10 @@ delegate-drop branch="":
       *) echo "kept $branch"; exit 1 ;;
     esac
     here=$(git symbolic-ref -q --short HEAD || echo "no branch")
-    if [ "$here" = "$branch" ]; then git checkout -q "$default"; fi
+    if [ "$here" = "$branch" ]; then
+      git show-ref --verify --quiet "refs/heads/$onto" || { echo "refuses: base branch $onto does not exist"; exit 1; }
+      git checkout -q "$onto"
+    fi
     git branch -D "$branch" >/dev/null
     echo "dropped $branch"
 

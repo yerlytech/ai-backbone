@@ -3282,6 +3282,14 @@ case "$mode" in
     git commit -qm "chore: worker fixed the task" --no-verify
     echo report
     ;;
+  movebase)
+    target=${FAKE_WORKER_TARGET:-main}
+    git checkout -q "$target"
+    printf 'moved\n' >> README.md
+    git add README.md
+    git commit -qm "chore: moved the base branch" --no-verify
+    echo report
+    ;;
   timeout)
     echo report
     sleep 30
@@ -3309,11 +3317,13 @@ d_new() {
 d_run() {
   local mode="$1" worker="$2" model="$3"; shift 3
   # shellcheck disable=SC2086
-  d_out=$(env -u WORKER -u WORKER_MODEL -u DELEGATE_TIMEOUT -u WORKER_BIN \
+  d_out=$(env -u WORKER -u WORKER_MODEL -u DELEGATE_TIMEOUT -u WORKER_BIN -u DELEGATE_BASE -u FAKE_WORKER_TARGET \
     HOME="$dhome" PATH="$dbin:$PATH" \
     FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE="$mode" FAKE_WORKER_GO="$dgo" \
     ${worker:+WORKER=$worker} ${model:+WORKER_MODEL=$model} \
     ${WORKER_BIN:+WORKER_BIN=$WORKER_BIN} \
+    ${DELEGATE_BASE:+DELEGATE_BASE=$DELEGATE_BASE} \
+    ${FAKE_WORKER_TARGET:+FAKE_WORKER_TARGET=$FAKE_WORKER_TARGET} \
     just -f "$root/Justfile" -d "$dproj" "$@" 2>&1) && d_rc=0 || d_rc=$?
 }
 d_one() {
@@ -3518,6 +3528,54 @@ d_run branch grok "" delegate "add a branch"
 first=${d_out%%$'\n'*}
 check "a fix round that adds a branch is still a breach" \
   "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: branch list changed' ] && git -C \"\$dproj\" show-ref --verify --quiet refs/heads/from-the-worker"
+d_migration() {
+  d_new "$1"
+  git -C "$dproj" checkout -qb migration
+  printf 'on the migration\n' >> "$dproj/README.md"
+  git -C "$dproj" add README.md
+  git -C "$dproj" commit -qm "chore: migration"
+}
+d_new nobase
+DELEGATE_BASE=no-such d_run ok grok "" delegate "add a line"
+check "a DELEGATE_BASE that does not exist is refused in one line" \
+  "[ \$d_rc -ne 0 ] && d_one && grep -qx 'refuses: DELEGATE_BASE no-such does not exist' <<<\"\$d_out\" && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ]"
+d_migration noton
+git -C "$dproj" checkout -q main
+DELEGATE_BASE=migration d_run ok grok "" delegate "add a line"
+check "with DELEGATE_BASE set, the job must already be on that branch" \
+  "[ \$d_rc -ne 0 ] && d_one && grep -qx 'refuses: not on the base branch (main; base is migration)' <<<\"\$d_out\" && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ]"
+d_migration frombase
+DELEGATE_BASE=migration d_run ok grok "" delegate "add a line"
+dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+recorded=$(git -C "$dproj" config --get "branch.${dbr}.delegateBase")
+dparent=$(git -C "$dproj" rev-parse HEAD^)
+dmig=$(git -C "$dproj" rev-parse migration)
+check "a job starts from DELEGATE_BASE and records branch.<name>.delegateBase" \
+  "[ \$d_rc -eq 0 ] && [ \"\$recorded\" = migration ] && [ \"\$dparent\" = \"\$dmig\" ] && ! git -C \"\$dproj\" cat-file -e main:worker-did.txt && git -C \"\$dproj\" cat-file -e \"\$dbr:worker-did.txt\""
+d_run ok "" "" delegate-accept
+check "accept fast-forwards the recorded base and leaves the default branch" \
+  "[ \$d_rc -eq 0 ] && grep -qx \"accepted \$dbr onto migration\" <<<\"\$d_out\" && [ \"\$(git -C \"\$dproj\" symbolic-ref --short HEAD)\" = migration ] && git -C \"\$dproj\" cat-file -e migration:worker-did.txt && ! git -C \"\$dproj\" cat-file -e main:worker-did.txt && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ]"
+d_migration basedrop
+DELEGATE_BASE=migration d_run ok grok "" delegate "add a line"
+nbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+d_out=$(printf 'y\n' | env -u WORKER -u DELEGATE_BASE HOME="$dhome" just -f "$root/Justfile" -d "$dproj" delegate-drop 2>&1) && d_rc=0 || d_rc=$?
+check "drop returns to the recorded base" \
+  "[ \$d_rc -eq 0 ] && grep -qx \"dropped \$nbr\" <<<\"\$d_out\" && [ \"\$(git -C \"\$dproj\" symbolic-ref --short HEAD)\" = migration ] && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ] && ! git -C \"\$dproj\" cat-file -e HEAD:worker-did.txt"
+d_migration breachbase
+FAKE_WORKER_TARGET=migration DELEGATE_BASE=migration d_run movebase grok "" delegate "move the base"
+first=${d_out%%$'\n'*}
+check "with DELEGATE_BASE set, moving that branch is the breach" \
+  "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: base branch migration moved' ] && ! grep -q 'default branch' <<<\"\$d_out\""
+d_migration movemain
+DELEGATE_BASE=migration d_run move grok "" delegate "move main"
+check "with DELEGATE_BASE set, moving the default branch is not that breach" \
+  "[ \$d_rc -eq 0 ] && ! grep -q '^BREACH:' <<<\"\$d_out\""
+d_migration fixbase
+DELEGATE_BASE=migration d_run ok grok "" delegate "add a line"
+FAKE_WORKER_TARGET=migration d_run movebase grok "" delegate "move the base again"
+first=${d_out%%$'\n'*}
+check "a fix round protects the recorded base when DELEGATE_BASE is unset" \
+  "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: base branch migration moved' ]"
 
 sec_times="$sec_times$((SECONDS-sec_start)) $sec_name"$'\n'
 echo
