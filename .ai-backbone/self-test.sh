@@ -3569,6 +3569,17 @@ fi
 cd "$tmp" || exit 1
 
 section "delegate (spec 034)"
+# The recipe's text is in d_out. The shared check prints the eval's own
+# stdout, which this section leaves empty, so a red line had nothing under
+# it (windows-latest, run 39407850519). Show what the recipe printed.
+check() {
+  : > "$tmp/check.out"; : > "$tmp/says.out"
+  if eval "$2" >"$tmp/check.out" 2>&1; then ok "$1"; else bad "$1"
+    if [ -s "$tmp/check.out" ] || [ -s "$tmp/says.out" ]; then cat "$tmp/check.out" "$tmp/says.out"; else printf '%s\n' "${out:-}"; fi | tail -12 | sed 's/^/        /'
+    if [ -n "${d_out-}" ]; then printf '%s\n' "$d_out" | sed -n '1,30s/^/        | /p'
+    else printf '%s\n' '        | (no recipe output)'; fi
+  fi
+}
 # A script stands in for the worker. The recipes call the resolved path; on
 # PATH that is this script. It records the prompt and does what FAKE_WORKER_MODE
 # says. FAKE_WORKER_BINLOG, when set, receives the path the recipe executed.
@@ -3624,8 +3635,47 @@ case "$mode" in
     exit 3
     ;;
   push)
-    git push -q origin HEAD:refs/heads/from-the-worker
-    git update-ref -d refs/remotes/origin/from-the-worker 2>/dev/null || true
+    printf 'pushed\n' > worker-did.txt
+    git add worker-did.txt
+    git commit -qm "chore: worker did the task" --no-verify
+    git push -q origin HEAD
+    br=$(git symbolic-ref --short HEAD)
+    git update-ref -d "refs/remotes/origin/$br" 2>/dev/null || true
+    echo report
+    ;;
+  fetch)
+    url=$(git remote get-url origin)
+    side=$(mktemp -d)
+    # -b main: a bare repo's HEAD may not be main, and a clone of that
+    # refuses to check out. The new commit has to sit on top of main or the
+    # push is not a fast-forward and origin/main never moves.
+    git clone -q -b main "$url" "$side"
+    git -C "$side" config user.email "delegate-test@example.com"
+    git -C "$side" config user.name "Delegate Test"
+    git -C "$side" config commit.gpgsign false
+    printf 'from-elsewhere\n' >> "$side/README.md"
+    git -C "$side" add README.md
+    git -C "$side" commit -qm "chore: elsewhere moved main" --no-verify
+    git -C "$side" push -q origin HEAD:main
+    # No refspec on the command line: that is what moves origin/main.
+    # `git fetch origin main` writes FETCH_HEAD only (git 2.56).
+    git fetch -q origin
+    rm -rf "$side"
+    echo report
+    ;;
+  third)
+    url=$(git remote get-url origin)
+    side=$(mktemp -d)
+    git clone -q "$url" "$side"
+    git -C "$side" config user.email "delegate-test@example.com"
+    git -C "$side" config user.name "Delegate Test"
+    git -C "$side" config commit.gpgsign false
+    git -C "$side" checkout -q -b unrelated
+    printf 'unrelated\n' > "$side/other.txt"
+    git -C "$side" add other.txt
+    git -C "$side" commit -qm "chore: a third party" --no-verify
+    git -C "$side" push -q origin unrelated
+    rm -rf "$side"
     echo report
     ;;
   move)
@@ -3744,8 +3794,34 @@ cp "$dbin/grok" "$tmp/only-via-worker-bin"
 chmod +x "$tmp/only-via-worker-bin"
 rm -f "$tmp/delegate-binlog"
 WORKER_BIN="$tmp/only-via-worker-bin" FAKE_WORKER_BINLOG="$tmp/delegate-binlog" d_run ok grok "" delegate "add a line"
+# $0 can be another spelling of the same file: Git Bash rewrites WORKER_BIN
+# on the way into native just.exe, and cygpath writes it back (the run above).
+# Compare the file, not the characters. bash 3.2's test -ef is the same file.
+same_bin() {
+  a=$1; b=$2
+  if command -v cygpath >/dev/null 2>&1; then
+    a=$(cygpath -u "$a")
+    b=$(cygpath -u "$b")
+  fi
+  [ "$a" -ef "$b" ]
+}
 check "WORKER_BIN is the binary, ahead of the name on PATH" \
-  "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$tmp/delegate-binlog\")\" = \"\$tmp/only-via-worker-bin\" ]"
+  "[ \$d_rc -eq 0 ] && same_bin \"\$(cat \"\$tmp/delegate-binlog\")\" \"\$tmp/only-via-worker-bin\""
+# Git Bash is not on this machine. A cygpath ahead of PATH is the one the
+# recipe calls, and it answers with the real file. A Windows-shaped value
+# is not executable until that answer replaces it: without the call, this
+# refuses with "not installed" (the same run).
+cat > "$dbin/cygpath" << EOF
+#!/usr/bin/env bash
+printf '%s\n' "$tmp/only-via-worker-bin"
+EOF
+chmod +x "$dbin/cygpath"
+d_new binwin
+rm -f "$tmp/delegate-binlog"
+WORKER_BIN='C:\Users\runner\AppData\Local\Temp\only-via-worker-bin' FAKE_WORKER_BINLOG="$tmp/delegate-binlog" d_run ok grok "" delegate "add a line"
+check "a Windows path in WORKER_BIN is the same binary once cygpath reads it" \
+  "[ \$d_rc -eq 0 ] && same_bin \"\$(cat \"\$tmp/delegate-binlog\")\" \"\$tmp/only-via-worker-bin\""
+rm -f "$dbin/cygpath"
 d_new dirty
 printf 'x\n' >> "$dproj/README.md"
 d_run ok grok "" delegate "add a line"
@@ -3856,6 +3932,22 @@ d_run push grok "" delegate "push it"
 first=${d_out%%$'\n'*}
 check "a worker that pushes is a breach, said first, and the recipe exits non-zero" \
   "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: remote refs changed' ] && grep -q '^report$' <<<\"\$d_out\" && ! grep -q 'default branch' <<<\"\$d_out\" && ! grep -q 'branch list changed' <<<\"\$d_out\""
+d_new fetch
+bare="$tmp/delegate-bare-fetch"
+git init -q --bare "$bare"
+git -C "$dproj" remote add origin "$bare"
+git -C "$dproj" push -q origin main
+d_run fetch grok "" delegate "fetch main"
+check "a fetch that moves origin/main during the job is not a breach" \
+  "[ \$d_rc -eq 0 ] && ! grep -q '^BREACH:' <<<\"\$d_out\" && [ \"\$(git -C \"\$dproj\" rev-parse refs/heads/main)\" != \"\$(git -C \"\$dproj\" rev-parse refs/remotes/origin/main)\" ]"
+d_new third
+bare="$tmp/delegate-bare-third"
+git init -q --bare "$bare"
+git -C "$dproj" remote add origin "$bare"
+git -C "$dproj" push -q origin main
+d_run third grok "" delegate "someone else pushes"
+check "a third party pushing an unrelated commit is not a breach" \
+  "[ \$d_rc -eq 0 ] && ! grep -q '^BREACH:' <<<\"\$d_out\" && git -C \"\$bare\" show-ref --verify --quiet refs/heads/unrelated && ! git -C \"\$dproj\" show-ref --verify --quiet refs/remotes/origin/unrelated"
 d_new move
 d_run move grok "" delegate "move main"
 first=${d_out%%$'\n'*}
@@ -3886,6 +3978,29 @@ d_run move grok "" delegate "move main"
 first=${d_out%%$'\n'*}
 check "a fix round that moves the default branch is still a breach" \
   "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: default branch main moved' ]"
+# tr_TR prints the timeout with a comma. BSD sleep then returns at once and
+# the old timer killed the worker, so this line was not the breach. The
+# locale is exported only in a subshell, so the checks after this one keep
+# the caller's mark. Skip where the locale is absent.
+locale -a > "$tmp/locales.txt" 2>/dev/null || true
+if grep -qx 'tr_TR.UTF-8' "$tmp/locales.txt"; then
+  d_new fixmovelocale
+  d_run ok grok "" delegate "add a line"
+  dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+  before_main=$(git -C "$dproj" rev-parse refs/heads/main)
+  (
+    export LC_ALL=tr_TR.UTF-8 LANG=tr_TR.UTF-8
+    d_run move grok "" delegate "move main"
+    printf '%s\n' "$d_rc" > "$tmp/locale-rc"
+    printf '%s\n' "$d_out" > "$tmp/locale-out"
+  )
+  d_rc=$(cat "$tmp/locale-rc")
+  d_out=$(cat "$tmp/locale-out")
+  first=${d_out%%$'\n'*}
+  after_main=$(git -C "$dproj" rev-parse refs/heads/main)
+  check "a comma decimal mark still reports a fix round that moves main, first" \
+    "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: default branch main moved' ] && [ \"\$before_main\" != \"\$after_main\" ] && [ \"\$(git -C \"\$dproj\" symbolic-ref --short HEAD)\" != \"\$dbr\" ] && [ \"\$(git -C \"\$dproj\" branch --list 'delegate/*' | wc -l | tr -d ' ')\" = 1 ]"
+fi
 d_new fixside
 d_run ok grok "" delegate "add a line"
 d_run branch grok "" delegate "add a branch"

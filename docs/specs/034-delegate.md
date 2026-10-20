@@ -76,9 +76,15 @@ its own worker.
 - [x] Forbidden to the worker, said in the preamble and checked afterwards:
       `just publish`, `git push`, `just ship`, `just deploy`, any server or
       GitHub call, merge, rebase, branch deletion. After the run the recipe
-      compares the remote refs, the default branch (the base, when
-      `DELEGATE_BASE` is set or the branch records one) and the branch list
-      with before. Any change prints `BREACH: …` first and exits non-zero.
+      checks three things. A remote ref is a breach when it points at a
+      commit the job's branch can reach and no ref could reach before the
+      run: the job's own new commits reached a remote. That ref may be a
+      remote-tracking ref, or a ref of a remote whose URL is a local path.
+      A fetch that moves origin, or a third party pushing an unrelated
+      commit, is not a breach. Moving the default branch (the base, when
+      `DELEGATE_BASE` is set or the branch records one), or changing the
+      branch list, still is. Any breach prints `BREACH: …` first and exits
+      non-zero.
 - [x] The run stops after `DELEGATE_TIMEOUT` (default 180 min, any value for one job). The full output
       goes to `~/.cache/ai-backbone/delegate/<project>/<id>.log`, never the
       repo. The recipe prints only the worker's report, the branch's commits

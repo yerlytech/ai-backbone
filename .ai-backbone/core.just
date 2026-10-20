@@ -1333,6 +1333,11 @@ delegate task="":
     # The adapters call that path, or the fallback is found and never used.
     worker_bin=""
     if [ -n "${WORKER_BIN:-}" ]; then
+      # Git Bash, calling native just.exe, rewrites a POSIX path in the
+      # environment into a Windows path. test -x is a builtin and does not see
+      # C:\... or C:/..., so this said the binary was not installed
+      # (windows-latest, run 39407850519). cygpath exists only there.
+      if command -v cygpath >/dev/null 2>&1; then WORKER_BIN=$(cygpath -u "$WORKER_BIN"); fi
       if [ -x "$WORKER_BIN" ]; then worker_bin=$WORKER_BIN
       else echo "refuses: $worker is not installed"; exit 1; fi
     elif command -v "$worker" >/dev/null 2>&1; then
@@ -1403,7 +1408,11 @@ delegate task="":
     if ! awk -v t="$timeout_min" 'BEGIN { exit !(t ~ /^[0-9]+(\.[0-9]+)?$/ && t+0 > 0) }'; then
       echo "refuses: DELEGATE_TIMEOUT must be a positive number of minutes"; exit 1
     fi
-    timeout_secs=$(awk -v t="$timeout_min" 'BEGIN { printf "%.3f", t * 60 }')
+    # printf "%.3f" follows the decimal mark. tr_TR prints "10800,000", and
+    # BSD sleep rejects that and the timer kills the worker at once. The
+    # check above still accepts "0.05" there (t+0 is 0.05). Measured on
+    # macOS awk 20200816.
+    timeout_secs=$(LC_ALL=C awk -v t="$timeout_min" 'BEGIN { printf "%.3f", t * 60 }')
     # The same fold as `_slug`. Inlined: a nested `just` looks for a Justfile
     # from this folder, and a run pointed at another directory has none.
     # A fix round already has its branch, so the task needs no slug.
@@ -1463,6 +1472,12 @@ delegate task="":
     # a breach. A network remote is not asked (no git ls-remote). A remote
     # whose URL is a local path is read directly, so a push is seen even when
     # the remote-tracking refs are put back.
+    # "The worker pushed" is not "any remote ref moved". Another session
+    # fetches origin while this job runs, and `just backbone-note` pushes a
+    # note onto origin/cloud. Those move remote-tracking refs onto commits
+    # this branch does not contain, or onto commits some ref could already
+    # reach. A breach is a remote ref that afterwards points at a commit this
+    # branch can reach and no ref could reach before the run.
     origin_url=$(git remote get-url origin 2>/dev/null || true)
     origin_dir=""
     case "$origin_url" in
@@ -1473,11 +1488,13 @@ delegate task="":
       /*|[A-Za-z]:*) origin_dir=$origin_url ;;
     esac
     if [ -n "$origin_dir" ] && [ ! -d "$origin_dir" ]; then origin_dir=""; fi
-    snap_remotes() {
-      git for-each-ref refs/remotes --format='%(objectname) %(refname)'
-      if [ -n "$origin_dir" ]; then git -C "$origin_dir" for-each-ref --format='%(objectname) %(refname)'; fi
-    }
-    before_remotes=$(snap_remotes)
+    # No heredoc around a $(… --format): just 1.59.0 fails to parse that
+    # (measured, "unknown start of token"). The lists are files outside the repo.
+    before_known="$dir/${id}.known"
+    {
+      git rev-list --all 2>/dev/null || true
+      if [ -n "$origin_dir" ]; then git -C "$origin_dir" rev-list --all 2>/dev/null || true; fi
+    } | sort -u > "$before_known"
     # The protected branch is the default, or the base when DELEGATE_BASE is
     # set. A fix round with the variable unset still protects the base the
     # branch recorded, or the check would be looking at the default while the
@@ -1519,11 +1536,34 @@ delegate task="":
     timed_out=0
     if [ -f "$dir/${id}.timedout" ]; then timed_out=1; rc=124; rm -f "$dir/${id}.timedout"; fi
     set -e
-    after_remotes=$(snap_remotes)
     after_protect=$(git rev-parse "refs/heads/$protect" 2>/dev/null || echo missing)
     after_branches=$(git for-each-ref refs/heads --format='%(refname)')
+    # Remote-tracking refs, and every ref of a local-path origin. A tip is
+    # this job's commit when the branch contains it and nothing before the
+    # run did. An object that exists only on the other repo cannot be on
+    # this branch.
+    own_on_remote=0
+    tips="$dir/${id}.tips"
+    {
+      git for-each-ref refs/remotes --format='%(objectname)' 2>/dev/null || true
+      if [ -n "$origin_dir" ]; then git -C "$origin_dir" for-each-ref --format='%(objectname)' 2>/dev/null || true; fi
+    } > "$tips"
+    if git show-ref --verify --quiet "refs/heads/$branch"; then
+      while IFS= read -r obj; do
+        [ -n "$obj" ] || continue
+        commit=$(git rev-parse -q --verify "${obj}^{commit}" 2>/dev/null || true)
+        if [ -z "$commit" ] && [ -n "$origin_dir" ]; then
+          commit=$(git -C "$origin_dir" rev-parse -q --verify "${obj}^{commit}" 2>/dev/null || true)
+        fi
+        [ -n "$commit" ] || continue
+        git cat-file -e "${commit}^{commit}" 2>/dev/null || continue
+        git merge-base --is-ancestor "$commit" "refs/heads/$branch" 2>/dev/null || continue
+        if ! grep -qxF "$commit" "$before_known"; then own_on_remote=1; break; fi
+      done < "$tips"
+    fi
+    rm -f "$before_known" "$tips"
     breach=0
-    if [ "$after_remotes" != "$before_remotes" ]; then echo "BREACH: remote refs changed"; breach=1; fi
+    if [ "$own_on_remote" -eq 1 ]; then echo "BREACH: remote refs changed"; breach=1; fi
     if [ "$after_protect" != "$before_protect" ]; then
       if [ "$protect_kind" = base ]; then echo "BREACH: base branch $protect moved"
       else echo "BREACH: default branch $protect moved"; fi
