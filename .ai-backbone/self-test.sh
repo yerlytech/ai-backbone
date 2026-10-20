@@ -3206,8 +3206,9 @@ fi
 cd "$tmp" || exit 1
 
 section "delegate (spec 034)"
-# A script stands in for the worker. The recipes call `grok` or `claude` on
-# PATH; this one records the prompt and does what FAKE_WORKER_MODE says.
+# A script stands in for the worker. The recipes call the resolved path; on
+# PATH that is this script. It records the prompt and does what FAKE_WORKER_MODE
+# says. FAKE_WORKER_BINLOG, when set, receives the path the recipe executed.
 dhome="$tmp/delegate-home"
 dbin="$tmp/delegate-bin"
 dprompt="$tmp/delegate-prompt"
@@ -3231,6 +3232,7 @@ if [ -n "${FAKE_WORKER_PROMPT:-}" ]; then
   printf '%s\n' "$fmt" > "$FAKE_WORKER_PROMPT.fmt"
   printf '%s\n' "$model" > "$FAKE_WORKER_PROMPT.model"
 fi
+if [ -n "${FAKE_WORKER_BINLOG:-}" ]; then printf '%s\n' "$0" > "$FAKE_WORKER_BINLOG"; fi
 mode=${FAKE_WORKER_MODE:-ok}
 case "$mode" in
   ok)
@@ -3301,10 +3303,11 @@ d_new() {
 d_run() {
   local mode="$1" worker="$2" model="$3"; shift 3
   # shellcheck disable=SC2086
-  d_out=$(env -u WORKER -u WORKER_MODEL -u DELEGATE_TIMEOUT \
+  d_out=$(env -u WORKER -u WORKER_MODEL -u DELEGATE_TIMEOUT -u WORKER_BIN \
     HOME="$dhome" PATH="$dbin:$PATH" \
     FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE="$mode" FAKE_WORKER_GO="$dgo" \
     ${worker:+WORKER=$worker} ${model:+WORKER_MODEL=$model} \
+    ${WORKER_BIN:+WORKER_BIN=$WORKER_BIN} \
     just -f "$root/Justfile" -d "$dproj" "$@" 2>&1) && d_rc=0 || d_rc=$?
 }
 d_one() {
@@ -3321,9 +3324,48 @@ d_run ok off "" delegate "add a line"
 check "with WORKER=off, delegate says so and makes no branch" "[ \$d_rc -ne 0 ] && grep -q 'delegation is off (WORKER=off)' <<<\"\$d_out\" && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ]"
 d_run ok glm "" delegate "add a line"
 check "an unknown worker is refused with the list this recipe knows" "[ \$d_rc -ne 0 ] && d_one && grep -q \"unknown worker 'glm'\" <<<\"\$d_out\" && grep -q 'claude' <<<\"\$d_out\" && grep -q 'grok' <<<\"\$d_out\""
-d_out=$(env -u WORKER HOME="$dhome" PATH="$(dirname "$(command -v just)"):$(dirname "$(command -v git)"):/usr/bin:/bin" \
+d_plain="$(dirname "$(command -v just)"):$(dirname "$(command -v git)"):/usr/bin:/bin"
+d_out=$(env -u WORKER -u WORKER_BIN HOME="$dhome" PATH="$d_plain" \
   WORKER=grok just -f "$root/Justfile" -d "$dproj" delegate "add a line" 2>&1) && d_rc=0 || d_rc=$?
 check "a worker that is not installed is refused in one line" "[ \$d_rc -ne 0 ] && d_one && grep -qx 'refuses: grok is not installed' <<<\"\$d_out\""
+d_new found
+mkdir -p "$dhome/.grok/bin"
+cp "$dbin/grok" "$dhome/.grok/bin/grok"
+chmod +x "$dhome/.grok/bin/grok"
+rm -f "$tmp/delegate-binlog"
+d_out=$(env -u WORKER -u WORKER_BIN HOME="$dhome" PATH="$d_plain" \
+  FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE=ok FAKE_WORKER_BINLOG="$tmp/delegate-binlog" \
+  WORKER=grok just -f "$root/Justfile" -d "$dproj" delegate "add a line" 2>&1) && d_rc=0 || d_rc=$?
+check "a grok that lives only at ~/.grok/bin/grok is the binary the adapter runs" \
+  "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$tmp/delegate-binlog\")\" = \"\$dhome/.grok/bin/grok\" ] && [ -f \"\$dproj/worker-did.txt\" ] && [ \"\$(cat \"\$dprompt.fmt\")\" = plain ]"
+rm -f "$dhome/.grok/bin/grok"
+d_new foundc
+mkdir -p "$dhome/.claude/local" "$dhome/.local/bin"
+cp "$dbin/claude" "$dhome/.claude/local/claude"
+cp "$dbin/claude" "$dhome/.local/bin/claude"
+chmod +x "$dhome/.claude/local/claude" "$dhome/.local/bin/claude"
+rm -f "$tmp/delegate-binlog"
+d_out=$(env -u WORKER -u WORKER_BIN -u WORKER_MODEL HOME="$dhome" PATH="$d_plain" \
+  FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE=ok FAKE_WORKER_BINLOG="$tmp/delegate-binlog" \
+  WORKER=claude just -f "$root/Justfile" -d "$dproj" delegate "use claude" 2>&1) && d_rc=0 || d_rc=$?
+check "claude is taken from ~/.claude/local/claude before ~/.local/bin/claude" \
+  "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$tmp/delegate-binlog\")\" = \"\$dhome/.claude/local/claude\" ] && [ -z \"\$(cat \"\$dprompt.fmt\")\" ]"
+rm -f "$dhome/.claude/local/claude"
+rm -f "$tmp/delegate-binlog"
+d_new foundc2
+d_out=$(env -u WORKER -u WORKER_BIN -u WORKER_MODEL HOME="$dhome" PATH="$d_plain" \
+  FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE=ok FAKE_WORKER_BINLOG="$tmp/delegate-binlog" \
+  WORKER=claude just -f "$root/Justfile" -d "$dproj" delegate "use claude" 2>&1) && d_rc=0 || d_rc=$?
+check "claude falls through to ~/.local/bin/claude when the first place is empty" \
+  "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$tmp/delegate-binlog\")\" = \"\$dhome/.local/bin/claude\" ]"
+rm -f "$dhome/.local/bin/claude"
+d_new binover
+cp "$dbin/grok" "$tmp/only-via-worker-bin"
+chmod +x "$tmp/only-via-worker-bin"
+rm -f "$tmp/delegate-binlog"
+WORKER_BIN="$tmp/only-via-worker-bin" FAKE_WORKER_BINLOG="$tmp/delegate-binlog" d_run ok grok "" delegate "add a line"
+check "WORKER_BIN is the binary, ahead of the name on PATH" \
+  "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$tmp/delegate-binlog\")\" = \"\$tmp/only-via-worker-bin\" ]"
 d_new dirty
 printf 'x\n' >> "$dproj/README.md"
 d_run ok grok "" delegate "add a line"

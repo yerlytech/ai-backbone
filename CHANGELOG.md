@@ -25,6 +25,9 @@ if the worker pushed, moved the default branch, or changed the branch list.
 `just delegate-drop` asks once, then deletes the branch. `just delegate-status`
 shows a running job, the last report, and the open branches. With `WORKER`
 unset or `off`, nothing is delegated and the session does the work as before.
+The binary is `WORKER_BIN` when that is set, otherwise the name on `PATH`,
+otherwise the place that worker installs itself (`~/.grok/bin/grok`; Claude at
+`~/.claude/local/claude`, then `~/.local/bin/claude`).
 
 Nothing to do in a project until the release (`template-update` then).
 

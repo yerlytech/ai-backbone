@@ -82,9 +82,12 @@ its own worker.
       `just delegate-drop [branch]` asks once, then deletes the branch.
 - [x] `WORKER` (machine-local; unset or `off` means no delegation) chooses the
       adapter. Each adapter is one function: how to call the CLI headless in a
-      folder with a prompt. `grok` uses `grok -p … --output-format plain`;
-      `claude` uses `claude -p …` with a cheaper model (`WORKER_MODEL`). With
-      `off`, `just delegate` says so and the manager rules do not apply.
+      folder with a prompt. The binary is `WORKER_BIN` when that is executable,
+      otherwise the name on `PATH`, otherwise a known place: `~/.grok/bin/grok`,
+      or `~/.claude/local/claude` then `~/.local/bin/claude`. The adapter calls
+      that path. `grok` uses `<bin> -p … --output-format plain`; `claude` uses
+      `<bin> -p …` with a cheaper model (`WORKER_MODEL`). With `off`,
+      `just delegate` says so and the manager rules do not apply.
 - [x] The core rules give the manager role: no product code by the manager; one
       task, one report, review, then accept, fix or drop; the publish and ship
       gates unchanged; two failures go to the maintainer. They also say what to

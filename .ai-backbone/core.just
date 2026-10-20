@@ -1337,7 +1337,28 @@ delegate task="":
       grok|claude) ;;
       *) echo "refuses: unknown worker '$worker' (known: claude, grok)"; exit 1 ;;
     esac
-    if ! command -v "$worker" >/dev/null 2>&1; then echo "refuses: $worker is not installed"; exit 1; fi
+    # grok installs itself at ~/.grok/bin/grok and is often left off PATH, so
+    # `command -v` alone said it was not installed. WORKER_BIN is a path and
+    # wins; then the name on PATH; then the place that worker installs itself.
+    # The adapters call that path, or the fallback is found and never used.
+    worker_bin=""
+    if [ -n "${WORKER_BIN:-}" ]; then
+      if [ -x "$WORKER_BIN" ]; then worker_bin=$WORKER_BIN
+      else echo "refuses: $worker is not installed"; exit 1; fi
+    elif command -v "$worker" >/dev/null 2>&1; then
+      worker_bin=$(command -v "$worker")
+    else
+      case "$worker" in
+        grok)
+          if [ -x "$HOME/.grok/bin/grok" ]; then worker_bin="$HOME/.grok/bin/grok"; fi
+          ;;
+        claude)
+          if [ -x "$HOME/.claude/local/claude" ]; then worker_bin="$HOME/.claude/local/claude"
+          elif [ -x "$HOME/.local/bin/claude" ]; then worker_bin="$HOME/.local/bin/claude"; fi
+          ;;
+      esac
+      if [ -z "$worker_bin" ]; then echo "refuses: $worker is not installed"; exit 1; fi
+    fi
     git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "refuses: not a git repository"; exit 1; }
     # A live job uses this folder, so the tree is dirty or the branch is not
     # the default while it runs. Say the job is running before those checks,
@@ -1403,10 +1424,10 @@ delegate task="":
     # Adapters: how to call the CLI headless, in this folder, with the prompt.
     # `exec` so a later stop reaches the CLI and not the shell around it. The
     # call is always in a subshell, or exec would replace this recipe.
-    delegate_grok() { exec grok -p "$1" --output-format plain; }
+    delegate_grok() { exec "$worker_bin" -p "$1" --output-format plain; }
     delegate_claude() {
-      if [ -n "${WORKER_MODEL:-}" ]; then exec claude -p "$1" --model "$WORKER_MODEL"
-      else exec claude -p "$1"; fi
+      if [ -n "${WORKER_MODEL:-}" ]; then exec "$worker_bin" -p "$1" --model "$WORKER_MODEL"
+      else exec "$worker_bin" -p "$1"; fi
     }
     preamble=$(printf '%s\n' \
       "You are the worker for this repository. A manager reviews your work. Read AGENTS.md first and follow it. You are on branch ${branch}; stay on it." \

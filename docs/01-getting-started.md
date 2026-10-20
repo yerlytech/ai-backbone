@@ -205,9 +205,11 @@ When `WORKER` is `grok` or `claude`, the session manages. It sends one task,
 reads the report, and accepts, fixes or drops. It writes no product code.
 `just publish` and `just ship` stay with that session. `WORKER` unset or `off`
 is the default on a new machine, and then the session does the work as before,
-including when the named worker is not installed. `DELEGATE_TIMEOUT` is how
-many minutes one job may run (180 if you do not set it). `WORKER_MODEL` is the
-model the `claude` worker uses, when you set one.
+including when the named worker is not installed. The binary is `WORKER_BIN`
+when that is set, otherwise the name on `PATH`, otherwise `~/.grok/bin/grok`
+(Claude looks in `~/.claude/local/claude`, then `~/.local/bin/claude`).
+`DELEGATE_TIMEOUT` is how many minutes one job may run (180 if you do not set
+it). `WORKER_MODEL` is the model the `claude` worker uses, when you set one.
 
 ## The backbone gets stronger while you work
 
