@@ -1235,20 +1235,19 @@ check "a project with no GitHub address hears so at every session, offline too" 
 git remote add origin https://github.com/example/no-such-repo.git
 check "and no longer once it has one"                  "says '^=== LAST COMMITS' just session-start && ! says '^GitHub: no address' just session-start"
 git remote remove origin
-# The weekly upstream check used up its week even when it had read nothing. The
-# offline switch is lifted for these three, because offline the block never runs:
-# there is no backbone nearby to bring level, the other weekly block is stamped,
-# a proxy nothing listens on stands behind it all, and the only source is a kind
-# upstream.py refuses before it asks anybody. The real upstream.py says the
-# sentence session-start listens for; a stand-in plays the week that went well.
+# The daily check replaced the weekly one (spec 035). These three lift the
+# offline switch: there is no backbone nearby to bring level, the tool-release
+# block is stamped so it does not ask, a proxy nothing listens on stands behind
+# it all, and the only source is a kind upstream.py refuses before it asks
+# anybody. A stand-in plays a check that could not run, and one that printed.
 weekly() { env -u AI_BACKBONE_OFFLINE AI_BACKBONE="$tmp/none" https_proxy=$dead http_proxy=$dead no_proxy= just session-start; }
 printf '[[watch]]\nname = "nowhere"\nsource = "nosuchkind:nothing"\npin = "1.0.0"\n' > docs/upstream.toml
 touch .git/ai-backbone.last-check; rm -f .git/ai-backbone.last-upstream
-check "a weekly check that read nothing does not use up the week" "says '^No source gave an answer' weekly && [ ! -e .git/ai-backbone.last-upstream ]"
+check "a check that read nothing does not stamp a week" "says '=== FRESHNESS' weekly && says 'unknown source' weekly && says nowhere weekly && [ ! -e .git/ai-backbone.last-upstream ]"
 printf 'raise SystemExit(1)\n' > .ai-backbone/upstream.py
 check "nor does one that could not run, and it says so"  "says '^upstream: could not run' weekly && [ ! -e .git/ai-backbone.last-upstream ]"
 printf 'print("Everything watched is current.")\n' > .ai-backbone/upstream.py
-check "one that read something does"                     "says '^Everything watched' weekly && [ -e .git/ai-backbone.last-upstream ]"
+check "a session shows what the check printed and does not stamp a week" "says '^Everything watched' weekly && [ ! -e .git/ai-backbone.last-upstream ]"
 cp "$root/.ai-backbone/upstream.py" .ai-backbone/upstream.py; rm -f docs/upstream.toml .git/ai-backbone.last-check .git/ai-backbone.last-upstream
 # tools-update upgraded graphify and left its pin behind: 0.9.62 in the list, 0.9.64
 # installed. Every tool is a stand-in and brew is off the PATH, as in the two
@@ -1702,6 +1701,8 @@ from pathlib import Path
 root, mode, base = sys.argv[1:]
 os.environ["AI_BACKBONE_UPSTREAM_CACHE"] = str(Path(base) / mode)
 os.environ.pop("AI_BACKBONE_OFFLINE", None)
+if mode == "fresh-slow":
+    os.environ["AI_BACKBONE_UPSTREAM_BUDGET"] = "0"
 spec = importlib.util.spec_from_file_location("u", str(Path(root) / ".ai-backbone" / "upstream.py"))
 u = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(u)
@@ -1840,6 +1841,73 @@ elif mode == "slow":
     releases, old, live = u.obtain(entry, False, time.monotonic() + 100)
     if calls["n"] != 0 or old != "slow":
         fail(f"retried calls={calls['n']} old={old}")
+elif mode == "budget-cap":
+    u.CALL_DEADLINE = time.monotonic() + 0.2
+    got = u.call_timeout(30)
+    if got > 0.25 or got < 0.05:
+        fail(f"a call in flight was given {got}s")
+    u.CALL_DEADLINE = time.monotonic() - 1
+    if abs(u.call_timeout(30) - 0.05) > 0.001:
+        fail("past the deadline a call still waited")
+elif mode == "fresh":
+    rc, out = run(one, "--freshness")
+    if rc != 0 or "=== FRESHNESS (checked " not in out or "Behind: tool 1.0.0 → 1.2.0" not in out:
+        fail(f"rc={rc}\n{out}")
+    if f"Backbone: {u.backbone_version()}" not in out or "First job: update tool (1.0.0 → 1.2.0)" not in out:
+        fail(out)
+    if "To read: nothing" not in out or "MOVED: nothing" not in out:
+        fail(out)
+    calls["n"] = 0
+    rc, out = run(one, "--freshness")
+    if calls["n"] != 0 or "Behind: tool 1.0.0 → 1.2.0" not in out:
+        fail(f"second run asked ({calls['n']})\n{out}")
+elif mode == "fresh-offline":
+    run(one)
+    rewind(30)
+    calls["n"] = 0
+    u.OFFLINE = True
+    rc, out = run(one, "--freshness")
+    if rc != 0 or calls["n"] != 0 or "1.2.0" not in out or "offline" not in out or "hours ago" not in out:
+        fail(f"rc={rc} calls={calls['n']}\n{out}")
+    if "Behind: tool 1.0.0 → 1.2.0" not in out:
+        fail(out)
+elif mode == "fresh-empty":
+    u.OFFLINE = True
+    rc, out = run(one, "--freshness")
+    if rc != 0 or calls["n"] != 0 or "=== FRESHNESS" not in out or "offline" not in out or "1.2.0" in out:
+        fail(f"rc={rc} calls={calls['n']}\n{out}")
+    if "Could not check:" not in out or "no earlier result" not in out:
+        fail(out)
+elif mode == "fresh-slow":
+    run(one)
+    rewind(30)
+    calls["n"] = 0
+    rc, out = run(one, "--freshness")
+    if rc != 0 or calls["n"] != 0 or "slow" not in out or "1.2.0" not in out or "hours ago" not in out:
+        fail(f"rc={rc} calls={calls['n']}\n{out}")
+elif mode == "fresh-moved":
+    (one / "docs" / "held.txt").write_text("version = 0.0.1\n", encoding="utf-8")
+    (one / "docs" / "upstream.toml").write_text(
+        '[[watch]]\nname = "tool"\nsource = "pypi:tool"\npin = "1.2.0"\npinned_in = "docs/held.txt"\n',
+        encoding="utf-8")
+    rc, out = run(one, "--freshness")
+    if rc != 0 or "MOVED: tool" not in out or "Behind: nothing" not in out:
+        fail(f"rc={rc}\n{out}")
+    if "First job: fix the pin for tool" not in out:
+        fail(out)
+elif mode == "fresh-idea":
+    (one / "docs" / "upstream.toml").write_text(
+        '[[watch]]\nname = "tool"\nsource = "pypi:tool"\npin = "1.2.0"\n\n'
+        '[[watch]]\nname = "orch"\nkind = "idea"\nsource = "pypi:tool"\npin = "1.0.0"\n'
+        'why = "an idea"\nlook_for = "a board of every running job across projects"\n',
+        encoding="utf-8")
+    rc, out = run(one, "--freshness")
+    if rc != 0 or calls["n"] != 1 or "Behind: nothing" not in out:
+        fail(f"rc={rc} calls={calls['n']}\n{out}")
+    if "To read: orch 1.0.0 → 1.2.0 (a board of every running job across projects)" not in out:
+        fail(out)
+    if "First job: read orch:" not in out or "Behind: orch" in out:
+        fail(out)
 else:
     fail("unknown mode " + mode)
 PY
@@ -1852,12 +1920,20 @@ check "offline, with no copy, says so and does not ask"           "fresh035 offl
 check "offline, an old copy is shown with its age"                "fresh035 offline-stale"
 check "a rate limit keeps the last result and is not asked again" "fresh035 rate"
 check "past the time budget the last result is kept"              "fresh035 slow"
+check "a call already in flight stops at the time that is left"       "fresh035 budget-cap"
+check "session start's block names what is behind and one first job"  "fresh035 fresh"
+check "offline, the block shows the last result, its age, and why"    "fresh035 fresh-offline"
+check "offline, with no copy, the block says so and still exits 0"    "fresh035 fresh-empty"
+check "past ten seconds the block keeps the last result and says slow" "fresh035 fresh-slow"
+check "a pin the file does not hold is the job when nothing is behind" "fresh035 fresh-moved"
+check "an idea's newer release is to read, never behind"              "fresh035 fresh-idea"
 check "just upstream --refresh is a real run, and offline it says so" \
   "says offline env AI_BACKBONE_UPSTREAM_CACHE='$tmp/spec035-refresh' just upstream --refresh && env AI_BACKBONE_UPSTREAM_CACHE='$tmp/spec035-refresh' just upstream --refresh >/dev/null"
 # session-start's two weekly blocks ask GitHub and the registries. Offline they
 # are skipped, and an offline session does not use up the week either.
 rm -f .git/ai-backbone.last-check .git/ai-backbone.last-upstream
 check "session-start asks no source for anything while offline" "! says '[(]weekly check[)]' just session-start && [ ! -e .git/ai-backbone.last-upstream ] && [ ! -e .git/ai-backbone.last-check ]"
+check "session-start shows FRESHNESS, and offline it still finishes" "says '=== FRESHNESS' just session-start && says offline just session-start"
 # Until 3.19.1 a source that could not be read was never counted blind: the
 # reason landed in the column the summary read from, so a report that read
 # nothing at all still ended with "Everything watched is current". An unknown

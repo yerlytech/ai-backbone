@@ -1051,6 +1051,15 @@ _session-start-body:
       "$(just _py)" .ai-backbone/budget.py --line "$lang" 2>/dev/null \
         || echo "Backbone note: usage not measured (python3 is missing); the subagent cap holds."
     fi
+    # What this project is behind on, once a day per machine (spec 035). Near
+    # the top: an agent is shown the first 10,000 characters of this, and the
+    # update is the session's first job. The script never fails the session.
+    # Offline, rate-limited or past ten seconds, it prints the last result and
+    # why that result is old.
+    if [ -f docs/upstream.toml ] && [ -f .ai-backbone/upstream.py ]; then
+      fresh=$("$(just _py)" .ai-backbone/upstream.py --freshness 2>&1) || fresh="${fresh:+$fresh$'\n'}upstream: could not run -> just upstream"
+      if [ -n "$fresh" ]; then printf '\n%s\n' "$fresh"; fi
+    fi
     echo
     echo "=== WORKING TREE ==="
     git status --short 2>/dev/null | head -15 || true
@@ -1265,28 +1274,9 @@ _session-start-body:
       just _backbone-news 2>/dev/null || true
       touch "$stamp"
     fi
-    # What this project is built on, on the same weekly rhythm. The list is the
-    # project's own (docs/upstream.toml); quiet when there is none. A check that
-    # could not run says so: behind `|| true` a python3 too old for it failed
-    # every week and printed nothing. The week is used up only by a run that
-    # learned something: one that could not run, or that ends in upstream.py's
-    # "No source gave an answer" (a dead network, a proxy that refuses every
-    # source), is asked again at the next session instead of in seven days.
-    up=$(git rev-parse --git-path ai-backbone.last-upstream 2>/dev/null || echo .git/ai-backbone.last-upstream)
-    if [ -n "$(just _is-repo)" ] && [ -f docs/upstream.toml ] && [ -z "${AI_BACKBONE_OFFLINE:-}" ] \
-       && [ -z "$(find "$up" -mtime -7 2>/dev/null)" ]; then
-      echo; echo "=== WHAT THIS PROJECT IS BUILT ON (weekly check) ==="
-      if seen=$(just upstream 2>/dev/null); then
-        printf '%s\n' "$seen"
-        grep -q '^No source gave an answer' <<< "$seen" || touch "$up"
-      else
-        [ -z "$seen" ] || printf '%s\n' "$seen"
-        echo "upstream: could not run -> just upstream"
-      fi
-    fi
     # Every session, and without the network: what the project is built on and
-    # which of those pins came out in the last twelve months, from what the weekly
-    # run above cached. An agent's training ends on a day; a version released
+    # which of those pins came out in the last twelve months, from what the daily
+    # check cached. An agent's training ends on a day; a version released
     # after it is one the agent has never seen, and nothing else here says so.
     if [ -f docs/upstream.toml ]; then echo; "$(just _py)" .ai-backbone/upstream.py --recent 2>/dev/null || true; fi
 
