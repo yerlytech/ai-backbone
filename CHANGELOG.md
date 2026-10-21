@@ -15,6 +15,17 @@ below are the record of every version.
 
 ## [Unreleased]
 
+**Secrets live in `brain/secrets/` (spec 036).** `just secrets-to-brain` moves
+each git-ignored secret file there, keeps its mode, and leaves a relative
+link at the old path so the tool still reads it. `just secrets-back` undoes
+it. The second copy holds the secrets inside `brain/`; a secret still
+outside is copied to `secrets/` as before. `about-this-copy.txt` says the
+old `secrets/` folder is no longer written. doctor stops warning about a
+key that is a link into `brain/secrets/`, and warns when that link's file
+is missing. The core rules: never print, copy or quote a secret, and read
+one only to move it. Nothing to do until `just template-update`; then
+`just secrets-to-brain` in each project.
+
 **Windows reports; Linux and macOS decide the carry (spec 037).** The Windows
 suite moves out of `checks.yml` into `windows.yml`, started by the same push
 to `cloud`, with the same steps and the caps of 48 and 44 minutes.

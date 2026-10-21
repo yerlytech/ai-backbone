@@ -41,32 +41,32 @@ None open. Approved by the maintainer on 2026-10-21: move and link, the cloud co
 
 ## Acceptance
 
-- [ ] `just secrets-to-brain` moves each git-ignored secret file to
+- [x] `just secrets-to-brain` moves each git-ignored secret file to
       `brain/secrets/<path>`, keeps its mode (0600 stays 0600), and leaves a
       relative link at the old path. It refuses a file git tracks, a path
       already linked, and a target that exists; it prints each file moved.
-- [ ] Run twice, it changes nothing the second time.
-- [ ] `just secrets-back` puts each file back at its path, removes the link,
+- [x] Run twice, it changes nothing the second time.
+- [x] `just secrets-back` puts each file back at its path, removes the link,
       and leaves `brain/secrets/` empty.
-- [ ] A link at the old path is still ignored by git (`git check-ignore`), and
+- [x] A link at the old path is still ignored by git (`git check-ignore`), and
       `just save` never stages one. A test proves it with an `.env` in the
       root and one two folders down.
-- [ ] `_vault-copy` copies brain/ with the secrets in it as files. A secret
+- [x] `_vault-copy` copies brain/ with the secrets in it as files. A secret
       file still outside brain/ is still copied to `secrets/` as today, so
       nothing is lost while a project has not moved yet.
-- [ ] doctor no longer warns about a key that is a link into `brain/secrets/`,
+- [x] doctor no longer warns about a key that is a link into `brain/secrets/`,
       and warns about a link whose file is missing.
-- [ ] The core rules say: secrets live in `brain/secrets/`; an agent never
+- [x] The core rules say: secrets live in `brain/secrets/`; an agent never
       prints, copies or quotes one, and reads one only to move it.
 - [ ] Tested on macOS and Linux; walked on one real project with a root `.env`,
       what reads it started from the link.
 
 ## Tasks
 
-- [ ] `secrets-to-brain` and `secrets-back`, with tests (root, nested, mode,
+- [x] `secrets-to-brain` and `secrets-back`, with tests (root, nested, mode,
       refusal cases, run twice).
-- [ ] `_vault-copy` and doctor follow the links; their tests.
-- [ ] Rules, docs, changelog; release.
+- [x] `_vault-copy` and doctor follow the links; their tests.
+- [x] Rules, docs, changelog; release.
 - [ ] Each project moves on its next session (a note to every project).
 
 ## Notes

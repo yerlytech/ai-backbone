@@ -81,7 +81,7 @@ need there. `just doctor` says so when something else strays in.
 | root, per language | whatever the build needs there: `Cargo.toml`, `package.json`, `Package.swift`, `pubspec.yaml`. Name them in a `_root-allow` recipe in `stack.just` and `just doctor` stops asking |
 | `src/` | all code. One part: straight inside. Several parts: `src/web`, `src/server`, `src/ios`, `src/android`. Xcode projects too. Assets the build uses sit next to the part that uses them. Helper scripts live inside their part, or become `just` recipes. |
 | `docs/` | public: `specs/`, `adr/`, and `docs/brand/` for logos and screenshots meant to be seen. |
-| `brain/` | private, never on GitHub: journal, research, chat archive, `legacy/` for old repos, `05-files/` for server backups, contracts, exports. |
+| `brain/` | private, never on GitHub: journal, research, chat archive, `legacy/` for old repos, `05-files/` for server backups, contracts, exports, `secrets/` for `.env` and keys (a link stays where the tool reads them). |
 
 Whatever `.gitignore` covers is not in the repository at all, so it is never a
 stray — a scratch file in the root is between you and your machine.
@@ -198,6 +198,8 @@ just delegate "<task>"                  # hand one task to a worker on its own b
 just delegate-status                    # whether a job is running, the last report, the open delegate branches
 just delegate-accept [branch]           # fast-forward the default branch, or the recorded base, onto that work
 just delegate-drop [branch]             # ask once (--yes skips it), then delete the branch and return to that base
+just secrets-to-brain                   # move git-ignored secrets into brain/secrets/, leave a link at the old path
+just secrets-back                       # put each secret back and empty brain/secrets/
 just --list          # everything
 ```
 

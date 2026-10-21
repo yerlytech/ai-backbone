@@ -81,7 +81,8 @@ report asks you the oldest one as a question that yes or no answers, you tell
 the answer to the agent in any project, and it travels back as a note that
 begins `decision:`. And `brain/`, your private notebook, never goes to GitHub.
 It stays on your computer, and after every session a second copy of it is left
-in the place you named once for this machine.
+in the place you named once for this machine. Secrets live in `brain/secrets/`,
+inside that copy.
 
 ## The life of one idea
 

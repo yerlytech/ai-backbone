@@ -613,18 +613,29 @@ doctor:
       if [ -n "$sd" ]; then echo "  warn  skill folder .agents/skills/$sd says name: $sn in its SKILL.md; make the two the same, or it may not be found by its name"; fi
     done <<< "$(just _skill-names)"
     stray=$(just _root-strays); if [ -z "$stray" ]; then echo "  ok    root holds only what belongs there"; else echo "  warn  root has things that do not belong:$stray"; echo "        code -> src/   private files -> brain/05-files/   logos, screenshots -> docs/brand/"; echo "        a root file your language needs: name it in a _root-allow recipe in stack.just"; fi
-    # AGENTS.md section 7 says where keys and certificates live, and until now
-    # nothing looked. A warning and never a failure: the file may be exactly where
-    # a build tool reads it, and moving it is a decision, not a repair. An .env is
-    # not named here: it has to stay where its tool reads it.
-    keys=""
+    # spec 036: a key that is a link into brain/secrets/ is in the right place;
+    # a link whose file is missing is said. An .env is not named as outside.
+    keys=""; dangling=""
     while IFS= read -r k; do
-      case "$k" in ""|.env|*/.env|.env.*|*/.env.*|.envrc|*/.envrc) continue ;; esac
+      [ -n "$k" ] || continue
+      if [ -L "$k" ]; then
+        t=$(readlink "./$k"); t="${t#./}"
+        case "$t" in
+          brain/secrets/"$k"|*/brain/secrets/"$k")
+            if [ ! -e "$k" ]; then dangling="$dangling $k"; fi
+            continue
+            ;;
+        esac
+      fi
+      case "$k" in .env|*/.env|.env.*|*/.env.*|.envrc|*/.envrc) continue ;; esac
       keys="$keys $k"
     done < <(just _secret-files 2>/dev/null)
     if [ -n "$keys" ]; then
       echo "  warn  $(just _doctor-msg key-outside)$keys"
       echo "        $(just _doctor-msg key-where)"
+    fi
+    if [ -n "$dangling" ]; then
+      echo "  warn  $(just _doctor-msg key-missing)$dangling"
     fi
     # The build folder, where the language layer names one in `_build-info`
     # (spec 015): how big it has grown, and whether other projects build into
@@ -753,6 +764,125 @@ brain-init:
     if [ -n "$dest" ] && [ -d "$dest/brain" ]; then
       echo "A second copy of a brain/ under this project's name is in $dest"
       echo "If it is this project's, put it back before the next just session-end; $dest/about-this-copy.txt says how."
+    fi
+
+# Move git-ignored secret files into brain/secrets/, leave a relative link (spec 036)
+[group('setup')]
+[no-exit-message]
+secrets-to-brain:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    [ -d brain ] || { echo "No brain/ yet. Run: just brain-init"; exit 1; }
+    rel_link() {
+      local s="$1" d prefix="" x
+      d=$(dirname -- "$s")
+      if [ "$d" = "." ]; then printf 'brain/secrets/%s\n' "$s"; return; fi
+      x="$d"
+      while [ "$x" != "." ] && [ -n "$x" ]; do
+        prefix="../$prefix"
+        x=$(dirname -- "$x")
+      done
+      printf '%sbrain/secrets/%s\n' "$prefix" "$s"
+    }
+    is_ours() {
+      local s="$1" t
+      [ -L "$s" ] || return 1
+      t=$(readlink "./$s")
+      t="${t#./}"
+      case "$t" in
+        brain/secrets/"$s"|*/brain/secrets/"$s") return 0 ;;
+      esac
+      return 1
+    }
+    refused=0
+    while IFS= read -r s; do
+      [ -n "$s" ] || continue
+      if git ls-files --error-unmatch -- "$s" >/dev/null 2>&1; then
+        echo "Not moved: $s is tracked by git"
+        refused=1
+        continue
+      fi
+      if [ -L "$s" ]; then
+        if is_ours "$s"; then continue; fi
+        echo "Not moved: $s is already a link"
+        refused=1
+        continue
+      fi
+      git check-ignore -q -- "$s" 2>/dev/null || continue
+      dest="brain/secrets/$s"
+      if [ -e "$dest" ] || [ -L "$dest" ]; then
+        echo "Not moved: $dest already exists"
+        refused=1
+        continue
+      fi
+      mkdir -p -- "brain/secrets/$(dirname -- "$s")"
+      if ! mv -- "$s" "$dest"; then
+        echo "Not moved: $s could not be moved"
+        refused=1
+        continue
+      fi
+      if ! ln -s -- "$(rel_link "$s")" "$s"; then
+        mv -- "$dest" "$s"
+        echo "Not moved: $s could not be linked"
+        refused=1
+        continue
+      fi
+      echo "moved $s"
+    done < <(just _secret-files)
+    # A copy of brain/ on a new disk has the files and no link at the old path.
+    if [ -d brain/secrets ]; then
+      while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        s="${f#brain/secrets/}"
+        [ -n "$s" ] && [ "$s" != "$f" ] || continue
+        [ -L "$s" ] && continue
+        [ -e "$s" ] && continue
+        mkdir -p -- "$(dirname -- "$s")"
+        if ln -s -- "$(rel_link "$s")" "$s"; then echo "moved $s"; fi
+      done < <(find brain/secrets \( -type f -o -type l \) -print 2>/dev/null | sed 's|^\./||' | sort)
+    fi
+    exit "$refused"
+
+# Put each secret file back at its path and empty brain/secrets/ (spec 036)
+[group('setup')]
+secrets-back:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    is_ours() {
+      local s="$1" t
+      [ -L "$s" ] || return 1
+      t=$(readlink "./$s")
+      t="${t#./}"
+      case "$t" in
+        brain/secrets/"$s"|*/brain/secrets/"$s") return 0 ;;
+      esac
+      return 1
+    }
+    restore() {
+      local s="$1" dest="brain/secrets/$s"
+      if [ -L "$s" ]; then
+        rm -f -- "$s"
+      elif [ -e "$s" ]; then
+        return 0
+      fi
+      if [ -e "$dest" ] || [ -L "$dest" ]; then
+        mkdir -p -- "$(dirname -- "$s")"
+        if mv -- "$dest" "$s"; then echo "restored $s"; fi
+      fi
+    }
+    while IFS= read -r s; do
+      [ -n "$s" ] || continue
+      is_ours "$s" || continue
+      restore "$s"
+    done < <(just _secret-files)
+    if [ -d brain/secrets ]; then
+      while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        s="${f#brain/secrets/}"
+        [ -n "$s" ] && [ "$s" != "$f" ] || continue
+        restore "$s"
+      done < <(find brain/secrets \( -type f -o -type l \) -print 2>/dev/null | sed 's|^\./||' | sort)
+      find brain/secrets -depth -type d -empty -delete 2>/dev/null || true
     fi
 
 # Add the command layer for a language: just stack <language>  (just stack alone lists the ready ones)
@@ -4631,16 +4761,16 @@ _vault-dest:
 
 # Every file outside brain/ whose name says it is a secret: an .env of any kind
 # but the example, an .envrc, and the endings keys and certificates come with.
-# Build and dependency folders are not looked into (a node_modules holds other
-# people's test keys by the hundred), nor is .references/, which is other
-# people's repositories. One list, read twice: `_vault-copy` takes from it what
-# git ignores, doctor names the keys in it.
+# A link at the old path after `just secrets-to-brain` is listed too (spec 036),
+# so doctor and the copy still see it. Build and dependency folders are not
+# looked into, nor is .references/. One list, read twice: `_vault-copy` takes
+# from it what git ignores, doctor names the keys in it.
 _secret-files:
     #!/usr/bin/env bash
     find . \( -path ./brain -o -path ./.references -o -name .git -o -name node_modules -o -name target \
               -o -name build -o -name dist -o -name .venv -o -name Pods -o -name DerivedData \
               -o -name .dart_tool -o -name .gradle \) -prune \
-      -o -type f \( -name .env -o -name '.env.*' -o -name .envrc -o -name '*.pem' -o -name '*.key' \
+      -o \( -type f -o -type l \) \( -name .env -o -name '.env.*' -o -name .envrc -o -name '*.pem' -o -name '*.key' \
               -o -name '*.p8' -o -name '*.p12' -o -name '*.pfx' -o -name '*.jks' -o -name '*.keystore' \
               -o -name '*.mobileprovision' \) ! -name .env.example -print 2>/dev/null | sed 's|^\./||' | sort
 
@@ -4660,7 +4790,8 @@ _secret-files:
 # is refused when a project's own folder has the name the copy would take.
 # A git repository inside brain/ is copied without its .git: a synced folder is
 # reported to damage one, and no vault here held one when this was written.
-# An .env is copied and never moved: its tool reads it where it is.
+# Secrets in brain/secrets/ are copied as files with brain/. A secret still
+# outside is copied to secrets/ as before (spec 036).
 #
 # The copy is written on this machine. Whether a cloud drive has uploaded it is
 # the drive's business, so this says "copied" and nothing about a cloud. It
@@ -4707,6 +4838,11 @@ _vault-copy:
     while IFS= read -r s; do
       [ -n "$s" ] || continue
       git check-ignore -q -- "$s" 2>/dev/null || continue
+      # A link into brain/secrets/ is already in dest/brain/secrets/ as a file.
+      if [ -L "$s" ]; then
+        t=$(readlink "./$s"); t="${t#./}"
+        case "$t" in brain/secrets/"$s"|*/brain/secrets/"$s") continue ;; esac
+      fi
       mkdir -p "$dest/secrets/$(dirname "./$s")" && rsync -a "./$s" "$dest/secrets/$s" && { n=$((n+1)); names="$names $s"; }
     done < <(just _secret-files)
     project=$(grep -E '^\| *project *\|' AGENTS.md 2>/dev/null | head -1 | awk -F'|' '{print $3}' | sed 's/^ *//;s/ *$//')
@@ -4714,11 +4850,13 @@ _vault-copy:
       echo "${project:-$(basename "$PWD")}: the second copy of what git does not hold."
       echo "Written by just session-end, last on $(date '+%Y-%m-%d %H:%M') on $(hostname 2>/dev/null || echo this machine), from $PWD"
       echo
-      echo "brain/     the private vault as it was then. A file deleted in the project is still here."
-      echo "secrets/   the secret files git ignores (.env, keys, certificates), each under its own path in the project."
+      echo "brain/     the private vault as it was then. Secrets live in brain/secrets/."
+      echo "           A file deleted in the project is still here."
+      echo "secrets/   no longer written. A secret still outside brain/ is copied here as before."
       echo
-      echo "On a new disk: get the project from GitHub, copy brain/ into it, and put each file"
-      echo "under secrets/ back at the same path. This file says when the copy was written."
+      echo "On a new disk: get the project from GitHub, copy brain/ into it, then just secrets-to-brain"
+      echo "(it leaves a link at each path). Put a file left in secrets/ back at the same path."
+      echo "This file says when the copy was written."
       echo "Whether the folder has reached a cloud since is the drive's to say."
     } > "$dest/about-this-copy.txt"
     if [ "$full" -eq 1 ]; then echo "brain/ copied to $dest/brain as it is now. The copy is taken when this command runs: after writing today's entry, run just session-end once more."; fi
@@ -4744,7 +4882,8 @@ _doctor-msg key a="" b="":
         copy-never)       echo "brain/ klasörünün ikinci kopyası henüz yazılmadı. Bir sonraki just session-end şuraya yazar: $a"; exit 0 ;;
         copy-age)         echo "brain/ klasörünün ikinci kopyası: $age, yeri $b"; exit 0 ;;
         key-outside)      echo "brain/ dışında bir anahtar ya da sertifika dosyası var:"; exit 0 ;;
-        key-where)        echo "yeri brain/05-files/ (AGENTS.md bölüm 7); onu okuyan araca yeni yeri gösterilir"; exit 0 ;;
+        key-where)        echo "yeri brain/secrets/ (AGENTS.md bölüm 7); just secrets-to-brain taşır ve eski yerinde bir bağ bırakır"; exit 0 ;;
+        key-missing)      echo "bir bağlantının dosyası yok:"; exit 0 ;;
         settings-not-json)    echo ".claude/settings.json bozuk (bir yorum, sonda bir virgül?): Claude Code bu dosyayı okumaz, bu projenin oturum ayarları da onunla devre dışı kalır -> ajanın dosyayı düzeltir"; exit 0 ;;
         settings-not-object)  echo ".claude/settings.json JSON ama Claude Code'un beklediği biçimde değil ({ ile başlamalı): bu projenin oturum ayarları devre dışı kalır -> ajanın dosyayı düzeltir"; exit 0 ;;
         settings-attribution) echo '.claude/settings.json içindeki "attribution" ayarı yüzünden eski Claude Code sürümleri bu dosyayı hiç okumaz, bu projenin oturum ayarları da onunla devre dışı kalır -> ajanın onu şu biçime çevirir: "attribution": {"commit": "", "pr": "", "sessionUrl": false}'; exit 0 ;;
@@ -4762,7 +4901,8 @@ _doctor-msg key a="" b="":
       copy-never)       echo "no second copy of brain/ written yet. The next just session-end writes it to $a" ;;
       copy-age)         echo "second copy of brain/: $age, in $b" ;;
       key-outside)      echo "a key or certificate sits outside brain/:" ;;
-      key-where)        echo "it belongs in brain/05-files/ (AGENTS.md section 7); whatever reads it is pointed there" ;;
+      key-where)        echo "it belongs in brain/secrets/ (AGENTS.md section 7); just secrets-to-brain moves it and leaves a link at the old path" ;;
+      key-missing)      echo "a link whose file is missing:" ;;
       settings-not-json)    echo ".claude/settings.json is broken (a comment, a trailing comma?): Claude Code does not read it, and this project's session settings are off with it -> your agent fixes the file" ;;
       settings-not-object)  echo ".claude/settings.json is JSON, but not the object Claude Code expects (it starts with {): this project's session settings are off -> your agent fixes the file" ;;
       settings-attribution) echo '.claude/settings.json sets "attribution" to true or false, so older Claude Code versions do not read the file at all, and this project'"'"'s session settings are off with it -> your agent changes it to: "attribution": {"commit": "", "pr": "", "sessionUrl": false}' ;;

@@ -85,9 +85,9 @@ Do not read the whole codebase. Use the map.
 | `docs/specs/` | one page per idea, written before the code. `just spec <name>`. |
 | `.agents/skills/` | reusable agent skills, team roles too (SKILL.md standard). `.claude/skills/` holds generated copies of them. |
 | `brain/` | private vault, in `brain_lang`, never committed |
-| `.ai-backbone/` | **owned by the backbone.** Its recipes, manifest, templates and setup script. `just template-update` writes here and to nothing of yours. Never edit. |
-| `.references/` | **READ ONLY.** Other people's repos and old versions of yours. Never write there. Created when first needed. `just ref-add <url> "why"` adds one. |
-| `.archive/` | retired but kept. Do not read unless asked. Created when first needed. |
+| `.ai-backbone/` | **owned by the backbone.** `just template-update` writes here and to nothing of yours. Never edit. |
+| `.references/` | **READ ONLY.** Other people's repos and old versions of yours. Never write. `just ref-add <url> "why"` adds one. |
+| `.archive/` | retired but kept. Do not read unless asked. |
 | `.github/copilot-instructions.md` | **generated from this file** for the tools in §0. Never edit it. |
 | `.junie/guidelines.md` | **generated from this file** for the tools in §0. Never edit it. |
 | `.vscode/settings.json` | folds the hidden plumbing away from VS Code's sidebar. Nothing is deleted. |
@@ -118,6 +118,7 @@ If you need a new repeatable command, add a recipe.
 - Ask first before: deleting files, force pushing, rewriting history, installing anything globally.
 - Never commit secrets. `.env` is ignored. `.env.example` is its template, created
   together with the first secret, not before.
+- Secrets live in `brain/secrets/`. Never print, copy or quote one, and read one only to move it.
 - Account IDs, API keys, signing certificates and customer data live in `brain/`, never in a tracked file.
 - `just undo` throws away uncommitted work. Warn before suggesting it.
 - Never send the maintainer's name or e-mail to a third-party service, a
