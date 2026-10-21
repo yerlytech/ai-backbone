@@ -1450,7 +1450,24 @@ delegate task="":
     # Adapters: how to call the CLI headless, in this folder, with the prompt.
     # `exec` so a later stop reaches the CLI and not the shell around it. The
     # call is always in a subshell, or exec would replace this recipe.
-    delegate_grok() { exec "$worker_bin" -p "$1" --output-format plain; }
+    # Headless grok refuses a command no rule allows and ends the run there,
+    # and a chained command (&&, ;, |) matches no rule (measured on grok
+    # 1.0.62): edits are allowed, commands come from a list, one per call.
+    # The denies hold inside chains too. bypassPermissions is not used:
+    # Claude Code's auto mode refuses to launch a worker with it.
+    delegate_grok() {
+      exec "$worker_bin" -p "$1" --output-format plain --permission-mode acceptEdits \
+        --rules 'Shell: run exactly one plain command per call. Never chain with &&, ;, || or |, never redirect with > or 2>, no subshells or loops. Use the Read, Grep, Glob and edit tools for files.' \
+        --allow 'Bash(just:*)' --allow 'Bash(git:*)' --allow 'Bash(cargo:*)' --allow 'Bash(npm:*)' \
+        --allow 'Bash(npx:*)' --allow 'Bash(flutter:*)' --allow 'Bash(dart:*)' --allow 'Bash(ls:*)' \
+        --allow 'Bash(wc:*)' --allow 'Bash(date:*)' \
+        --deny 'Bash(git push:*)' --deny 'Bash(git merge:*)' --deny 'Bash(git rebase:*)' \
+        --deny 'Bash(git checkout:*)' --deny 'Bash(git switch:*)' --deny 'Bash(git reset:*)' \
+        --deny 'Bash(git branch -d:*)' --deny 'Bash(git branch -D:*)' --deny 'Bash(git tag:*)' \
+        --deny 'Bash(just publish:*)' --deny 'Bash(just ship:*)' --deny 'Bash(just deploy:*)' \
+        --deny 'Bash(just release:*)' --deny 'Bash(just undo:*)' --deny 'Bash(gh:*)' \
+        --deny 'Bash(curl:*)' --deny 'Bash(ssh:*)' --deny 'Bash(rm:*)'
+    }
     delegate_claude() {
       if [ -n "${WORKER_MODEL:-}" ]; then exec "$worker_bin" -p "$1" --model "$WORKER_MODEL"
       else exec "$worker_bin" -p "$1"; fi

@@ -3606,11 +3606,17 @@ cat > "$dbin/grok" << 'EOF'
 prompt=""
 fmt=""
 model=""
+perm=""
+deny=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -p) prompt=$2; shift 2 ;;
     --output-format) fmt=$2; shift 2 ;;
     --model) model=$2; shift 2 ;;
+    --permission-mode) perm=$2; shift 2 ;;
+    --deny) deny="$deny$2
+"; shift 2 ;;
+    --rules|--allow) shift 2 ;;
     *) echo "unexpected: $1" >&2; exit 2 ;;
   esac
 done
@@ -3618,6 +3624,8 @@ if [ -n "${FAKE_WORKER_PROMPT:-}" ]; then
   printf '%s\n' "$prompt" > "$FAKE_WORKER_PROMPT"
   printf '%s\n' "$fmt" > "$FAKE_WORKER_PROMPT.fmt"
   printf '%s\n' "$model" > "$FAKE_WORKER_PROMPT.model"
+  printf '%s\n' "$perm" > "$FAKE_WORKER_PROMPT.perm"
+  printf '%s' "$deny" > "$FAKE_WORKER_PROMPT.deny"
 fi
 if [ -n "${FAKE_WORKER_BINLOG:-}" ]; then printf '%s\n' "$0" > "$FAKE_WORKER_BINLOG"; fi
 mode=${FAKE_WORKER_MODE:-ok}
@@ -3859,7 +3867,7 @@ done
 check "a clean run makes delegate/<date>-<slug>, commits, and prints the report, the stat, a clean tree and the exit" \
   "[ \$d_rc -eq 0 ] && case \"\$dbr\" in delegate/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-add-a-line) ;; *) false ;; esac && grep -qx 'tree: clean' <<<\"\$d_out\" && grep -qx 'exit status: 0' <<<\"\$d_out\" && grep -q 'worker-did.txt' <<<\"\$d_out\" && grep -q 'line-20' <<<\"\$d_out\" && grep -q 'line-06' <<<\"\$d_out\" && ! grep -q 'line-01' <<<\"\$d_out\" && grep -q \"commits on \$dbr\" <<<\"\$d_out\" && ! grep -q '^BREACH:' <<<\"\$d_out\" && [ -n \"\$dlog\" ] && grep -q 'line-01' \"\$dlog\" && [ -z \"\$(find \"\$dproj\" -name '*.log' -type f)\" ] && [ -z \"\$(git -C \"\$dproj\" status --porcelain)\" ]"
 check "the worker's prompt is the preamble, then the task, and grok is called headless" \
-  "grep -q 'Read AGENTS.md' \"\$dprompt\" && grep -q \"You are on branch \$dbr; stay on it.\" \"\$dprompt\" && grep -q 'just save' \"\$dprompt\" && grep -q 'just publish' \"\$dprompt\" && grep -q 'git push' \"\$dprompt\" && grep -q 'just ship' \"\$dprompt\" && grep -q 'just deploy' \"\$dprompt\" && grep -q 'server or GitHub' \"\$dprompt\" && grep -q 'merge, rebase, or delete a branch' \"\$dprompt\" && grep -q 'at most 15 lines' \"\$dprompt\" && [ \"\$(tail -n 1 \"\$dprompt\")\" = 'add a line' ] && [ \"\$(cat \"\$dprompt.fmt\")\" = plain ] && [ -z \"\$(cat \"\$dprompt.model\")\" ]"
+  "grep -q 'Read AGENTS.md' \"\$dprompt\" && grep -q \"You are on branch \$dbr; stay on it.\" \"\$dprompt\" && grep -q 'just save' \"\$dprompt\" && grep -q 'just publish' \"\$dprompt\" && grep -q 'git push' \"\$dprompt\" && grep -q 'just ship' \"\$dprompt\" && grep -q 'just deploy' \"\$dprompt\" && grep -q 'server or GitHub' \"\$dprompt\" && grep -q 'merge, rebase, or delete a branch' \"\$dprompt\" && grep -q 'at most 15 lines' \"\$dprompt\" && [ \"\$(tail -n 1 \"\$dprompt\")\" = 'add a line' ] && [ \"\$(cat \"\$dprompt.fmt\")\" = plain ] && [ -z \"\$(cat \"\$dprompt.model\")\" ] && [ \"\$(cat \"\$dprompt.perm\")\" = acceptEdits ] && grep -qx 'Bash(git push:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(just ship:\*)' \"\$dprompt.deny\""
 git -C "$dproj" checkout -q main
 d_run ok grok "" delegate "add a line"
 check "the same task on the same day is refused, and the first branch stays" "[ \$d_rc -ne 0 ] && grep -q 'already exists' <<<\"\$d_out\" && git -C \"\$dproj\" show-ref --verify --quiet \"refs/heads/\$dbr\""
