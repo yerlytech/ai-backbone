@@ -13,6 +13,21 @@ follows that version on the maintainer's machine takes the tags before it
 with the history. A newcomer reads a repository, not a diary. The entries
 below are the record of every version.
 
+## [Unreleased]
+
+**Windows reports; Linux and macOS decide the carry (spec 037).** The Windows
+suite moves out of `checks.yml` into `windows.yml`, started by the same push
+to `cloud`, with the same steps and the caps of 48 and 44 minutes.
+`suite_green` reads Linux and macOS only; a Windows job still inside the
+checks run is ignored, not required. `just carry <commit>` prints the newest
+Windows result for that commit — green, red with up to five FAIL names,
+running, or none — and still carries when Linux and macOS are green.
+`just release`, in a project that has `windows.yml`, refuses to tag while
+that run is red, still going, or missing, and says which. A red Windows run
+appends one `gate:` line to `docs/routine-log.md`, naming its FAIL names, as
+a red Linux does. A project with no `windows.yml` is not asked. Nothing to
+do until `just template-update`.
+
 ## 3.45.1 — 2026-10-20
 
 **A delegate job ends when the worker does.** The worker ran with the

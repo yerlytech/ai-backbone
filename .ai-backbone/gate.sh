@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# The gate (spec 017): what reaches main is what passed on a clean Linux, Mac
-# and Windows. Since spec 031 code also waits for a person: the gate carries a
-# push on its own only when it changes nothing but the routine's own files.
+# The gate (spec 017): what reaches main is what passed on a clean Linux and a
+# clean Mac. Windows runs the same suite and reports (spec 037); it decided
+# from spec 020 until then, and a carry no longer waits for it. Since spec 031
+# code also waits for a person: the gate carries a push on its own only when
+# it changes nothing but the routine's own files.
 #
 #   gate.sh look [commit]   in a checkout of the pushed commit: prints `suite`
 #                           when the suite must run for it, `docs-only` when
@@ -14,9 +16,14 @@
 #                           docs/routine-log.md on cloud)
 #   gate.sh attend <commit> on the maintainer's machine, from main's copy of
 #                           this file (just carry): carries a commit that is on
-#                           cloud and green on all three machines to main and
-#                           tags its version. The person said yes first; nothing
+#                           cloud and green on Linux and macOS to main and
+#                           tags its version, and prints the commit's Windows
+#                           result in one line. The person said yes first; nothing
 #                           here can tell, so the routine brief forbids it.
+#   gate.sh windows <commit> the newest windows.yml run of that commit, one
+#                           line: green, running, none, or red with up to five
+#                           FAIL names. just carry prints it; just release
+#                           refuses unless it is green.
 #
 # promote.yml runs from main's copy of itself and of this file, so a push to
 # cloud can change what is tested, never how it is judged. Nothing here merges:
@@ -75,21 +82,21 @@ code_of() {
   printf '%s' "$out"
 }
 
-# Green on the machines that decide: Linux, macOS and, since spec 020 made it
-# green, Windows. The maintainer chose it on 2026-09-24, knowing a carry now
-# waits the Windows job's seventeen minutes instead of the Mac's five.
+# Green on the machines that decide the carry: Linux and macOS (spec 037).
+# A Windows job in this run, if one ever returns, is ignored, not required.
+# Windows reports from its own workflow; windows_line reads that run.
 suite_green() {
-  local id name concl linux="" mac="" win=""
+  local id name concl linux="" mac=""
   # By prefix: a matrix job's name carries the other matrix values as well
   # when the workflow gives it no name of its own (measured 2026-09-24).
   while IFS=$'\t' read -r id name concl; do
     case "$name" in
-      "suite (ubuntu-latest"*)  [ "$concl" = success ] && linux=1 ;;
-      "suite (macos-latest"*)   [ "$concl" = success ] && mac=1 ;;
-      "suite (windows-latest"*) [ "$concl" = success ] && win=1 ;;
+      "suite (ubuntu-latest"*) [ "$concl" = success ] && linux=1 ;;
+      "suite (macos-latest"*)  [ "$concl" = success ] && mac=1 ;;
+      "suite (windows-latest"*) ;;
     esac
   done < <(jobs_of "$1")
-  [ -n "$linux" ] && [ -n "$mac" ] && [ -n "$win" ]
+  [ -n "$linux" ] && [ -n "$mac" ]
 }
 
 # What went red, by machine, with up to five FAIL names from its log.
@@ -123,11 +130,11 @@ carry() {
   # By name: cloud may have moved past it, and a commit cloud no longer reaches
   # (it is never rewritten, but a fetch is cheap) is judged as gone.
   git fetch -q origin "$sha" 2>/dev/null || true
-  # The machines that decide decide. A job cut by its cap ends the whole run
-  # as "cancelled" whatever continue-on-error says (measured 2026-09-24:
-  # Linux and macOS green, Windows cancelled, run cancelled), and a run nobody
-  # judges is a push that never reaches main. Kept for a job that is not a
-  # suite job, or a fourth machine added report-only one day.
+  # The machines that decide decide: Linux and macOS (spec 037). A job cut by
+  # its cap ends the whole run as "cancelled" whatever continue-on-error says
+  # (measured 2026-09-24), and a run nobody judges is a push that never reaches
+  # main. A Windows job in this run is not one of them. Kept for a job that is
+  # not a suite job, or a machine added report-only one day.
   if [ "$GATE_ENDED" != success ] && suite_green "$run"; then
     echo "gate: the run ended $GATE_ENDED, and every suite job was green: they decide"
     GATE_ENDED=success
@@ -147,13 +154,13 @@ carry() {
   elif ! git diff --quiet origin/main "$sha" -- .github/workflows .ai-backbone/gate.sh 2>/dev/null; then
     why="the push changes .github/workflows or gate.sh, which only an attended carry takes to main (just carry $short after green checks, on the maintainer's yes); an unattended run puts main's copy back"
   elif [ "$(look "$sha" 2>/dev/null)" = suite ] && ! suite_green "$run"; then
-    why="the suite was due for this push and the run has no green suite job for Linux, macOS and Windows"
+    why="the suite was due for this push and the run has no green suite job for Linux and macOS"
   elif [ "$(look "$sha" 2>/dev/null)" = suite ]; then
     # Spec 031: green is not enough for code. A changelog a stranger wrote can
     # shape what a scheduled run builds, so code reaches the projects only
     # after somebody said yes to it.
     verdict="$short waits for an attended carry"
-    why="green on Linux, macOS and Windows; it changes code ($(code_of "$sha")): an attended session says what changed and why, and on the maintainer's yes runs just carry $short"
+    why="green on Linux and macOS; it changes code ($(code_of "$sha")): an attended session says what changed and why, and on the maintainer's yes runs just carry $short"
   else
     git checkout -q -B main origin/main 2>/dev/null
     if git merge -q --ff-only "$sha" >/dev/null 2>&1; then
@@ -183,21 +190,34 @@ carry() {
   # Not carried. One line where the next run reads (just session-start prints
   # the last two), on cloud, on top of whatever landed there meanwhile. A push
   # by this token starts no workflow, so the line rides the next real push.
-  local line try
+  # A red Windows run, when this carry can already see it, appends one more
+  # line the way a red Linux does. It does not decide the carry.
+  local line
   line="- $(date -u +%Y-%m-%d) gate: $verdict — $(printf '%s' "$why" | tr '\n\r\t' '   ' | cut -c1-400)"
+  if append_gate "$line" "docs: gate — $verdict"; then
+    echo "gate: $verdict: $why"
+    note_windows "$sha"
+    return 0
+  fi
+  echo "gate: $verdict: $why (and the verdict could not be written on cloud: the next run sees cloud ahead of main with no line for it)"
+  return 1
+}
+
+# Append one line to docs/routine-log.md on cloud. 0 when the push landed.
+append_gate() {
+  local line="$1" msg="$2" try
   for try in 1 2 3; do
     git fetch -q origin +refs/heads/cloud:refs/remotes/origin/cloud 2>/dev/null || break
     git checkout -q --detach origin/cloud 2>/dev/null || break
     mkdir -p docs
     [ ! -s docs/routine-log.md ] || [ -z "$(tail -c1 docs/routine-log.md)" ] || echo >> docs/routine-log.md
     printf '%s\n' "$line" >> docs/routine-log.md
-    if git add docs/routine-log.md && git commit -q -m "docs: gate — $verdict" >/dev/null 2>&1 \
+    if git add docs/routine-log.md && git commit -q -m "$msg" >/dev/null 2>&1 \
        && git push -q origin HEAD:cloud 2>/dev/null; then
-      echo "gate: $verdict: $why"; return 0
+      return 0
     fi
     git reset -q --hard origin/cloud 2>/dev/null || true
   done
-  echo "gate: $verdict: $why (and the verdict could not be written on cloud: the next run sees cloud ahead of main with no line for it)"
   return 1
 }
 
@@ -208,6 +228,43 @@ run_of() {
   command -v gh >/dev/null 2>&1 || return 1
   GH_PAGER=cat gh run list --workflow checks.yml --commit "$1" --limit 5 \
     --json databaseId,status,conclusion -q '.[0] | select(. != null) | [.databaseId, .status, .conclusion] | @tsv' 2>/dev/null
+}
+
+# The newest windows.yml run of a commit: id, status, conclusion. Empty when
+# there is none. Through gh, as run_of. Spec 037: Windows reports from its own
+# workflow; this is what carry prints and release reads.
+windows_run() {
+  command -v gh >/dev/null 2>&1 || return 1
+  GH_PAGER=cat gh run list --workflow windows.yml --commit "$1" --limit 5 \
+    --json databaseId,status,conclusion -q '.[0] | select(. != null) | [.databaseId, .status, .conclusion] | @tsv' 2>/dev/null || true
+}
+
+# One line: green, running, none, or red with up to five FAIL names (red).
+windows_line() {
+  local row id st concl
+  row=$(windows_run "$1" 2>/dev/null || true)
+  if [ -z "${row:-}" ]; then printf '%s\n' none; return 0; fi
+  IFS=$'\t' read -r id st concl <<<"$row"
+  if [ -z "${id:-}" ]; then printf '%s\n' none; return 0; fi
+  if [ "${st:-}" != completed ]; then printf '%s\n' running; return 0; fi
+  if [ "${concl:-}" = success ]; then printf '%s\n' green; return 0; fi
+  printf 'red: %s\n' "$(red "$id")"
+}
+
+# A red Windows run appends one gate: line, as a red Linux does. Green,
+# running and none write nothing: the carry does not wait for them.
+note_windows() {
+  local w why line
+  w=$(windows_line "$1")
+  case "$w" in
+    red:*) ;;
+    *) return 0 ;;
+  esac
+  why="${w#red: }"
+  line="- $(date -u +%Y-%m-%d) gate: cloud not promoted — the windows run ended failure: $(printf '%s' "$why" | tr '\n\r\t' '   ' | cut -c1-400)"
+  if append_gate "$line" "docs: gate — cloud not promoted"; then
+    echo "gate: windows: $why"
+  fi
 }
 
 # The attended carry (spec 031). It runs in the person's own clone, so it
@@ -230,6 +287,9 @@ attend() {
   if ! git merge-base --is-ancestor "$sha" origin/cloud 2>/dev/null; then
     echo "carry: $short is not on cloud, so no gate ran on it; nothing was carried."; return 1
   fi
+  # Spec 037: one line, whatever the checks say. A red Windows run does not
+  # stop the carry; just release is what refuses.
+  echo "Windows: $(windows_line "$sha")"
   if ! git merge-base --is-ancestor origin/main "$sha" 2>/dev/null; then
     echo "carry: main moved past what $short was built on; merge origin/main into cloud, publish, and carry that commit after its green run."; return 1
   fi
@@ -241,7 +301,7 @@ attend() {
     echo "carry: the checks for $short are still going (just ci); nothing was carried."; return 1
   fi
   if ! suite_green "$run"; then
-    echo "carry: $short is not green on Linux, macOS and Windows (run $run${concl:+, $concl}); nothing was carried."; return 1
+    echo "carry: $short is not green on Linux and macOS (run $run${concl:+, $concl}); nothing was carried."; return 1
   fi
   # No apostrophe inside a ${x:+...}: /bin/bash 3.2 reads one as a quote.
   rails=$(git diff --name-only origin/main "$sha" -- .github/workflows .ai-backbone/gate.sh 2>/dev/null | tr '\n' ' ' | sed 's/ $//')
@@ -266,8 +326,9 @@ attend() {
 }
 
 case "${1:-}" in
-  look)   look "${2:-HEAD}" ;;
-  carry)  carry ;;
-  attend) attend "${2:-}" ;;
-  *) echo "usage: gate.sh look [commit] | gate.sh carry | gate.sh attend <commit>" >&2; exit 2 ;;
+  look)    look "${2:-HEAD}" ;;
+  carry)   carry ;;
+  attend)  attend "${2:-}" ;;
+  windows) windows_line "${2:-HEAD}" ;;
+  *) echo "usage: gate.sh look [commit] | gate.sh carry | gate.sh attend <commit> | gate.sh windows <commit>" >&2; exit 2 ;;
 esac

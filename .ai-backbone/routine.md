@@ -217,11 +217,13 @@ read it: on a backlog line you leave open, in the CHANGELOG, in a new
     and push once more. If the merge stops, `git merge --abort`, push nothing,
     and say so in your report: the next run starts from a fresh checkout and
     does the item again. You never tag and never push `main`: the gate tests
-    your push on three machines, carries a push of your own files only to
-    `main` when all three are green, and tags the version it finds on line 1
+    your push on three machines. Linux and macOS decide; Windows reports
+    (spec 037). It carries a push of your own files only to
+    `main` when those two are green, and tags the version it finds on line 1
     of `core.just`; a push with code it leaves green on `cloud` for an
     attended carry. A red gate, or code that waits, writes a `gate:` line into
-    `docs/routine-log.md` on `cloud`, and the next run reads it first (step 6).
+    `docs/routine-log.md` on `cloud`; a red Windows run writes one more,
+    naming its FAIL names. The next run reads it first (step 6).
 
 ## Every second run: the radar
 

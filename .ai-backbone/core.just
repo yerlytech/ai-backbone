@@ -2374,6 +2374,24 @@ release step="":
       echo "Change or delete what should not be there, then: just release${1:+ $1}"
       exit 0
     fi
+    # Spec 037: a repo that runs the Windows suite does not tag while that run
+    # is red, still going, or missing. A repo with no windows.yml is not asked.
+    # The commit asked about is the saved one, whose tree this tags.
+    # gate.sh is the backbone's, not a project's, so the read is from there.
+    if [ -f .github/workflows/windows.yml ]; then
+      sha=$(git rev-parse HEAD)
+      bb=$(just _backbone 2>/dev/null || true)
+      gate=""
+      if [ -f .ai-backbone/gate.sh ]; then gate=.ai-backbone/gate.sh
+      elif [ -n "$bb" ] && [ -f "$bb/.ai-backbone/gate.sh" ]; then gate="$bb/.ai-backbone/gate.sh"; fi
+      if [ -n "$gate" ]; then w=$(bash "$gate" windows "$sha" 2>/dev/null || true); else w=""; fi
+      case "$w" in
+        green) ;;
+        red:*) echo "Not released: Windows is $w."; exit 1 ;;
+        running) echo "Not released: Windows is running."; exit 1 ;;
+        *) echo "Not released: Windows is none."; exit 1 ;;
+      esac
+    fi
     # The Unreleased section keeps its heading and loses its text, and the
     # version's own section goes under it, above every earlier version.
     cp CHANGELOG.md "$pre"

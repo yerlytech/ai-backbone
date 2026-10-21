@@ -225,8 +225,9 @@ You never have to think about the backbone. Two things happen on their own
   writes a line into the backbone's `docs/backlog.md` on GitHub
   (`just backbone-note`) or fixes it there right away, tests it, publishes it to the backbone's
   `cloud` branch — where a gate on GitHub tests it again on a clean Linux, Mac
-  and Windows machine. When it is green the agent tells you in two plain
-  sentences what changed and why, and on your yes carries it to `main`
+  and Windows machine. Linux and macOS decide (spec 037); Windows reports, and
+  a carry does not wait for it. When Linux and macOS are green the agent tells
+  you in two plain sentences what changed and why, and on your yes carries it to `main`
   (`just carry`, spec 031) and updates your project. That yes is the one
   word a release asks of you; otherwise it asks only when the fix would
   change what you type or must do by hand.
@@ -312,19 +313,28 @@ down; `just template-update newest` goes past the mark when one is needed.
 
 The backbone's own scheduled agent is a Claude Code routine, once a day. It
 pushes to the branch `cloud`, never to `main`. Every push there is tested by
-GitHub on a clean Linux, a clean Mac and a clean Windows machine
-(`checks.yml`); all three decide (Windows since spec 020); a push that
-changes only the agent's own files (its log, the
+GitHub on a clean Linux and a clean Mac (`checks.yml`); those two decide the
+carry (spec 037). The same push runs the suite on a clean Windows machine
+(`windows.yml`), with the same steps and the caps of 48 and 44 minutes, and
+that run reports. `just carry <commit>` prints its result for the commit in
+one line: green, red with up to five FAIL names, still running, or none. It
+does not refuse on Windows. `just release`, in a project that has
+`windows.yml`, refuses to tag while that run is red, still going, or missing,
+and says which. Windows decided from spec 020 (the maintainer, 2026-09-24)
+until spec 037; before that it only reported, and a carry waited for it.
+A push that changes only the agent's own files (its log, the
 backlog, the radar's markers, a spec) is carried without the suite. Such a
 push, once it passes, is carried to `main` by `promote.yml`, which runs from
 `main`'s own copy of itself and of `.ai-backbone/gate.sh`, so a run can change
 what is tested and never how it is judged. A push that changes code waits on
-`cloud`, green, until a session you are in carries it (spec 031): the agent
-tells you what changed and why, and on your yes runs `just carry <commit>`,
-which uses `main`'s own `gate.sh` and tags the version. `just carry` alone
-lists what waits, and `just session-start` in the backbone says so. A red
-gate, or code that waits, writes one `gate:` line at the end of
-`docs/routine-log.md` on `cloud`, and the next run reads it first. The agent's sandbox keeps nothing, so it writes one line per run at the
+`cloud`, green on Linux and macOS, until a session you are in carries it
+(spec 031): the agent tells you what changed and why, and on your yes runs
+`just carry <commit>`, which uses `main`'s own `gate.sh`, prints the Windows
+line, and tags the version. `just carry` alone lists what waits, and
+`just session-start` in the backbone says so. A red gate, or code that waits,
+writes one `gate:` line at the end of `docs/routine-log.md` on `cloud`. A red
+Windows run writes one more, naming its FAIL names, the way a red Linux does.
+The next run reads those lines first. The agent's sandbox keeps nothing, so it writes one line per run at the
 end of that same file, and `just session-start` in the backbone prints the
 last two. What is the maintainer's to decide waits in `docs/backlog.md` as a `- [?]`
 line, never more than three, and Sunday's report asks the oldest one as a
@@ -334,7 +344,8 @@ working with, never by the scheduled one.
 
 Before the backlog, every run looks at the tools the backbone is built on
 (`docs/upstream.toml`). When one has a new release, moving to it is that run's
-item, and the gate tests it on the three machines before it reaches `main`; a
+item, and the gate tests it on Linux and macOS before it reaches `main`;
+Windows runs the same suite and reports (spec 037). A
 change to a workflow is left for a session you are in (spec 021).
 
 Every second run (it runs every third day, so about every six days) its one

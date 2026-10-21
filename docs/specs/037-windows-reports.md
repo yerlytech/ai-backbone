@@ -41,26 +41,26 @@ public, and the carry stops waiting for Windows.
 
 ## Acceptance
 
-- [ ] `.github/workflows/windows.yml` runs the Windows suite on a push to
+- [x] `.github/workflows/windows.yml` runs the Windows suite on a push to
       cloud when `gate.sh look` says suite, with the same steps and caps as
       today; checks.yml's matrix holds Linux and macOS only.
-- [ ] `gate.sh`'s `suite_green` reads Linux and macOS; a Windows job in the
+- [x] `gate.sh`'s `suite_green` reads Linux and macOS; a Windows job in the
       checks run, if one ever returns, is ignored, not required.
-- [ ] `just carry <commit>` prints the commit's Windows result in one line:
+- [x] `just carry <commit>` prints the commit's Windows result in one line:
       green, red with up to five FAIL names, running, or none.
-- [ ] `just release` refuses while the commit's Windows run is red, running
+- [x] `just release` refuses while the commit's Windows run is red, running
       or missing, and says which; the gate's tests and the release's tests
       cover each case against a fake `gh`.
-- [ ] A red Windows run on cloud appends one `gate:` line to
+- [x] A red Windows run on cloud appends one `gate:` line to
       docs/routine-log.md naming its FAIL names, as a red Linux does today.
 - [ ] Measured on the first push after the change: the carry is possible
       when Linux and macOS end, and the time is written here.
 
 ## Tasks
 
-- [ ] windows.yml and checks.yml split; ci-check accepts the new file.
-- [ ] gate.sh and carry; their tests.
-- [ ] release refuses on Windows red or missing; its tests.
+- [x] windows.yml and checks.yml split; ci-check accepts the new file.
+- [x] gate.sh and carry; their tests.
+- [x] release refuses on Windows red or missing; its tests.
 - [ ] Docs (spec 020's note, getting-started's gate section), changelog;
       the attended carry of the workflow change (`git push origin <commit>:main`
       after green checks, as the gate's rule for workflow changes says).

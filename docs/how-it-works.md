@@ -58,13 +58,15 @@ spec number, no commit hash, no test name or log line from its CI, no list of it
 no set of its pins). A scheduled agent takes one item from that list every
 day, builds it, tests it and pushes it to the branch `cloud`. A gate on GitHub
 tests that push again on a clean Linux, a clean Mac and a clean Windows
-machine, and all three decide (Windows since spec 020). Green docs (a note, a
+machine. Linux and macOS decide the carry (spec 037); Windows reports, and a
+carry no longer waits for it. Green docs (a note, a
 log line, a spec) go to `main` on their own. Green code waits on `cloud` until
 an agent you are working with tells you what changed and why, and on your yes
 carries it with `just carry`; then it becomes a new version, tagged (spec
 031). Red leaves one line that the next run reads first and fixes. Before the list, each run checks
 the tools the backbone is built on: when one has a new release, the run moves
-to it, and the gate tests it on the three machines before it reaches `main`.
+to it, and the gate tests it on Linux and macOS before it reaches `main`.
+Windows runs the same suite and reports.
 Every second run the agent looks outward instead: the radar reads what the
 standards and agent tools around the backbone have published and adds what
 matters to the same list, as ideas. The next time an agent opens any
@@ -99,7 +101,7 @@ flowchart TD
     test -->|"red"| build
     test -->|"green: pushed to cloud"| gate
     gate -->|"red"| build
-    gate -->|"green on all three"| yes
+    gate -->|"green on Linux and macOS"| yes
     yes["Your yes: just carry"] --> ver
     ver -->|"just template-update"| projs
 ```
@@ -110,7 +112,7 @@ a project, or an idea the radar brought in, becomes a one-page spec in
 `just self-test` tries it out on throwaway projects. Red means it is not saved,
 and the agent goes back to building. Green is pushed to the branch `cloud`,
 where GitHub runs the same suite on a clean Linux, Mac and Windows machine.
-When all three are green, an agent you are working with tells you what changed
+When Linux and macOS are green, an agent you are working with tells you what changed
 and why, and on your yes it becomes a new version on `main`, tagged, with an
 entry in `CHANGELOG.md` (spec 031); each of your projects takes it in the next
 time an agent works there. Whatever would change something you type waits for
