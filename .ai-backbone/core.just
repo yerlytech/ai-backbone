@@ -773,6 +773,15 @@ secrets-to-brain:
     #!/usr/bin/env bash
     set -uo pipefail
     [ -d brain ] || { echo "No brain/ yet. Run: just brain-init"; exit 1; }
+    # Git Bash on Windows copies a file for `ln -s` unless links are turned
+    # on; a copy left at the old path would be a second secret.
+    probe="brain/.link-probe.$$"; rm -f "$probe" "$probe.t"; : > "$probe.t"
+    if ! ln -s ".link-probe.$$.t" "$probe" 2>/dev/null || [ ! -L "$probe" ]; then
+      rm -f "$probe" "$probe.t"
+      echo "Not moved: this machine makes no symbolic links (on Windows: Developer Mode and MSYS=winsymlinks:nativestrict), so every secret stays where it is."
+      exit 0
+    fi
+    rm -f "$probe" "$probe.t"
     rel_link() {
       local s="$1" d prefix="" x
       d=$(dirname -- "$s")
