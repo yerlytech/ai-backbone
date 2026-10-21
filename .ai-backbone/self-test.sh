@@ -2811,6 +2811,12 @@ git tag -a marker-1 -m marker
 echo carried >> f-carry.txt
 just save "fix: a save carries a tag along" >/dev/null 2>&1
 check "and a save that reaches GitHub carries a tag along" "git --git-dir='$tmp/pv-hub.git' rev-parse -q --verify refs/tags/marker-1 >/dev/null"
+pv_back=$(git symbolic-ref --short HEAD)
+git checkout -q -b delegate/2026-01-01-pv
+echo worker >> f-carry.txt
+out=$(just save "fix: a worker's save" 2>&1)
+check "a save on a delegate branch stays here, publish-on-save or not" "grep -q 'not sent to GitHub: a delegate branch' <<<\"\$out\" && ! git --git-dir='$tmp/pv-hub.git' rev-parse -q --verify refs/heads/delegate/2026-01-01-pv >/dev/null"
+git checkout -q "$pv_back" && git branch -q -D delegate/2026-01-01-pv
 git config ai-backbone.publish-on-save false
 pc j "fix: stays here"
 rel >/dev/null 2>&1

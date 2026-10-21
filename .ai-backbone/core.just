@@ -1452,10 +1452,14 @@ delegate task="":
     # call is always in a subshell, or exec would replace this recipe.
     # Headless grok in acceptEdits refuses its own edit tool and any chained
     # command (grok 1.0.62, measured 2026-10-21). In auto it edits and runs
-    # what its judge allows; the denies hold, inside a chain too. Not
+    # what its judge allows, and its judge may refuse a long test run, so the
+    # tools a job needs are allowed outright; a deny beats an allow, inside a
+    # chain too (measured). Not
     # bypassPermissions: Claude Code's auto mode refuses to launch it.
     delegate_grok() {
       exec "$worker_bin" -p "$1" --output-format plain --permission-mode auto \
+        --allow 'Bash(just:*)' --allow 'Bash(git:*)' --allow 'Bash(cargo:*)' --allow 'Bash(npm:*)' \
+        --allow 'Bash(npx:*)' --allow 'Bash(flutter:*)' --allow 'Bash(dart:*)' --allow 'Bash(uv:*)' \
         --deny 'Bash(git push:*)' --deny 'Bash(git merge:*)' --deny 'Bash(git rebase:*)' \
         --deny 'Bash(git checkout:*)' --deny 'Bash(git switch:*)' --deny 'Bash(git reset:*)' \
         --deny 'Bash(git branch -d:*)' --deny 'Bash(git branch -D:*)' --deny 'Bash(git tag:*)' \
@@ -2107,6 +2111,8 @@ save msg *paths:
       # Inside the backbone, main is the gate's to move (spec 017).
       if [ -n "$(just _is-backbone)" ] && [ "$(git symbolic-ref -q --short HEAD 2>/dev/null)" = main ]; then
         echo "  not sent to GitHub: the backbone's work travels on cloud (just publish says how)"
+      elif case "$(git symbolic-ref -q --short HEAD 2>/dev/null)" in delegate/*) true ;; *) false ;; esac; then
+        echo "  not sent to GitHub: a delegate branch is the worker's, and only its accept moves work on (spec 034)"
       elif git push -q origin HEAD --follow-tags 2>/dev/null; then
         echo "  -> GitHub"
       else
