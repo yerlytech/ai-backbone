@@ -1450,17 +1450,12 @@ delegate task="":
     # Adapters: how to call the CLI headless, in this folder, with the prompt.
     # `exec` so a later stop reaches the CLI and not the shell around it. The
     # call is always in a subshell, or exec would replace this recipe.
-    # Headless grok refuses a command no rule allows and ends the run there,
-    # and a chained command (&&, ;, |) matches no rule (measured on grok
-    # 1.0.62): edits are allowed, commands come from a list, one per call.
-    # The denies hold inside chains too. bypassPermissions is not used:
-    # Claude Code's auto mode refuses to launch a worker with it.
+    # Headless grok in acceptEdits refuses its own edit tool and any chained
+    # command (grok 1.0.62, measured 2026-10-21). In auto it edits and runs
+    # what its judge allows; the denies hold, inside a chain too. Not
+    # bypassPermissions: Claude Code's auto mode refuses to launch it.
     delegate_grok() {
-      exec "$worker_bin" -p "$1" --output-format plain --permission-mode acceptEdits \
-        --rules 'Shell: run exactly one plain command per call. Never chain with &&, ;, || or |, never redirect with > or 2>, no subshells or loops. Use the Read, Grep, Glob and edit tools for files.' \
-        --allow 'Bash(just:*)' --allow 'Bash(git:*)' --allow 'Bash(cargo:*)' --allow 'Bash(npm:*)' \
-        --allow 'Bash(npx:*)' --allow 'Bash(flutter:*)' --allow 'Bash(dart:*)' --allow 'Bash(ls:*)' \
-        --allow 'Bash(wc:*)' --allow 'Bash(date:*)' \
+      exec "$worker_bin" -p "$1" --output-format plain --permission-mode auto \
         --deny 'Bash(git push:*)' --deny 'Bash(git merge:*)' --deny 'Bash(git rebase:*)' \
         --deny 'Bash(git checkout:*)' --deny 'Bash(git switch:*)' --deny 'Bash(git reset:*)' \
         --deny 'Bash(git branch -d:*)' --deny 'Bash(git branch -D:*)' --deny 'Bash(git tag:*)' \
