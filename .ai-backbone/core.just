@@ -1686,7 +1686,8 @@ delegate task="":
     # process of its own running stays alive for hours (grok 1.0.62, measured
     # 2026-10-21). After DELEGATE_IDLE minutes (default 20) of a quiet log, a
     # new commit on the branch and nothing running in the worker's process
-    # group, the job ends as finished. 0 turns this off.
+    # group, the job ends as finished. 0 turns this off. Where ps shows no
+    # process groups (Git Bash on Windows) it never fires.
     idle_secs=$(LC_ALL=C awk -v t="$idle_min" 'BEGIN { printf "%d", t * 60 }')
     start_tip=$(git rev-parse -q --verify "refs/heads/$branch" 2>/dev/null || echo none)
     rm -f "$dir/${id}.idle"
@@ -1705,7 +1706,7 @@ delegate task="":
           tip=$(git rev-parse -q --verify "refs/heads/$branch" 2>/dev/null || echo none)
           [ "$tip" != "$start_tip" ] || continue
           busy=$(ps -A -o pid=,pgid= 2>/dev/null | awk -v g="$wpid" '$2 == g && $1 != g { n++ } END { print n + 0 }')
-          [ -n "$(ps -A -o pid= 2>/dev/null | head -1)" ] || continue
+          ps -A -o pid=,pgid= 2>/dev/null | awk 'NF == 2 { ok = 1 } END { exit !ok }' || continue
           [ "$busy" -eq 0 ] || continue
           printf x > "$dir/${id}.idle"
           kill -TERM -"$wpid" 2>/dev/null || kill -TERM "$wpid" 2>/dev/null || true
@@ -2346,6 +2347,11 @@ publish:
       echo "  just publish                                           # to cloud; afterwards: git branch -f main origin/main"
       exit 1
     fi
+    # A delegate branch is the worker's; only its accept moves work on (spec 034).
+    case "$(git symbolic-ref -q --short HEAD 2>/dev/null)" in delegate/*)
+      echo "Not sent: $(git symbolic-ref -q --short HEAD) is a delegate branch. Accept it first (just delegate-accept), then publish the branch it lands on."
+      exit 1 ;;
+    esac
     git push -q -u origin HEAD --follow-tags
     just _msg published
     # "The checks start now" is a promise, and where the checks are switched off

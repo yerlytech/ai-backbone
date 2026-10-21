@@ -2917,6 +2917,8 @@ git checkout -q -b delegate/2026-01-01-pv
 echo worker >> f-carry.txt
 out=$(just save "fix: a worker's save" 2>&1)
 check "a save on a delegate branch stays here, publish-on-save or not" "grep -q 'not sent to GitHub: a delegate branch' <<<\"\$out\" && ! git --git-dir='$tmp/pv-hub.git' rev-parse -q --verify refs/heads/delegate/2026-01-01-pv >/dev/null"
+out=$(just publish 2>&1) && pv_rc=0 || pv_rc=$?
+check "and publish refuses a delegate branch" "[ \$pv_rc -ne 0 ] && grep -q 'is a delegate branch' <<<\"\$out\" && ! git --git-dir='$tmp/pv-hub.git' rev-parse -q --verify refs/heads/delegate/2026-01-01-pv >/dev/null"
 git checkout -q "$pv_back" && git branch -q -D delegate/2026-01-01-pv
 git config ai-backbone.publish-on-save false
 pc j "fix: stays here"
@@ -4110,14 +4112,18 @@ d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=timeout 
 elapsed=$((SECONDS - t0))
 check "the run stops when DELEGATE_TIMEOUT passes and says timeout, before the worker finishes" \
   "[ \$d_rc -eq 124 ] && [ \$elapsed -lt 15 ] && grep -qx 'exit status: timeout' <<<\"\$d_out\" && grep -q '^report$' <<<\"\$d_out\" && ! grep -q finished <<<\"\$d_out\" && ! grep -q Terminated <<<\"\$d_out\""
-d_new idle
-t0=$SECONDS
-d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=idle FAKE_WORKER_PROMPT="$dprompt" \
-  WORKER=grok DELEGATE_TIMEOUT=5 DELEGATE_IDLE=0.05 just -f "$root/Justfile" -d "$dproj" delegate "idle after" 2>&1) && d_rc=0 || d_rc=$?
-elapsed=$((SECONDS - t0))
-check "a worker quiet after its commit, with nothing running, is stopped as finished (DELEGATE_IDLE)" \
-  "[ \$d_rc -eq 0 ] && [ \$elapsed -lt 40 ] && grep -q 'went quiet after its last commit' <<<\"\$d_out\" && grep -qx 'exit status: 0' <<<\"\$d_out\" && grep -q 'worker did the task' <<<\"\$d_out\""
-git -C "$dproj" checkout -q main
+# Git Bash on Windows has no process groups in ps (measured on windows-latest,
+# 2026-10-22), so the idle stop never fires there and the job ends at the timeout.
+if ps -A -o pid=,pgid= 2>/dev/null | awk 'NF == 2 { ok = 1 } END { exit !ok }'; then
+  d_new idle
+  t0=$SECONDS
+  d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=idle FAKE_WORKER_PROMPT="$dprompt" \
+    WORKER=grok DELEGATE_TIMEOUT=5 DELEGATE_IDLE=0.05 just -f "$root/Justfile" -d "$dproj" delegate "idle after" 2>&1) && d_rc=0 || d_rc=$?
+  elapsed=$((SECONDS - t0))
+  check "a worker quiet after its commit, with nothing running, is stopped as finished (DELEGATE_IDLE)" \
+    "[ \$d_rc -eq 0 ] && [ \$elapsed -lt 40 ] && grep -q 'went quiet after its last commit' <<<\"\$d_out\" && grep -qx 'exit status: 0' <<<\"\$d_out\" && grep -q 'worker did the task' <<<\"\$d_out\""
+  git -C "$dproj" checkout -q main
+fi
 d_new quiet
 t0=$SECONDS
 d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=quiet FAKE_WORKER_PROMPT="$dprompt" \

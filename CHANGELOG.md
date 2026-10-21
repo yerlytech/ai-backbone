@@ -19,7 +19,9 @@ below are the record of every version.
 committed, printed its report and then sits with nothing running in its
 process group for `DELEGATE_IDLE` minutes (default 20; 0 turns it off) is
 stopped and the job ends as finished, exit status 0, with one line saying so.
-Grok 1.0.62 was measured staying alive for hours after its report.
+Grok 1.0.62 was measured staying alive for hours after its report. Where `ps`
+shows no process groups (Git Bash on Windows) it never fires. `just publish`
+refuses a `delegate/` branch, as a save already keeps one local.
 
 **Secrets live in `brain/secrets/` (spec 036).** `just secrets-to-brain` moves
 each git-ignored secret file there, keeps its mode, and leaves a relative
