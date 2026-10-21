@@ -1185,7 +1185,7 @@ check "carry prints a red windows run with at most five FAIL names" "grep -q '^W
 lines=$(loglines)
 FAKE_WIN_JOBS="4${TAB}suite (windows-latest)${TAB}failure"
 FAKE_WIN_LOG="suite (windows-latest)${TAB}the suite${TAB}2026-01-02T03:00:02Z   FAIL  a windows check"
-check "a red windows run appends one gate line naming its FAIL names" "FAKE_WINDOWS='88${TAB}completed${TAB}failure' says 'waits for an attended carry' judge $s success '$GREEN' && [ \$(loglines) -eq $((lines+2)) ] && says '^- [0-9-]+ gate: cloud not promoted — the windows run ended failure: suite \\(windows-latest\\) failure FAIL: a windows check;\$' cloudlog && [ \$(hubmain) != $s ]"
+check "a red windows run appends one gate line naming its FAIL names" "FAKE_WINDOWS='88${TAB}completed${TAB}failure' says 'waits for an attended carry' judge $s success '$GREEN' && [ \$(loglines) -eq $((lines+2)) ] && says '^- [0-9-]+ gate: windows red on [0-9a-f]{7}, which Linux and macOS judged — suite \\(windows-latest\\) failure FAIL: a windows check;\$' cloudlog && [ \$(hubmain) != $s ]"
 unset FAKE_WIN_JOBS FAKE_WIN_LOG
 synced; lines=$(loglines)
 wrun=$(grep -c 'windows run ended' <<<"$(cloudlog)" || true)

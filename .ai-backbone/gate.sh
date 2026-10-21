@@ -261,8 +261,8 @@ note_windows() {
     *) return 0 ;;
   esac
   why="${w#red: }"
-  line="- $(date -u +%Y-%m-%d) gate: cloud not promoted — the windows run ended failure: $(printf '%s' "$why" | tr '\n\r\t' '   ' | cut -c1-400)"
-  if append_gate "$line" "docs: gate — cloud not promoted"; then
+  line="- $(date -u +%Y-%m-%d) gate: windows red on ${1:0:7}, which Linux and macOS judged — $(printf '%s' "$why" | tr '\n\r\t' '   ' | cut -c1-400)"
+  if append_gate "$line" "docs: gate — windows red"; then
     echo "gate: windows: $why"
   fi
 }
