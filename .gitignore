@@ -20,10 +20,10 @@ brain/
 .env.*
 !.env.example
 .envrc
-# Key and certificate files are secrets and live in brain/ (AGENTS.md section
-# 7); a build reads them from there. Ignored everywhere else, because a save
-# takes every file git does not ignore: an Android .keystore next to the app
-# was one save away from GitHub.
+# Key and certificate files are secrets and live in brain/secrets/ (AGENTS.md
+# section 7); a link stays where the tool reads them. Ignored everywhere else,
+# because a save takes every file git does not ignore: an Android .keystore
+# next to the app was one save away from GitHub.
 *.pem
 *.key
 *.p8

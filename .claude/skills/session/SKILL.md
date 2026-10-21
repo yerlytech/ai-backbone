@@ -138,9 +138,10 @@ the record of what this project promised to keep working.
 ## End
 
 1. Run `just session-end`. It creates today's journal file from the template,
-   and copies `brain/` and the secret files git ignores to this machine's place
-   for second copies (`<place>/<project>/`, nothing is ever deleted there). When
-   it says the machine has no place yet, ask the maintainer once for a folder (a
+   and copies `brain/` to this machine's place for second copies
+   (`<place>/<project>/`, nothing is ever deleted there). Secrets live in
+   `brain/secrets/`; a secret still outside is copied beside it under `secrets/`.
+   When it says the machine has no place yet, ask the maintainer once for a folder (a
    folder in a cloud drive, a second disk), then
    `git config --global ai-backbone.vault-copy "<folder>"`. They type nothing.
    A project that must not be copied there says so in its own config

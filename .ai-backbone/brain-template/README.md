@@ -15,6 +15,7 @@ layout below is shaped for.
 | `03-stack/` | Tools you chose and the reason you chose them. |
 | `04-chat-archive/` | Raw dumps of long conversations. |
 | `05-files/` | Private files that are not notes: server backups, contracts, exports, old repos as bundles. Anything that must stay off GitHub. |
+| `secrets/` | Secret files (`.env`, keys, certificates). `just secrets-to-brain` moves them here; a link stays at the old path. Never print or quote one. |
 | `06-marketing/` | Who each product is for and how it is sold: `context.md` first, then dated plans. The marketer role writes here. |
 
 Put `status:` in the front matter of every note. An abandoned plan that is not
