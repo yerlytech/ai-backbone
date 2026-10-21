@@ -1538,6 +1538,10 @@ delegate task="":
     if ! awk -v t="$timeout_min" 'BEGIN { exit !(t ~ /^[0-9]+(\.[0-9]+)?$/ && t+0 > 0) }'; then
       echo "refuses: DELEGATE_TIMEOUT must be a positive number of minutes"; exit 1
     fi
+    idle_min=${DELEGATE_IDLE:-20}
+    if ! awk -v t="$idle_min" 'BEGIN { exit !(t ~ /^[0-9]+(\.[0-9]+)?$/) }'; then
+      echo "refuses: DELEGATE_IDLE must be a number of minutes (0 turns it off)"; exit 1
+    fi
     # printf "%.3f" follows the decimal mark. tr_TR prints "10800,000", and
     # BSD sleep rejects that and the timer kills the worker at once. The
     # check above still accepts "0.05" there (t+0 is 0.05). Measured on
@@ -1669,11 +1673,36 @@ delegate task="":
     # nothing, so its input is empty.
     rm -f "$dir/${id}.timedout"
     set -m
+    # A worker that has committed, printed its report and then sits with no
+    # process of its own running stays alive for hours (grok 1.0.62, measured
+    # 2026-10-21). After DELEGATE_IDLE minutes (default 20) of a quiet log, a
+    # new commit on the branch and nothing running in the worker's process
+    # group, the job ends as finished. 0 turns this off.
+    idle_secs=$(LC_ALL=C awk -v t="$idle_min" 'BEGIN { printf "%d", t * 60 }')
+    start_tip=$(git rev-parse -q --verify "refs/heads/$branch" 2>/dev/null || echo none)
+    rm -f "$dir/${id}.idle"
     set +e
     ( delegate_"$worker" "$prompt" ) </dev/null >"$log" 2>&1 &
     wpid=$!
     (
-      sleep "$timeout_secs"
+      t_end=$(LC_ALL=C awk -v s="$timeout_secs" -v n="$(date +%s)" 'BEGIN { printf "%d", n + s }')
+      short=$(LC_ALL=C awk -v s="$timeout_secs" 'BEGIN { exit !(s < 60) }' && echo 1)
+      if [ -n "$short" ]; then sleep "$timeout_secs"; else
+        while kill -0 "$wpid" 2>/dev/null && [ "$(date +%s)" -lt "$t_end" ]; do
+          sleep 5
+          [ "$idle_secs" -gt 0 ] || continue
+          quiet=$(( $(date +%s) - $(perl -e 'print((stat shift)[9] // 0)' "$log") ))
+          [ "$quiet" -ge "$idle_secs" ] || continue
+          tip=$(git rev-parse -q --verify "refs/heads/$branch" 2>/dev/null || echo none)
+          [ "$tip" != "$start_tip" ] || continue
+          busy=$(ps -A -o pid=,pgid= 2>/dev/null | awk -v g="$wpid" '$2 == g && $1 != g { n++ } END { print n + 0 }')
+          [ -n "$(ps -A -o pid= 2>/dev/null | head -1)" ] || continue
+          [ "$busy" -eq 0 ] || continue
+          printf x > "$dir/${id}.idle"
+          kill -TERM -"$wpid" 2>/dev/null || kill -TERM "$wpid" 2>/dev/null || true
+          exit 0
+        done
+      fi
       if kill -0 "$wpid" 2>/dev/null; then
         printf x > "$dir/${id}.timedout"
         kill -TERM -"$wpid" 2>/dev/null || kill -TERM "$wpid" 2>/dev/null || true
@@ -1693,6 +1722,8 @@ delegate task="":
     set +e
     timed_out=0
     if [ -f "$dir/${id}.timedout" ]; then timed_out=1; rc=124; rm -f "$dir/${id}.timedout"; fi
+    went_quiet=0
+    if [ -f "$dir/${id}.idle" ]; then went_quiet=1; rc=0; rm -f "$dir/${id}.idle"; fi
     set -e
     after_protect=$(git rev-parse "refs/heads/$protect" 2>/dev/null || echo missing)
     after_branches=$(git for-each-ref refs/heads --format='%(refname)')
@@ -1740,6 +1771,7 @@ delegate task="":
     fi
     echo
     if [ -n "$(git status --porcelain)" ]; then echo "tree: dirty"; else echo "tree: clean"; fi
+    if [ "$went_quiet" -eq 1 ]; then echo "the worker went quiet after its last commit and was stopped after ${idle_min} min (DELEGATE_IDLE)"; fi
     if [ "$timed_out" -eq 1 ]; then echo "exit status: timeout"; else echo "exit status: $rc"; fi
     if [ "$breach" -eq 1 ]; then exit 1; fi
     if [ "$timed_out" -eq 1 ]; then exit 124; fi

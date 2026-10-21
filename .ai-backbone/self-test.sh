@@ -3869,6 +3869,17 @@ case "$mode" in
     sleep 30
     echo finished
     ;;
+  idle)
+    printf 'done\n' > worker-did.txt
+    git add worker-did.txt
+    git commit -qm "chore: worker did the task" --no-verify
+    echo report
+    exec perl -e 'sleep 60'
+    ;;
+  quiet)
+    echo report
+    exec perl -e 'sleep 12'
+    ;;
   stdin)
     # A CLI that reads its input until the end before it exits.
     cat >/dev/null
@@ -3896,7 +3907,7 @@ d_new() {
 d_run() {
   local mode="$1" worker="$2" model="$3"; shift 3
   # shellcheck disable=SC2086
-  d_out=$(env -u WORKER -u WORKER_MODEL -u DELEGATE_TIMEOUT -u WORKER_BIN -u DELEGATE_BASE -u DELEGATE_YES -u FAKE_WORKER_TARGET \
+  d_out=$(env -u WORKER -u WORKER_MODEL -u DELEGATE_TIMEOUT -u DELEGATE_IDLE -u WORKER_BIN -u DELEGATE_BASE -u DELEGATE_YES -u FAKE_WORKER_TARGET \
     HOME="$dhome" PATH="$dbin:$PATH" \
     FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE="$mode" FAKE_WORKER_GO="$dgo" \
     ${worker:+WORKER=$worker} ${model:+WORKER_MODEL=$model} \
@@ -4089,6 +4100,26 @@ d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=timeout 
 elapsed=$((SECONDS - t0))
 check "the run stops when DELEGATE_TIMEOUT passes and says timeout, before the worker finishes" \
   "[ \$d_rc -eq 124 ] && [ \$elapsed -lt 15 ] && grep -qx 'exit status: timeout' <<<\"\$d_out\" && grep -q '^report$' <<<\"\$d_out\" && ! grep -q finished <<<\"\$d_out\" && ! grep -q Terminated <<<\"\$d_out\""
+d_new idle
+t0=$SECONDS
+d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=idle FAKE_WORKER_PROMPT="$dprompt" \
+  WORKER=grok DELEGATE_TIMEOUT=5 DELEGATE_IDLE=0.05 just -f "$root/Justfile" -d "$dproj" delegate "idle after" 2>&1) && d_rc=0 || d_rc=$?
+elapsed=$((SECONDS - t0))
+check "a worker quiet after its commit, with nothing running, is stopped as finished (DELEGATE_IDLE)" \
+  "[ \$d_rc -eq 0 ] && [ \$elapsed -lt 40 ] && grep -q 'went quiet after its last commit' <<<\"\$d_out\" && grep -qx 'exit status: 0' <<<\"\$d_out\" && grep -q 'worker did the task' <<<\"\$d_out\""
+git -C "$dproj" checkout -q main
+d_new quiet
+t0=$SECONDS
+d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=quiet FAKE_WORKER_PROMPT="$dprompt" \
+  WORKER=grok DELEGATE_TIMEOUT=1 DELEGATE_IDLE=0.05 just -f "$root/Justfile" -d "$dproj" delegate "quiet no commit" 2>&1) && d_rc=0 || d_rc=$?
+elapsed=$((SECONDS - t0))
+check "a quiet worker with no new commit is not stopped by DELEGATE_IDLE" \
+  "[ \$d_rc -eq 0 ] && [ \$elapsed -ge 10 ] && ! grep -q 'went quiet' <<<\"\$d_out\" && grep -qx 'exit status: 0' <<<\"\$d_out\""
+git -C "$dproj" checkout -q main
+d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=ok WORKER=grok DELEGATE_IDLE=soon \
+  just -f "$root/Justfile" -d "$dproj" delegate "bad idle" 2>&1) && d_rc=0 || d_rc=$?
+check "DELEGATE_IDLE that is not a number is refused before any branch" \
+  "[ \$d_rc -ne 0 ] && grep -qx 'refuses: DELEGATE_IDLE must be a number of minutes (0 turns it off)' <<<\"\$d_out\" && ! git -C \"\$dproj\" show-ref --verify --quiet refs/heads/delegate/\$(date +%Y-%m-%d)-bad-idle"
 # The session that runs the recipe keeps its own input open (a harness, an
 # agent's shell). A worker that waits for the end of that input never exits,
 # and the job lasted until DELEGATE_TIMEOUT though the report was written.

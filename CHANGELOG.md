@@ -15,6 +15,12 @@ below are the record of every version.
 
 ## [Unreleased]
 
+**A delegate job ends when its worker goes quiet.** A worker that has
+committed, printed its report and then sits with nothing running in its
+process group for `DELEGATE_IDLE` minutes (default 20; 0 turns it off) is
+stopped and the job ends as finished, exit status 0, with one line saying so.
+Grok 1.0.62 was measured staying alive for hours after its report.
+
 **Secrets live in `brain/secrets/` (spec 036).** `just secrets-to-brain` moves
 each git-ignored secret file there, keeps its mode, and leaves a relative
 link at the old path so the tool still reads it. `just secrets-back` undoes
