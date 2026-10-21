@@ -1,0 +1,112 @@
+# The Windows suite, on its own workflow so a carry does not wait for it
+# (spec 037). The same push to cloud starts it, and only when gate.sh look
+# says suite. Linux and macOS stay in checks.yml and decide the carry.
+# Windows decided from spec 020 (the maintainer's word, 2026-09-24) until
+# spec 037. Before spec 020 it only reported: at ten minutes about 220 checks
+# were red, and the gate read only the other two. From spec 020 a carry waited
+# for this job (about twenty-five minutes, then about forty on 2026-10-21,
+# and one run hit its 44-minute cap with every check green so far). The caps
+# stay 48 and 44: twice the 22 minutes measured 2026-10-13 (run 38400602011,
+# 727 checks).
+#
+# This file is the backbone's own. promote.yml judges the checks run, from
+# main's copy of itself, and does not watch this workflow. gate.sh reads the
+# newest run of this file for the commit when a carry or a release asks.
+
+name: windows
+
+on:
+  push:
+    branches: [cloud]
+
+# The job reads this repository and nothing else. Writing a gate: line is
+# promote.yml's, from main's copy of gate.sh.
+permissions:
+  contents: read
+
+# Each push is a group of its own, keyed on the commit: a second push while one
+# runs neither cancels it nor queues behind it, and the history somebody reads
+# later to find where something broke is complete. Copy unchanged (just ci-check).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# On Windows the default shell is PowerShell, and every step below is sh.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # What cloud has that main does not. The same look as checks.yml, so the
+  # suite runs for the same pushes and for no others.
+  look:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      what: ${{ steps.look.outputs.what }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: look
+        run: |
+          what=$(bash .ai-backbone/gate.sh look | tail -1)
+          echo "what=$what"
+          echo "what=$what" >> "$GITHUB_OUTPUT"
+
+  suite:
+    needs: look
+    if: needs.look.outputs.what == 'suite'
+    # The name gate.sh reads the verdict by.
+    name: suite (windows-latest)
+    runs-on: windows-latest
+    # A job with no cap runs for six hours when something hangs.
+    timeout-minutes: 48
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: 1
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: which machine this is
+        # Named first, so a red that follows an image move reads as one.
+        run: echo "image ${ImageOS:-?} ${ImageVersion:-?} on $(uname -sm)"
+
+      - name: install what this repo says it needs
+        # The backbone's own installer, the way the guide tells a person to run
+        # it, on a machine that has never seen it. That is half of what this job
+        # proves: a setup script nobody runs on a clean machine is a hope.
+        run: |
+          # setup.sh's exit code answers exactly this job's question since
+          # 3.21.1 — 0 when the tools it installs are all on the PATH — and its
+          # header says so. It is still read here through the loop below rather
+          # than through `set -e`, because the loop names the tool that is
+          # missing, and because gh, which only `just publish` needs, is checked
+          # here and deliberately not by the script.
+          sh .ai-backbone/setup.sh -y || true
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.local/bin:$PATH"
+          for t in just uv prek graphify gh; do
+            command -v "$t" >/dev/null || { echo "setup.sh did not leave $t on the PATH"; exit 1; }
+          done
+
+      - name: the private vault a fresh clone has no copy of
+        run: just brain-init
+
+      - name: somebody to commit as
+        # The self-test builds throwaway projects and saves in them, and a
+        # runner has no name or address of its own. Nothing here is pushed.
+        run: |
+          git config --global user.name  "backbone self-test"
+          git config --global user.email "self-test@example.invalid"
+          git config --global init.defaultBranch main
+
+      - name: the tools are all there
+        run: just doctor
+
+      # The suite: a new project, a language layer, the lint hook, the
+      # weekly routine's locks, the checks recipes, the gate, and adopting an
+      # existing repo. It makes its own temporary folders and never reaches
+      # GitHub. Cut at its own cap, so that a suite that hangs ends the step
+      # as a failure and not the job as a cancellation.
+      - run: just self-test
+        timeout-minutes: 44

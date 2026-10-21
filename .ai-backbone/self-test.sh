@@ -1084,6 +1084,9 @@ check "on cloud, publish sends to cloud and nothing reaches main" "says 'Sent to
 # gh answers what the run's jobs said (the log lines in the shape of
 # fixtures/gh-log-failed.txt). Nothing leaves the machine.
 section "the gate: what passes on cloud reaches main"
+check "windows.yml runs the Windows suite when look says suite, and checks.yml keeps Linux and macOS" \
+  "grep -q 'runs-on: windows-latest' '$root/.github/workflows/windows.yml' && grep -q 'name: suite (windows-latest)' '$root/.github/workflows/windows.yml' && grep -q 'timeout-minutes: 48' '$root/.github/workflows/windows.yml' && grep -q 'timeout-minutes: 44' '$root/.github/workflows/windows.yml' && grep -q 'actions/checkout@v7' '$root/.github/workflows/windows.yml' && grep -q 'gate.sh look' '$root/.github/workflows/windows.yml' && grep -q 'branches: \\[cloud\\]' '$root/.github/workflows/windows.yml' && ! grep -q 'windows-latest' '$root/.github/workflows/checks.yml' && grep -q 'ubuntu-latest' '$root/.github/workflows/checks.yml' && grep -q 'macos-latest' '$root/.github/workflows/checks.yml'"
+check "ci-check accepts the windows workflow" "says 'ok    \\.github/workflows/windows\\.yml' just -f '$root/Justfile' -d '$root' ci-check && says 'ok    \\.github/workflows/checks\\.yml' just -f '$root/Justfile' -d '$root' ci-check"
 gt="$tmp/gate"; mkdir -p "$gt/gh"
 ( cd "$gt" && git init -q --bare -b main hub.git && git clone -q hub.git seed && cd seed \
   && mkdir -p docs .ai-backbone .github/workflows \
@@ -1094,20 +1097,32 @@ gt="$tmp/gate"; mkdir -p "$gt/gh"
   && cd .. && git clone -q hub.git work && git -C work checkout -q cloud && git clone -q hub.git judge ) >/dev/null 2>&1
 cat > "$gt/gh/gh" <<'EOF'
 #!/bin/sh
+# windows.yml is a different run from the checks run (spec 037).
 case "$*" in
-  *"run list"*) printf '%s\n' "${FAKE_RUN:-}" ;;
-  *"--json jobs"*) printf '%s\n' "${FAKE_JOBS:-}" | tr '|' '\n' ;;
-  *"--log-failed"*) printf '%s\n' "${FAKE_LOG:-}" | tr '|' '\n' ;;
+  *windows.yml*) printf '%s\n' "${FAKE_WINDOWS:-}"; exit 0 ;;
+  *"run list"*) printf '%s\n' "${FAKE_RUN:-}"; exit 0 ;;
+esac
+jobs="${FAKE_JOBS:-}"
+log="${FAKE_LOG:-}"
+winid=$(printf '%s' "${FAKE_WINDOWS:-}" | cut -f1)
+if [ -n "$winid" ]; then
+  for a in "$@"; do
+    if [ "$a" = "$winid" ]; then jobs="${FAKE_WIN_JOBS:-$jobs}"; log="${FAKE_WIN_LOG:-$log}"; break; fi
+  done
+fi
+case "$*" in
+  *"--json jobs"*) printf '%s\n' "$jobs" | tr '|' '\n' ;;
+  *"--log-failed"*) printf '%s\n' "$log" | tr '|' '\n' ;;
 esac
 EOF
 chmod +x "$gt/gh/gh"
 TAB=$'\t'
 gate()     { ( cd "${1:-$gt/work}" && bash "$root/.ai-backbone/gate.sh" look 2>/dev/null | tail -1 ); }
 pushed()   { ( cd "$gt/work" && eval "$1" >/dev/null && git add -A && git commit -qm "${2:-feat: on cloud}" && git push -q origin HEAD:cloud && git rev-parse HEAD ) 2>/dev/null; }
-judge()    { ( cd "$gt/judge" && env PATH="$gt/gh:$PATH" FAKE_JOBS="${3:-}" FAKE_LOG="${4:-}" GATE_SHA="$1" GATE_ENDED="$2" GATE_RUN=77 bash "$root/.ai-backbone/gate.sh" carry ); }
+judge()    { ( cd "$gt/judge" && env PATH="$gt/gh:$PATH" FAKE_JOBS="${3:-}" FAKE_LOG="${4:-}" FAKE_WINDOWS="${FAKE_WINDOWS:-}" FAKE_WIN_JOBS="${FAKE_WIN_JOBS:-}" FAKE_WIN_LOG="${FAKE_WIN_LOG:-}" GATE_SHA="$1" GATE_ENDED="$2" GATE_RUN=77 bash "$root/.ai-backbone/gate.sh" carry ); }
 # The attended carry (spec 031), from the person's clone; FAKE_RUN is the
 # newest checks run of the commit, the way gh run list prints it.
-attend()   { ( cd "$gt/work" && env -u GATE_RUN PATH="$gt/gh:$PATH" FAKE_JOBS="${2:-}" FAKE_RUN="${3-77${TAB}completed${TAB}success}" bash "$root/.ai-backbone/gate.sh" attend "$1" ); }
+attend()   { ( cd "$gt/work" && env -u GATE_RUN PATH="$gt/gh:$PATH" FAKE_JOBS="${2:-}" FAKE_RUN="${3-77${TAB}completed${TAB}success}" FAKE_WINDOWS="${FAKE_WINDOWS:-}" FAKE_WIN_JOBS="${FAKE_WIN_JOBS:-}" FAKE_WIN_LOG="${FAKE_WIN_LOG:-}" bash "$root/.ai-backbone/gate.sh" attend "$1" ); }
 hubmain()  { git -C "$gt/hub.git" rev-parse main; }
 hubtag()   { git -C "$gt/hub.git" rev-parse -q --verify "refs/tags/$1" 2>/dev/null; }
 cloudlog() { git -C "$gt/hub.git" show cloud:docs/routine-log.md; }
@@ -1128,10 +1143,11 @@ s=$(pushed "printf '# .ai-backbone/core.just — recipes, version 1.0.1\n' > .ai
 check "look: code runs the suite"                       "[ \"\$(gate)\" = suite ]"
 # Spec 031: green code is not carried on its own; it waits for a person's yes.
 lines=$(loglines)
-check "carry: green code is not carried on its own, and the line on cloud says it waits and names the file" "says 'waits for an attended carry' judge $s success '$GREEN' && [ \$(hubmain) != $s ] && [ -z \"\$(hubtag v1.0.1)\" ] && [ \$(loglines) -eq $((lines+1)) ] && says '^- [0-9-]+ gate: ${s:0:7} waits for an attended carry — green on Linux, macOS and Windows; it changes code \(\.ai-backbone/core\.just, docs/01-getting-started\.md\)' cloudlog"
+check "carry: green code is not carried on its own, and the line on cloud says it waits and names the file" "says 'waits for an attended carry' judge $s success '$GREEN' && [ \$(hubmain) != $s ] && [ -z \"\$(hubtag v1.0.1)\" ] && [ \$(loglines) -eq $((lines+1)) ] && says '^- [0-9-]+ gate: ${s:0:7} waits for an attended carry — green on Linux and macOS; it changes code \(\.ai-backbone/core\.just, docs/01-getting-started\.md\)' cloudlog"
 check "and the backbone's session start names what waits" "git -C '$gt/work' fetch -q origin && says '^Gate: cloud holds code main does not have.*-> just carry\$' env JUST_JUSTFILE='$root/Justfile' JUST_WORKING_DIRECTORY='$gt/work' just _gate-waits"
 check "attend: a commit still being tested is refused" "says 'still going' attend $s '$GREEN' '77${TAB}in_progress${TAB}' && [ \$(hubmain) != $s ]"
-check "attend: one not green on all three machines is refused, and says why" "says 'not green on Linux, macOS and Windows' attend $s '$WINRED' && [ \$(hubmain) != $s ]"
+MACRED="1${TAB}look${TAB}success|2${TAB}suite (ubuntu-latest)${TAB}success|3${TAB}suite (macos-latest)${TAB}failure"
+check "attend: one not green on Linux and macOS is refused, and says why" "says 'not green on Linux and macOS' attend $s '$MACRED' && [ \$(hubmain) != $s ]"
 check "attend: one with no checks run is refused" "says 'no checks run was found' attend $s '$GREEN' '' && [ \$(hubmain) != $s ]"
 check "attend: a commit that is not on cloud is refused" "says 'not on cloud' attend \$(cd '$gt/work' && git commit -q --allow-empty -m local && git rev-parse HEAD) '$GREEN'"
 ( cd "$gt/work" && git reset -q --hard origin/cloud ) >/dev/null 2>&1
@@ -1141,13 +1157,12 @@ synced; lines=$(loglines)
 check "carried again, it says so and writes nothing"    "says 'on main already' judge $s success '$GREEN' && [ \$(loglines) -eq $lines ]"
 s=$(pushed "echo y >> README.md" "feat: red")
 check "a cancelled run is not judged"                   "says 'was cancelled' judge $s cancelled && [ \$(hubmain) != $s ] && [ \$(loglines) -eq $lines ]"
-# Windows decides too (spec 020, the maintainer's word of 2026-09-24): a Windows
-# job cut by its cap, or red, is not carried, however green the other two are.
+# Spec 037: a Windows job still inside the checks run is ignored. Linux and
+# macOS green is green, whether that job was cancelled by its cap or red.
 CUT="1${TAB}look${TAB}success|2${TAB}suite (ubuntu-latest)${TAB}success|3${TAB}suite (macos-latest)${TAB}success|4${TAB}suite (windows-latest)${TAB}cancelled"
 s=$(pushed "echo cut >> README.md" "feat: windows cut by its cap")
-check "one cancelled by the Windows cap is not carried: Windows decides too" "says 'was cancelled' judge $s cancelled '$CUT' && [ \$(hubmain) != $s ]"
-WINLOG="suite (windows-latest)${TAB}the suite${TAB}2026-01-02T03:00:02Z   FAIL  a windows check"
-check "and a red Windows job with the other two green is not carried, and is named" "says 'not promoted' judge $s failure '$WINRED' '$WINLOG' && [ \$(hubmain) != $s ] && says 'suite \(windows-latest\) failure FAIL: a windows check' cloudlog"
+check "a windows job cancelled in the checks run is ignored: Linux and macOS decide" "o=\$(judge $s cancelled '$CUT' 2>&1); grep -q 'every suite job was green: they decide' <<<\"\$o\" && grep -q 'waits for an attended carry' <<<\"\$o\" && [ \$(hubmain) != $s ]"
+check "and a red windows job in the checks run is ignored the same way" "o=\$(judge $s failure '$WINRED' 2>&1); grep -q 'every suite job was green: they decide' <<<\"\$o\" && grep -q 'waits for an attended carry' <<<\"\$o\" && ! grep -q 'not promoted' <<<\"\$o\" && [ \$(hubmain) != $s ]"
 GHOST="1${TAB}look${TAB}success|2${TAB}suite (ubuntu-latest)${TAB}success|3${TAB}suite (macos-latest)${TAB}success|4${TAB}suite (windows-latest)${TAB}success|5${TAB}something else${TAB}cancelled"
 check "a run cancelled by a job that is not a suite job, all three suites green, is judged green: it waits for its carry" "o=\$(judge $s cancelled '$GHOST' 2>&1); grep -q 'every suite job was green: they decide' <<<\"\$o\" && grep -q 'waits for an attended carry' <<<\"\$o\" && [ \$(hubmain) != $s ]"
 check "attend: and an attended carry takes it"            "says 'carried .* to main' attend $s '$GHOST' && [ \$(hubmain) = $s ]"
@@ -1155,6 +1170,27 @@ synced; lines=$(loglines); s=$(pushed "echo y2 >> README.md" "feat: red again") 
 RED="1${TAB}look${TAB}success|2${TAB}suite (ubuntu-latest)${TAB}success|9${TAB}suite (macos-latest)${TAB}failure|10${TAB}suite (windows-latest)${TAB}failure"
 LOG="suite (macos-latest)${TAB}the suite${TAB}2026-01-02T03:00:00Z   FAIL  a mac check|suite (macos-latest)${TAB}the suite${TAB}2026-01-02T03:00:01Z   FAIL  another one|suite (windows-latest)${TAB}the suite${TAB}2026-01-02T03:00:02Z   FAIL  windows noise"
 check "a red run writes one line on cloud naming each red machine and its FAIL names" "says 'not promoted' judge $s failure '$RED' '$LOG' && [ \$(loglines) -eq $((lines+1)) ] && says '^- [0-9-]+ gate: cloud not promoted — the checks ended failure: suite \(macos-latest\) failure FAIL: a mac check;another one; suite \(windows-latest\) failure FAIL: windows noise;\$' cloudlog && [ \$(hubmain) != $s ]"
+# Spec 037: carry prints the windows.yml run; a red one appends one gate: line.
+synced
+s=$(pushed "echo wcases >> README.md" "feat: windows cases")
+check "carry prints a green windows run" "FAKE_WINDOWS='88${TAB}completed${TAB}success' says '^Windows: green$' attend $s '$MACRED' && [ \$(hubmain) != $s ]"
+check "carry prints a windows run that is still going" "FAKE_WINDOWS='88${TAB}in_progress${TAB}' says '^Windows: running$' attend $s '$MACRED' && [ \$(hubmain) != $s ]"
+check "carry prints none when the commit has no windows run" "says '^Windows: none$' attend $s '$MACRED' && [ \$(hubmain) != $s ]"
+W6=""
+for n in one two three four five six; do
+  W6="${W6:+$W6|}suite (windows-latest)${TAB}step${TAB}t   FAIL  $n"
+done
+out=$(FAKE_WINDOWS="88${TAB}completed${TAB}failure" FAKE_WIN_JOBS="4${TAB}suite (windows-latest)${TAB}failure" FAKE_WIN_LOG="$W6" attend $s "$MACRED" 2>&1)
+check "carry prints a red windows run with at most five FAIL names" "grep -q '^Windows: red: suite (windows-latest) failure FAIL: one;two;three;four;five;\$' <<<\"\$out\" && ! grep -q 'six' <<<\"\$out\" && [ \$(hubmain) != $s ]"
+lines=$(loglines)
+FAKE_WIN_JOBS="4${TAB}suite (windows-latest)${TAB}failure"
+FAKE_WIN_LOG="suite (windows-latest)${TAB}the suite${TAB}2026-01-02T03:00:02Z   FAIL  a windows check"
+check "a red windows run appends one gate line naming its FAIL names" "FAKE_WINDOWS='88${TAB}completed${TAB}failure' says 'waits for an attended carry' judge $s success '$GREEN' && [ \$(loglines) -eq $((lines+2)) ] && says '^- [0-9-]+ gate: windows red on [0-9a-f]{7}, which Linux and macOS judged — suite \\(windows-latest\\) failure FAIL: a windows check;\$' cloudlog && [ \$(hubmain) != $s ]"
+unset FAKE_WIN_JOBS FAKE_WIN_LOG
+synced; lines=$(loglines)
+wrun=$(grep -c 'windows run ended' <<<"$(cloudlog)" || true)
+s=$(pushed "echo winrun >> README.md" "feat: windows still running")
+check "a windows run that is still going adds no gate line" "FAKE_WINDOWS='88${TAB}in_progress${TAB}' says 'waits for an attended carry' judge $s success '$GREEN' && [ \$(loglines) -eq $((lines+1)) ] && [ \$(grep -c 'windows run ended' <<<\"\$(cloudlog)\" || true) -eq $wrun ]"
 synced; s=$(pushed "echo 'on: pull_request' > .github/workflows/checks.yml" "ci: weaken")
 check "a push that changes the workflows is refused, green or not" "says 'changes .github/workflows' judge $s success '$GREEN' && [ \$(hubmain) != $s ]"
 synced; s=$(pushed "git checkout origin/main -- .github/workflows && echo '# x' >> .ai-backbone/gate.sh" "ci: weaken the judge")
@@ -1175,7 +1211,7 @@ check "just carry is the backbone's own: no project gets it" "grep -q '^carry ' 
 check "attend: a green change to gate.sh is carried too, and named" "says 'changes .github/workflows or gate.sh' judge $s success '$GREEN' && says 'carried .* to main.*; it changed the gate.s own files: \.ai-backbone/gate\.sh\$' attend $s '$GREEN' && [ \$(hubmain) = $s ]"
 synced; s=$(pushed "echo '# readme' > README.md" "feat: the backbone's own readme")
 check "just carry lists the code that waits and, when it is green, the commit to carry" "says 'waiting for the maintainer.s yes' inwork just carry && says \"  ${s:0:7} feat: the backbone's own readme\" inwork just carry && says '^Checks: ${s:0:7} is green.*-> just carry ${s:0:7}\$' inwork env FAKE_RUN='completed success' just carry"
-check "and just carry <commit> takes it to main with main's own gate.sh" "says 'carried ${s:0:7} to main' inwork env FAKE_RUN='77${TAB}completed${TAB}success' FAKE_JOBS='$GREEN' just carry $s && [ \$(hubmain) = $s ]"
+check "and just carry <commit> takes it to main with main's own gate.sh and prints the windows line" "out=\$(inwork env FAKE_RUN='77${TAB}completed${TAB}success' FAKE_JOBS='$GREEN' FAKE_WINDOWS='88${TAB}completed${TAB}success' just carry $s 2>&1); grep -q 'carried ${s:0:7} to main' <<<\"\$out\" && grep -q '^Windows: green$' <<<\"\$out\" && [ \$(hubmain) = $s ]"
 check "after which nothing waits"                       "says '^Nothing waits' inwork just carry"
 synced; s=$(pushed "echo '1.0.0 0000000' > STABLE" "chore: mark 1.0.0 stable")
 check "a push that moves the stable mark is never carried on its own" "says 'waits for an attended carry' judge $s success '$GREEN' && [ \$(hubmain) != $s ] && says 'it changes code \(STABLE\)' cloudlog"
@@ -1951,7 +1987,7 @@ elif mode == "npm-scope":
 else:
     fail("unknown mode " + mode)
 PY
-fresh035() { env -u AI_BACKBONE_OFFLINE "$py" "$tmp/spec035.py" "$rootw" "$1" "$tmp/spec035"; }
+fresh035() { env -u AI_BACKBONE_OFFLINE -u WORKER "$py" "$tmp/spec035.py" "$rootw" "$1" "$tmp/spec035"; }
 check "a shared copy under a day old is not asked again"          "fresh035 age-fresh"
 check "a shared copy a day old is asked again"                    "fresh035 age-stale"
 check "--refresh asks even when the copy is new"                  "fresh035 refresh"
@@ -2878,6 +2914,49 @@ git add -A && git commit -qm "feat: a versioned thing" --no-verify
 just release >/dev/null 2>&1
 out=$(just release 2>&1)
 check "the release commit carries the version the layer set, under an annotated tag" "grep -q '^Released v0.1.0' <<<\"\$out\" && [ \"\$(cat VERSION)\" = 0.1.0 ] && [ \"\$(git show HEAD:VERSION)\" = 0.1.0 ] && [ \"\$(git cat-file -t v0.1.0)\" = tag ] && grep -q '^## \\[0.1.0\\]' CHANGELOG.md"
+# Spec 037: just release refuses while the commit's Windows run is red,
+# running or none, and says which. A project with no windows.yml is not asked
+# (every release above). The stand-in gh is the same shape as the gate's.
+wr="$tmp/winrel"; wgh="$tmp/winrel-gh"; mkdir -p "$wgh"
+cat > "$wgh/gh" <<'EOF'
+#!/bin/sh
+case "$*" in
+  *windows.yml*) printf '%s\n' "${FAKE_WINDOWS:-}"; exit 0 ;;
+esac
+jobs="${FAKE_JOBS:-}"
+log="${FAKE_LOG:-}"
+winid=$(printf '%s' "${FAKE_WINDOWS:-}" | cut -f1)
+if [ -n "$winid" ]; then
+  for a in "$@"; do
+    if [ "$a" = "$winid" ]; then jobs="${FAKE_WIN_JOBS:-$jobs}"; log="${FAKE_WIN_LOG:-$log}"; break; fi
+  done
+fi
+case "$*" in
+  *"--json jobs"*) printf '%s\n' "$jobs" | tr '|' '\n' ;;
+  *"--log-failed"*) printf '%s\n' "$log" | tr '|' '\n' ;;
+esac
+EOF
+chmod +x "$wgh/gh"
+( cd "$root" && just new-project "$wr" ) >/dev/null 2>&1
+cd "$wr" || exit 1
+mkdir -p .github/workflows
+printf 'name: windows\non:\n  push:\n    branches: [cloud]\n' > .github/workflows/windows.yml
+printf 'x\n' > app.txt
+git add -A && git commit -qm "feat: needs windows" --no-verify
+just release >/dev/null 2>&1
+wrel() { PATH="$wgh:$PATH" FAKE_WINDOWS="${1:-}" FAKE_WIN_JOBS="${2:-}" FAKE_WIN_LOG="${3:-}" just release; }
+wr_has() { git rev-parse -q --verify "refs/tags/$1" >/dev/null; }
+check "release refuses when the windows run is none" "! wrel && says 'Not released: Windows is none' wrel && ! wr_has v0.1.0"
+check "release refuses when the windows run is running" "! wrel $'88\tin_progress\t' && says 'Not released: Windows is running' wrel $'88\tin_progress\t' && ! wr_has v0.1.0"
+WJOBS=$'4\tsuite (windows-latest)\tfailure'
+WLOG=""
+for n in one two three four five six; do
+  WLOG="${WLOG:+$WLOG|}suite (windows-latest)"$'\t'"step"$'\t'"t   FAIL  $n"
+done
+out=$(wrel $'88\tcompleted\tfailure' "$WJOBS" "$WLOG" 2>&1); rc=$?
+check "release refuses a red windows run and names at most five FAIL names" "[ $rc -ne 0 ] && grep -q 'Not released: Windows is red: suite (windows-latest) failure FAIL: one;two;three;four;five;' <<<\"\$out\" && ! grep -q 'six' <<<\"\$out\" && ! wr_has v0.1.0"
+out=$(wrel $'88\tcompleted\tsuccess' 2>&1)
+check "release tags when the windows run is green" "grep -q '^Released v0.1.0' <<<\"\$out\" && wr_has v0.1.0"
 cd "$tmp" || exit 1
 
 section "the backlog of 2026-10-06 (spec 026)"

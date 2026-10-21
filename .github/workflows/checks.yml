@@ -1,9 +1,11 @@
-# Every push to cloud: the same checks a person runs before saving work, on the
-# three kinds of machine a project can live on (spec 017). All three decide
-# (Windows since spec 020; before it, report-only). What
-# passes is judged by promote.yml, which runs from main's own copy of itself
-# and of .ai-backbone/gate.sh, so nothing pushed here can change how it is
-# judged, only what is tested; code then waits for an attended carry (spec 031).
+# Every push to cloud: the same checks a person runs before saving work, on
+# Linux and macOS (spec 017). Those two decide the carry. Windows runs the
+# same suite from windows.yml and reports (spec 037); a carry does not wait
+# for it. Windows decided from spec 020 (the maintainer, 2026-09-24) until
+# spec 037; before spec 020 it only reported. What passes is judged by
+# promote.yml, which runs from main's own copy of itself and of
+# .ai-backbone/gate.sh, so nothing pushed here can change how it is judged,
+# only what is tested; code then waits for an attended carry (spec 031).
 #
 # This file is the backbone's own gate; a project's starter is in
 # .ai-backbone/examples/ (just ci-init). Two of its lessons hold here too:
@@ -29,7 +31,8 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# On Windows the default shell is PowerShell, and every step below is sh.
+# The steps below are sh. Name the shell so a runner whose default is not
+# bash still runs them.
 defaults:
   run:
     shell: bash
@@ -66,18 +69,19 @@ jobs:
       matrix:
         # Twice the measured suite; the job's cap is the backstop behind the
         # suite step's own. Measured again 2026-10-13 (run 38400602011, 727
-        # checks): Linux 3 min 6 s, macOS 7 min 13 s, Windows 22 min. The caps
-        # of 2026-09-24 (twice 2 min 20 s and 3 min 14 s, then about 520
-        # checks) stopped the next run on macOS and Windows with every check
-        # that ran green (spec 028).
+        # checks): Linux 3 min 6 s, macOS 7 min 13 s. The caps of 2026-09-24
+        # (twice 2 min 20 s and 3 min 14 s, then about 520 checks) stopped the
+        # next run on macOS and Windows with every check that ran green
+        # (spec 028).
+        # Windows decided from spec 020 (the maintainer's word, 2026-09-24)
+        # until spec 037. Report-only before spec 020: at ten minutes about
+        # 220 checks were red, and gate.sh read only these two. From spec 020
+        # a carry waited for the Windows job, about twenty-five minutes, then
+        # about forty on 2026-10-21. That suite now reports from windows.yml
+        # (caps 48 and 44). These two decide the carry.
         include:
           - { os: ubuntu-latest,  cap: 9,  suite_cap: 7,  report_only: false }
           - { os: macos-latest,   cap: 17, suite_cap: 15, report_only: false }
-          # Deciding since spec 020 (the maintainer's word, 2026-09-24).
-          # Report-only before it: at ten minutes about 220 checks were red,
-          # and gate.sh read only the other two. A carry waits for the whole
-          # run, so about twenty-five minutes.
-          - { os: windows-latest, cap: 48, suite_cap: 44, report_only: false }
     # The name gate.sh reads the verdict by: without it the matrix's other
     # values are appended ("suite (ubuntu-latest, 30, false)"; measured).
     name: suite (${{ matrix.os }})

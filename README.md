@@ -57,7 +57,8 @@ update replaces only the files the backbone owns and never yours.
   (`just routine-install`, on a Mac today). The backbone itself is developed
   that way: a cloud routine works on a branch every third day, and a gate on GitHub
   runs the backbone's own test suite on a clean Linux, a clean Mac and a
-  clean Windows machine before a change reaches `main`.
+  clean Windows machine. Linux and macOS decide whether it reaches `main`;
+  Windows reports (spec 037).
 
 ## The life of one idea
 
@@ -77,14 +78,15 @@ flowchart TD
     test -->|"red"| build
     test -->|"green: pushed to cloud"| gate
     gate -->|"red"| build
-    gate -->|"green on all three"| ver
+    gate -->|"green on Linux and macOS"| ver
     ver -->|"just template-update"| projs
 ```
 
 Every change to the backbone goes this way, whoever starts it: a note from a
 project or an idea the radar brought in becomes a one-page spec, the agent
 builds it, the suite tries it on throwaway projects, GitHub runs the same
-suite on a clean Linux, Mac and Windows machine, and green becomes a tagged
+suite on a clean Linux, Mac and Windows machine. Linux and macOS decide the
+carry; Windows reports. Green on those two becomes a tagged
 version your projects take in at their next session. Anything that would
 change what you type waits for your yes first. The whole picture, with the
 loop between you, the agent and the backbone, is in
