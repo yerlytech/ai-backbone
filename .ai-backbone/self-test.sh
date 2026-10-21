@@ -1969,8 +1969,8 @@ check "a pin the file does not hold is the job when nothing is behind" "fresh035
 check "an idea's newer release is to read, never behind"              "fresh035 fresh-idea"
 check "the table lists an idea apart, and not as newer"             "fresh035 idea-table"
 check "a scoped npm package is asked with the slash encoded"        "fresh035 npm-scope"
-check "the backbone's tool pins are the releases of 2026-10-20" \
-  "grep -qx 'pin = \"1.59.0\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"0.5.6\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"0.9.92\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"0.13.3\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"v8.30.1\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"v7\"' '$root/docs/upstream.toml'"
+check "the backbone's tool pins name a version for just, prek, graphify, uv, gitleaks and the actions" \
+  "(for n in just prek graphify uv gitleaks; do awk -v n=\"\$n\" '/^\\[\\[watch\\]\\]/{w=0} \$0==\"name = \\\"\"n\"\\\"\"{w=1} w&&/^pin = \"[^\"]+\"\$/{f=1} END{exit !f}' '$root/docs/upstream.toml' || exit 1; done) && grep -qx 'pin = \"v7\"' '$root/docs/upstream.toml'"
 check "the backbone watches grok, claude-code, zed and the two ideas" \
   "grep -qx 'source = \"npm:@xai-official/grok\"' '$root/docs/upstream.toml' && grep -qx 'source = \"npm:@anthropic-ai/claude-code\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:zed-industries/zed\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:OrchestratorInc/agent-orchestrator\"' '$root/docs/upstream.toml' && grep -qx 'source = \"ghcommit:jarrodwatts/claude-delegator\"' '$root/docs/upstream.toml' && grep -qx 'look_for = \"a board of every running job across projects\"' '$root/docs/upstream.toml' && grep -qx 'look_for = \"an ask-only mode\"' '$root/docs/upstream.toml'"
 check "the two ideas are pinned at what was read on 2026-10-20" \
