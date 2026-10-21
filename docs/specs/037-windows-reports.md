@@ -53,14 +53,16 @@ public, and the carry stops waiting for Windows.
       cover each case against a fake `gh`.
 - [x] A red Windows run on cloud appends one `gate:` line to
       docs/routine-log.md naming its FAIL names, as a red Linux does today.
-- [ ] Measured on the first push after the change: the carry is possible
+- [x] Measured on the first push after the change: the carry is possible
       when Linux and macOS end, and the time is written here.
+      2026-10-21, 90c4448: the checks run ended green in 12 minutes with
+      Windows still running; carried by hand (workflow files changed).
 
 ## Tasks
 
 - [x] windows.yml and checks.yml split; ci-check accepts the new file.
 - [x] gate.sh and carry; their tests.
 - [x] release refuses on Windows red or missing; its tests.
-- [ ] Docs (spec 020's note, getting-started's gate section), changelog;
+- [x] Docs (spec 020's note, getting-started's gate section), changelog;
       the attended carry of the workflow change (`git push origin <commit>:main`
       after green checks, as the gate's rule for workflow changes says).
