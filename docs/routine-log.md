@@ -71,3 +71,4 @@ prints the last two lines here in the backbone. A report, never an order.
 - 2026-10-21 gate: cloud not promoted — the checks ended failure: suite (windows-latest) failure;
 - 2026-10-21 gate: 650c5e8 waits for an attended carry — green on Linux, macOS and Windows; it changes code (.ai-backbone/core.just, .ai-backbone/self-test.sh, docs/upstream.toml): an attended session says what changed and why, and on the maintainer's yes runs just carry 650c5e8
 - 2026-10-21 gate: 51162e6 waits for an attended carry — green on Linux, macOS and Windows; it changes code (.ai-backbone/core.just, .ai-backbone/self-test.sh): an attended session says what changed and why, and on the maintainer's yes runs just carry 51162e6
+- 2026-10-21 gate: cloud not promoted — the push changes .github/workflows or gate.sh, which only an attended carry takes to main (just carry 90c4448 after green checks, on the maintainer's yes); an unattended run puts main's copy back
