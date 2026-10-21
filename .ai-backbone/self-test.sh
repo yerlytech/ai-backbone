@@ -1534,54 +1534,64 @@ section "secrets in brain"
 # spec 036. Files here are made for the test; a real secret is never opened.
 modeof() { perl -e 'printf "%04o\n", (stat($ARGV[0]))[2] & 07777' "$1"; }
 check "AGENTS.md says secrets live in brain/secrets/" "grep -q 'brain/secrets/' AGENTS.md && grep -q 'Never print, copy or quote one' AGENTS.md"
-echo k > tracked.p12
-git add -f tracked.p12
-check "secrets-to-brain refuses a file git tracks" "says 'Not moved: tracked.p12 is tracked by git' just secrets-to-brain && [ -f tracked.p12 ] && [ ! -L tracked.p12 ]"
-git rm -fq --cached tracked.p12
-rm -f tracked.p12
-ln -s /no/such/target .env.other
-check "secrets-to-brain refuses a path that is already a link" "says 'Not moved: .env.other is already a link' just secrets-to-brain && [ -L .env.other ]"
-rm -f .env.other
-echo k > wait.key
-mkdir -p brain/secrets
-echo x > brain/secrets/wait.key
-check "secrets-to-brain refuses a target that exists" "says 'Not moved: brain/secrets/wait.key already exists' just secrets-to-brain && [ -f wait.key ] && [ ! -L wait.key ]"
-rm -f wait.key brain/secrets/wait.key
-rmdir brain/secrets 2>/dev/null || true
-mkdir -p a/b ios
-echo A=1 > .env
-echo B=2 > a/b/.env
-echo k > ios/dist.p12
-chmod 0600 .env a/b/.env ios/dist.p12
-rootm=$(modeof .env)
-out=$(just secrets-to-brain 2>&1) || true
-check "secrets-to-brain moves a root .env, a nested .env and a key, and prints each" "grep -qx 'moved .env' <<<\"\$out\" && grep -qx 'moved a/b/.env' <<<\"\$out\" && grep -qx 'moved ios/dist.p12' <<<\"\$out\""
-check "and leaves a relative link at each old path" "[ -L .env ] && [ \"\$(readlink .env)\" = 'brain/secrets/.env' ] && [ -L a/b/.env ] && [ \"\$(readlink a/b/.env)\" = '../../brain/secrets/a/b/.env' ] && [ -L ios/dist.p12 ] && [ \"\$(readlink ios/dist.p12)\" = '../brain/secrets/ios/dist.p12' ]"
-check "and keeps the file's mode" "[ \"\$(modeof brain/secrets/.env)\" = '$rootm' ]"
-check "_secret-files still lists a file that was moved" "says '^\\.env\$' just _secret-files && says '^a/b/.env\$' just _secret-files && says '^ios/dist.p12\$' just _secret-files"
-out2=$(just secrets-to-brain 2>&1) || true
-check "run twice, it changes nothing the second time" "[ -z \"\$out2\" ] && [ -L .env ] && [ -f brain/secrets/.env ]"
-check "a link at the old path is still ignored by git" "git check-ignore -q .env && git check-ignore -q a/b/.env && git check-ignore -q ios/dist.p12"
-echo 'a line' >> README.md
-check "just save never stages a link" "just save 'docs: a line' && ! git ls-files --error-unmatch -- .env >/dev/null 2>&1 && ! git ls-files --error-unmatch -- a/b/.env >/dev/null 2>&1 && ! git ls-files --error-unmatch -- ios/dist.p12 >/dev/null 2>&1"
-check "doctor does not warn about a key that is a link into brain/secrets/" "! says 'dist.p12' vc repo_doctor"
-rm -f brain/secrets/ios/dist.p12
-check "doctor warns about a link whose file is missing" "says '^  warn  .*(link whose file is missing|bağlantının dosyası yok).*: ios/dist.p12\$' vc repo_doctor"
-echo k > brain/secrets/ios/dist.p12
-chmod 0600 brain/secrets/ios/dist.p12 2>/dev/null || true
-if command -v rsync >/dev/null 2>&1; then
-  echo C=3 > .env.stay
-  vc just _vault-copy >/dev/null 2>&1
-  check "the copy holds a moved secret as a file in brain/secrets/" "[ -f '$copy/brain/secrets/.env' ] && [ ! -L '$copy/brain/secrets/.env' ] && [ -f '$copy/brain/secrets/a/b/.env' ] && [ ! -L '$copy/brain/secrets/a/b/.env' ]"
-  check "and a secret still outside brain/ is still copied to secrets/" "[ -f '$copy/secrets/.env.stay' ]"
-  check "and a moved secret is not copied again to secrets/" "[ ! -e '$copy/secrets/a/b/.env' ]"
-  check "and about-this-copy.txt says secrets live in brain/secrets/" "grep -q 'Secrets live in brain/secrets/' '$copy/about-this-copy.txt' && grep -q 'no longer written' '$copy/about-this-copy.txt'"
-  rm -f .env.stay
+# Git Bash on Windows copies the file for `ln -s` unless symbolic links are
+# turned on (measured on windows-latest, 2026-10-21): no link, nothing moves.
+rm -f "$tmp/lp-target" "$tmp/lp"; : > "$tmp/lp-target"
+if ln -s "$tmp/lp-target" "$tmp/lp" 2>/dev/null && [ -L "$tmp/lp" ]; then
+  echo k > tracked.p12
+  git add -f tracked.p12
+  check "secrets-to-brain refuses a file git tracks" "says 'Not moved: tracked.p12 is tracked by git' just secrets-to-brain && [ -f tracked.p12 ] && [ ! -L tracked.p12 ]"
+  git rm -fq --cached tracked.p12
+  rm -f tracked.p12
+  ln -s /no/such/target .env.other
+  check "secrets-to-brain refuses a path that is already a link" "says 'Not moved: .env.other is already a link' just secrets-to-brain && [ -L .env.other ]"
+  rm -f .env.other
+  echo k > wait.key
+  mkdir -p brain/secrets
+  echo x > brain/secrets/wait.key
+  check "secrets-to-brain refuses a target that exists" "says 'Not moved: brain/secrets/wait.key already exists' just secrets-to-brain && [ -f wait.key ] && [ ! -L wait.key ]"
+  rm -f wait.key brain/secrets/wait.key
+  rmdir brain/secrets 2>/dev/null || true
+  mkdir -p a/b ios
+  echo A=1 > .env
+  echo B=2 > a/b/.env
+  echo k > ios/dist.p12
+  chmod 0600 .env a/b/.env ios/dist.p12
+  rootm=$(modeof .env)
+  out=$(just secrets-to-brain 2>&1) || true
+  check "secrets-to-brain moves a root .env, a nested .env and a key, and prints each" "grep -qx 'moved .env' <<<\"\$out\" && grep -qx 'moved a/b/.env' <<<\"\$out\" && grep -qx 'moved ios/dist.p12' <<<\"\$out\""
+  check "and leaves a relative link at each old path" "[ -L .env ] && [ \"\$(readlink .env)\" = 'brain/secrets/.env' ] && [ -L a/b/.env ] && [ \"\$(readlink a/b/.env)\" = '../../brain/secrets/a/b/.env' ] && [ -L ios/dist.p12 ] && [ \"\$(readlink ios/dist.p12)\" = '../brain/secrets/ios/dist.p12' ]"
+  check "and keeps the file's mode" "[ \"\$(modeof brain/secrets/.env)\" = '$rootm' ]"
+  check "_secret-files still lists a file that was moved" "says '^\\.env\$' just _secret-files && says '^a/b/.env\$' just _secret-files && says '^ios/dist.p12\$' just _secret-files"
+  out2=$(just secrets-to-brain 2>&1) || true
+  check "run twice, it changes nothing the second time" "[ -z \"\$out2\" ] && [ -L .env ] && [ -f brain/secrets/.env ]"
+  check "a link at the old path is still ignored by git" "git check-ignore -q .env && git check-ignore -q a/b/.env && git check-ignore -q ios/dist.p12"
+  echo 'a line' >> README.md
+  check "just save never stages a link" "just save 'docs: a line' && ! git ls-files --error-unmatch -- .env >/dev/null 2>&1 && ! git ls-files --error-unmatch -- a/b/.env >/dev/null 2>&1 && ! git ls-files --error-unmatch -- ios/dist.p12 >/dev/null 2>&1"
+  check "doctor does not warn about a key that is a link into brain/secrets/" "! says 'dist.p12' vc repo_doctor"
+  rm -f brain/secrets/ios/dist.p12
+  check "doctor warns about a link whose file is missing" "says '^  warn  .*(link whose file is missing|bağlantının dosyası yok).*: ios/dist.p12\$' vc repo_doctor"
+  echo k > brain/secrets/ios/dist.p12
+  chmod 0600 brain/secrets/ios/dist.p12 2>/dev/null || true
+  if command -v rsync >/dev/null 2>&1; then
+    echo C=3 > .env.stay
+    vc just _vault-copy >/dev/null 2>&1
+    check "the copy holds a moved secret as a file in brain/secrets/" "[ -f '$copy/brain/secrets/.env' ] && [ ! -L '$copy/brain/secrets/.env' ] && [ -f '$copy/brain/secrets/a/b/.env' ] && [ ! -L '$copy/brain/secrets/a/b/.env' ]"
+    check "and a secret still outside brain/ is still copied to secrets/" "[ -f '$copy/secrets/.env.stay' ]"
+    check "and a moved secret is not copied again to secrets/" "[ ! -e '$copy/secrets/a/b/.env' ]"
+    check "and about-this-copy.txt says secrets live in brain/secrets/" "grep -q 'Secrets live in brain/secrets/' '$copy/about-this-copy.txt' && grep -q 'no longer written' '$copy/about-this-copy.txt'"
+    rm -f .env.stay
+  fi
+  just secrets-back >/dev/null 2>&1
+  check "secrets-back puts each file back and removes the link" "[ -f .env ] && [ ! -L .env ] && [ -f a/b/.env ] && [ ! -L a/b/.env ] && [ -f ios/dist.p12 ] && [ ! -L ios/dist.p12 ]"
+  check "and leaves brain/secrets/ empty" "[ ! -e brain/secrets ] || [ -z \"\$(find brain/secrets \\( -type f -o -type l \\) 2>/dev/null)\" ]"
+  rm -rf a ios .env .env.stay
+else
+  echo A=1 > .env
+  check "without symbolic links, secrets-to-brain moves nothing and says why" "says 'makes no symbolic links' just secrets-to-brain && [ -f .env ] && [ ! -L .env ] && [ ! -e brain/secrets/.env ]"
+  rm -f .env
 fi
-just secrets-back >/dev/null 2>&1
-check "secrets-back puts each file back and removes the link" "[ -f .env ] && [ ! -L .env ] && [ -f a/b/.env ] && [ ! -L a/b/.env ] && [ -f ios/dist.p12 ] && [ ! -L ios/dist.p12 ]"
-check "and leaves brain/secrets/ empty" "[ ! -e brain/secrets ] || [ -z \"\$(find brain/secrets \\( -type f -o -type l \\) 2>/dev/null)\" ]"
-rm -rf a ios .env .env.stay
+rm -f "$tmp/lp-target" "$tmp/lp"
 
 # A save must never commit code the language layer rejects (3.7.0).
 section "lint before save"
