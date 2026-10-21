@@ -1,5 +1,5 @@
 ---
-status: approved
+status: done
 date: 2026-10-21
 ---
 
@@ -58,8 +58,13 @@ None open. Approved by the maintainer on 2026-10-21: move and link, the cloud co
       and warns about a link whose file is missing.
 - [x] The core rules say: secrets live in `brain/secrets/`; an agent never
       prints, copies or quotes one, and reads one only to move it.
-- [ ] Tested on macOS and Linux; walked on one real project with a root `.env`,
+- [x] Tested on macOS and Linux; walked on one real project with a root `.env`,
       what reads it started from the link.
+      2026-10-21: the checks of 5a77ab4 green on Linux and macOS. Walked on
+      six projects the same evening (seven files, one of them two folders
+      down); each link resolves and is ignored by git, and a Compose file
+      that refuses to start without its .env's password read it through the
+      link.
 
 ## Tasks
 
@@ -67,7 +72,8 @@ None open. Approved by the maintainer on 2026-10-21: move and link, the cloud co
       refusal cases, run twice).
 - [x] `_vault-copy` and doctor follow the links; their tests.
 - [x] Rules, docs, changelog; release.
-- [ ] Each project moves on its next session (a note to every project).
+- [x] Each project moves on its next session (a note to every project).
+      Done for every project at once in the batch update of 2026-10-21.
 
 ## Notes
 
