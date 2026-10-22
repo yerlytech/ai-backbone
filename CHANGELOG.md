@@ -15,6 +15,11 @@ below are the record of every version.
 
 ## [Unreleased]
 
+**A worker starts no sub-agent and no parallel task.** The preamble says one
+thing at a time. A headless grok that starts one hits `permission required`
+and ends the run with exit 0 and no commit (grok 1.0.62, measured 2026-10-22).
+Nothing to do until `just template-update`.
+
 **A grok worker's long command is not lost to the 600 s background stop.**
 `delegate_grok` passes `--background-wait-timeout` in seconds, up to the job's
 `DELEGATE_TIMEOUT` (grok 1.0.62; the flag is hidden from `grok --help`), and

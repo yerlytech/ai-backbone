@@ -1726,6 +1726,7 @@ delegate task="":
       "You are the worker for this repository. A manager reviews your work. Read AGENTS.md first and follow it. You are on branch ${branch}; stay on it." \
       "Commit with just save. Run the project's tests before each commit." \
       "Run long commands in the foreground. A background task is stopped when the turn ends." \
+      "Never start a sub-agent or a parallel task: one thing at a time." \
       "Never run just publish, git push, just ship, or just deploy. Never call a server or GitHub. Never merge, rebase, or delete a branch." \
       "When you finish, the report is the last thing you print: at most 15 lines, and nothing after it.")
     # One line: a blank line inside a quoted string is a just parse error
