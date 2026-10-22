@@ -15,6 +15,13 @@ below are the record of every version.
 
 ## [Unreleased]
 
+**The delegate queue rule is written down.** Related small jobs are one task
+text and one report. Independent jobs in one project go back to back, the next
+handed over when the report comes. Parallel jobs only across projects, or in
+separate worktrees of one repository started with `DELEGATE_BASE`; one
+delegate job per project folder (spec 034). Nothing to do until
+`just template-update`.
+
 **A parallel lane is not a branch-list breach.** The job still compares the
 branch list, but a branch checked out in another worktree of the same
 repository is not this run's change, and neither is a `lane/` or `delegate/`

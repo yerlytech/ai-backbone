@@ -26,6 +26,14 @@ With `WORKER` set to `grok`, `claude` or `opencode`, this session is the manager
    job yourself instead. For opencode, that is past the last model of the ladder.
 6. A spec still goes to the maintainer for a yes. A draft of one may be delegated.
 
+## Queue
+
+Related small jobs are one task text: one round, one report. Independent jobs
+in one project go back to back: hand the next one when the report comes, and
+do not make the owner wait for it. Run jobs in parallel only across projects,
+or in separate worktrees of one repository started with `DELEGATE_BASE`; one
+delegate job per project folder (spec 034).
+
 `just delegate-status` says whether a job of this project is running, and shows
 the last report, the model and cost of the last opencode run when the log has
 one, and the open `delegate/*` branches. `DELEGATE_TIMEOUT` is
