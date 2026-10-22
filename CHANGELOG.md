@@ -15,6 +15,8 @@ below are the record of every version.
 
 ## [Unreleased]
 
+## 3.46.0 — 2026-10-22
+
 **A created repository deletes the branches a merge finished with (n-baecb7).**
 `just publish`, on the run that creates the project's GitHub repository, now
 also turns on `delete_branch_on_merge` there with `gh api -X PATCH`. It says
