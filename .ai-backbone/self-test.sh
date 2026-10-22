@@ -3486,6 +3486,10 @@ tcap() { local c=$1; shift; bw env -u CI GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=ai-
 check "just trim-build runs now and says what it did" "says '^[0-9-]+ [0-9:]+  .*under the cap of (60|30).0 GB' tcap 60 just trim-build"
 check "and off turns it off" "says 'Trimming is off here' tcap off just trim-build"
 check "a folder that is not cargo's is left alone by the recipe too" "says 'is not a folder cargo made' tcap 60 env -u CARGO_META_TARGET just trim-build"
+# A Rust workspace below the root: the recipe finds every folder cargo made,
+# not only the one the layer names (n-2a36ec).
+mkcargo "$bo/proj/src/app/target"
+check "trim-build finds a nested workspace's build folder too" "says 'over the cap of .*: removed' tcap 0.0001 env -u CARGO_META_TARGET just trim-build && [ ! -e '$bo/proj/src/app/target/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && grep -q 'over the cap' '$bo/proj/src/app/target/ai-backbone-trim.log'"
 rm -f "$tmp/tr/target/ai-backbone-trim.log" "$tmp/tr/target/ai-backbone-trim.done"
 tcap 60 env BUILD_WAIT_MINUTES=1 just _build-wait >/dev/null 2>&1
 i=0; until [ -s "$tmp/tr/target/ai-backbone-trim.log" ] || [ "$i" -ge 100 ]; do sleep 0.1; i=$((i + 1)); done

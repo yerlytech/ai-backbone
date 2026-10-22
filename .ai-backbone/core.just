@@ -4794,6 +4794,43 @@ _heavy:
 trim-build:
     @just _build-trim now
 
+# Every cargo folder this project has: the one the language layer names, and
+# every folder under the project that holds cargo's own CACHEDIR.TAG, so a
+# workspace below the root (src/<app>/target) is trimmed too (n-2a36ec). One
+# folder a line, the named one first, no folder inside another. .git, .archive
+# and .references are not searched: the last two are other people's trees,
+# kept read-only where they stand.
+_build-folders:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    named=""
+    while read -r k v; do case "$k" in dir) named="$v" ;; esac; done <<< "$(just _build-info 2>/dev/null || true)"
+    list=""
+    put() {
+      local d="$1" r e kept inside
+      [ -d "$d" ] || return 0
+      r=$(cd "$d" && pwd -P) || return 0
+      case "$list" in *"$r"$'\n'*) return 0 ;; esac
+      inside=0
+      while IFS= read -r e; do
+        [ -n "$e" ] || continue
+        case "$r/" in "$e"/*) inside=1; break ;; esac
+      done <<< "$list"
+      [ "$inside" = 1 ] && return 0
+      kept=""
+      while IFS= read -r e; do
+        [ -n "$e" ] || continue
+        case "$e/" in "$r"/*) continue ;; esac
+        kept="$kept$e"$'\n'
+      done <<< "$list"
+      list="$kept$r"$'\n'
+    }
+    [ -z "$named" ] || put "$named"
+    while IFS= read -r tag; do
+      [ -n "$tag" ] && put "$(dirname "$tag")"
+    done < <(find . \( -name .git -o -name .archive -o -name .references \) -prune -o -name CACHEDIR.TAG -type f -print 2>/dev/null)
+    printf '%s' "$list"
+
 # The cap is 60 GB a project unless git says otherwise, per project or for the
 # machine (`git config [--global] ai-backbone.build-cap 30`, in GB; `off` turns
 # it off). Only a folder cargo made is touched, and only pieces the next build
@@ -4808,32 +4845,43 @@ _build-trim mode="auto":
     set -u
     mode="${1:-auto}"
     cap=$(git config --get ai-backbone.build-cap 2>/dev/null || true)
-    dir=""
-    while read -r k v; do case "$k" in dir) dir="$v" ;; esac; done <<< "$(just _build-info 2>/dev/null || true)"
-    if [ -z "$dir" ]; then [ "$mode" != now ] || echo "This project's language layer names no build folder: nothing to trim."; exit 0; fi
+    dirs=()
+    while IFS= read -r d; do [ -z "$d" ] || dirs+=("$d"); done <<< "$(just _build-folders 2>/dev/null || true)"
+    if [ "${#dirs[@]}" -eq 0 ]; then [ "$mode" != now ] || echo "This project has no build folder to trim: the language layer names none, and no folder under it holds cargo's CACHEDIR.TAG."; exit 0; fi
+    py=$(just _py)
     if [ "$mode" = auto ]; then
-      [ -z "${CI:-}" ] && [ -d "$dir" ] || exit 0
-      [ -z "$(find "$dir/ai-backbone-trim.done" -mmin -60 2>/dev/null)" ] || exit 0
-      py=$(just _py)
-      "$py" .ai-backbone/buildtrim.py "$dir" "${cap:-60}" --wait
+      [ -z "${CI:-}" ] || exit 0
+      for dir in "${dirs[@]}"; do
+        [ -z "$(find "$dir/ai-backbone-trim.done" -mmin -60 2>/dev/null)" ] || continue
+        "$py" .ai-backbone/buildtrim.py "$dir" "${cap:-60}" --wait
+      done
       # One disk, many projects (spec 032): with less than 15% of it free, the
       # other projects' folders that no build has written in a week go too,
       # the one built longest ago first. Their folders are asked for only then:
       # each is a `cargo metadata`. A folder another setting chose is theirs to
       # say, so this project's own CARGO_TARGET_DIR does not go with the question.
-      free=$(df -Pk "$dir" 2>/dev/null | awk 'NR == 2 && $2 > 0 { print int($4 * 100 / $2) }')
+      free=$(df -Pk "${dirs[0]}" 2>/dev/null | awk 'NR == 2 && $2 > 0 { print int($4 * 100 / $2) }')
       case "$free" in ""|*[!0-9]*) exit 0 ;; esac
       [ "$free" -lt 15 ] || exit 0
       folders=()
       while read -r d; do
         [ -n "$d" ] && [ "$d" != "$(pwd -P)" ] || continue
-        f=$(cd "$d" && env -u CARGO_TARGET_DIR -u CARGO_BUILD_TARGET_DIR just _build-info 2>/dev/null | sed -n 's/^dir //p' | head -1)
-        [ -z "$f" ] || folders+=("$f")
+        found=""
+        while IFS= read -r f; do
+          [ -z "$f" ] || { folders+=("$f"); found=1; }
+        done <<< "$(cd "$d" && env -u CARGO_TARGET_DIR -u CARGO_BUILD_TARGET_DIR just _build-folders 2>/dev/null || true)"
+        # A project on a core from before _build-folders: its layer's own folder.
+        if [ -z "$found" ]; then
+          f=$(cd "$d" && env -u CARGO_TARGET_DIR -u CARGO_BUILD_TARGET_DIR just _build-info 2>/dev/null | sed -n 's/^dir //p' | head -1)
+          [ -z "$f" ] || folders+=("$f")
+        fi
       done <<< "$(just _rust-projects)"
-      [ "${#folders[@]}" -eq 0 ] || exec "$py" .ai-backbone/buildtrim.py --machine --free "$free" "$dir" "${folders[@]}"
+      [ "${#folders[@]}" -eq 0 ] || exec "$py" .ai-backbone/buildtrim.py --machine --free "$free" "${dirs[@]}" "${folders[@]}"
       exit 0
     fi
-    exec "$(just _py)" .ai-backbone/buildtrim.py "$dir" "${cap:-60}" --now
+    for dir in "${dirs[@]}"; do
+      "$(just _py)" .ai-backbone/buildtrim.py "$dir" "${cap:-60}" --now
+    done
 
 # The Rust projects on this machine, this one among them, one folder a line:
 # found the way project-note finds projects, next to the backbone, one and two

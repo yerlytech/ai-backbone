@@ -15,6 +15,15 @@ below are the record of every version.
 
 ## [Unreleased]
 
+**`just trim-build` finds a workspace below the root (n-2a36ec).** It trimmed
+only the folder the language layer names, so a Rust workspace that lives in
+`src/<app>` (its own `target/` with cargo's `CACHEDIR.TAG`) grew without a cap
+— 42 GB in one. `just trim-build` and the 15 percent free sweep now go through
+every folder under the project that holds `CACHEDIR.TAG`, the named one first,
+never one inside another, and `.git`, `.archive` and `.references` are not
+searched. A sibling project on an older core still has the folder its layer
+names used by the sweep. Nothing to do until `just template-update`.
+
 **`just project-note` reaches a project beside the umbrella folder (n-88393e).**
 It looked one and two folders below the backbone's parent, so a project that
 `just new-project` made directly on the Desktop, beside the umbrella folder,
