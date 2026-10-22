@@ -1785,6 +1785,18 @@ delegate task="":
     fi
     before_protect=$(git rev-parse "refs/heads/$protect" 2>/dev/null || echo missing)
     before_branches=$(git for-each-ref refs/heads --format='%(refname)')
+    # A branch checked out in another worktree of this repository belongs to a
+    # parallel lane, not to this run (n-1cbec4). A branch is checked out in at
+    # most one worktree, so every checked-out branch but this run's own is
+    # another worktree's. Read before and after: a lane branch that appears
+    # (worktree add) or disappears (worktree remove, delegate-drop) during the
+    # run is not a breach. A branch the run creates and leaves unchecked is
+    # still one.
+    foreign_branches() {
+      git worktree list --porcelain 2>/dev/null | awk -v own="refs/heads/$branch" '
+        $1 == "branch" && $2 != own { print $2 }' || true
+    }
+    before_foreign=$(foreign_branches)
     # Job control puts the worker in its own process group, so the stop
     # reaches the CLI and the children it started. The "Terminated" line that
     # job control prints is not the report. The redirected wait drops the
@@ -1853,6 +1865,7 @@ delegate task="":
     set -e
     after_protect=$(git rev-parse "refs/heads/$protect" 2>/dev/null || echo missing)
     after_branches=$(git for-each-ref refs/heads --format='%(refname)')
+    after_foreign=$(foreign_branches)
     # Remote-tracking refs, and every ref of a local-path origin. A tip is
     # this job's commit when the branch contains it and nothing before the
     # run did. An object that exists only on the other repo cannot be on
@@ -1884,7 +1897,30 @@ delegate task="":
       else echo "BREACH: default branch $protect moved"; fi
       breach=1
     fi
-    if [ "$after_branches" != "$before_branches" ]; then echo "BREACH: branch list changed"; breach=1; fi
+    if [ "$after_branches" != "$before_branches" ]; then
+      # Only a branch in exactly one of the two lists changed. A lane or
+      # delegate branch another worktree created or dropped during the run is
+      # named too, in case its worktree was gone before a snapshot.
+      changed_file="$dir/${id}.branches"
+      printf '%s\n%s\n' "$before_branches" "$after_branches" | sed '/^$/d' | sort | uniq -u > "$changed_file"
+      foreign=$(printf '%s\n%s\n' "$before_foreign" "$after_foreign" | sed '/^$/d')
+      branch_change=0
+      while IFS= read -r ref; do
+        [ -n "$ref" ] || continue
+        case "$ref" in
+          refs/heads/lane/*) continue ;;
+          refs/heads/delegate/*)
+            # A removal is another run's drop; an addition is a breach unless
+            # its worktree has it checked out (the foreign list, below).
+            if printf '%s\n' "$before_branches" | grep -qxF "$ref"; then continue; fi
+            ;;
+        esac
+        if printf '%s\n' "$foreign" | grep -qxF "$ref"; then continue; fi
+        branch_change=1
+      done < "$changed_file"
+      rm -f "$changed_file"
+      if [ "$branch_change" -eq 1 ]; then echo "BREACH: branch list changed"; breach=1; fi
+    fi
     # opencode's --format json events stay in the log, outside the repo. The
     # report ends with the sum of part.cost on step_finish only (spec 038,
     # opencode 2.1.2). A cost on any other event is not this run's spend.

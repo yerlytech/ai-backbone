@@ -15,6 +15,13 @@ below are the record of every version.
 
 ## [Unreleased]
 
+**A parallel lane is not a branch-list breach.** The job still compares the
+branch list, but a branch checked out in another worktree of the same
+repository is not this run's change, and neither is a `lane/` or `delegate/`
+branch another worktree drops. A branch the worker creates and leaves
+unchecked is still a breach. The self-test runs two worktrees. Nothing to do
+until `just template-update`.
+
 **Grok's deny list closes the shell wrappers.** `delegate_grok` denies `sh`,
 `bash`, `zsh`, `eval`, `xargs` and `env`, as the opencode config does
 (spec 038), so `sh -c 'rm x'` is not a way around `Bash(rm:*)`. The line is

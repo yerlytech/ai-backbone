@@ -55,7 +55,11 @@ the project.
 A run that pushed, moved the default branch (or the base, when one is set), or
 changed the branch list prints `BREACH:` first and exits non-zero. A fetch
 that moves a remote ref, or someone else pushing a commit this branch does
-not contain, is not a breach. Do not accept a branch that breached.
+not contain, is not a breach. A branch another worktree of the same
+repository has checked out is not this run's change: a parallel lane that
+creates or drops its own branch during the run is not a breach. A branch the
+worker creates and leaves unchecked still is. Do not accept a branch that
+breached.
 
 The harness this session runs in may stop a command after two hours (Claude
 Code's limit for a background command, measured on claude-code 2.1.296), and

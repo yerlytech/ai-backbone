@@ -3866,6 +3866,18 @@ case "$mode" in
     git branch from-the-worker
     echo report
     ;;
+  sibling)
+    # A parallel lane: another worktree of this repository creates its own
+    # branch while this run is going.
+    git worktree add -q -b lane/parallel "$FAKE_WORKER_SIDE"
+    echo report
+    ;;
+  siblingdrop)
+    # Another worktree drops its own branch while this run is going.
+    git worktree remove --force "$FAKE_WORKER_SIDE"
+    git branch -D lane/old >/dev/null
+    echo report
+    ;;
   fix)
     printf 'fixed\n' >> worker-did.txt
     git add worker-did.txt
@@ -4278,6 +4290,26 @@ d_run branch grok "" delegate "add a branch"
 first=${d_out%%$'\n'*}
 check "a worker that adds a branch is a breach, said first" \
   "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: branch list changed' ] && grep -q '^report$' <<<\"\$d_out\" && git -C \"\$dproj\" show-ref --verify --quiet refs/heads/from-the-worker"
+# A parallel lane is another worktree of the same repository. Its branch is
+# checked out there, before or after this run, so it is not this run's change
+# (n-1cbec4). Two worktrees, one created and one dropped during the job.
+d_new siblingadd
+side="$tmp/delegate-sibling-add"
+rm -rf "$side"
+d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=sibling FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_SIDE="$side" \
+  WORKER=grok just -f "$root/Justfile" -d "$dproj" delegate "run beside a lane" 2>&1) && d_rc=0 || d_rc=$?
+check "a lane branch another worktree creates during the run is not a breach" \
+  "[ \$d_rc -eq 0 ] && ! grep -q '^BREACH:' <<<\"\$d_out\" && git -C \"\$dproj\" show-ref --verify --quiet refs/heads/lane/parallel && [ -f \"\$side/README.md\" ]"
+git -C "$dproj" worktree remove --force "$side" 2>/dev/null || true
+git -C "$dproj" branch -D lane/parallel >/dev/null 2>&1 || true
+d_new siblingdrop
+side="$tmp/delegate-sibling-drop"
+rm -rf "$side"
+git -C "$dproj" worktree add -q -b lane/old "$side"
+d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=siblingdrop FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_SIDE="$side" \
+  WORKER=grok just -f "$root/Justfile" -d "$dproj" delegate "run beside a lane that leaves" 2>&1) && d_rc=0 || d_rc=$?
+check "a lane branch another worktree drops during the run is not a breach" \
+  "[ \$d_rc -eq 0 ] && ! grep -q '^BREACH:' <<<\"\$d_out\" && ! git -C \"\$dproj\" show-ref --verify --quiet refs/heads/lane/old"
 d_new fixround
 d_run ok grok "" delegate "add a line"
 dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
