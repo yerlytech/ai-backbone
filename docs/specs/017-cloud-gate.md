@@ -77,9 +77,12 @@ almost never docs-only.
   that commit by name. In order: conclusion `cancelled` → superseded, write
   nothing; the tested commit is already on `main` → carried by an earlier
   promote, write nothing; conclusion not `success` → not carried; `main`'s own
-  `look` says the suite was due but the run has no green suite job for Linux
-  and macOS → not carried (a `look` weakened on `cloud` cannot smuggle code
-  past the judge); `.github/workflows/` or `gate.sh` differs between `main` and
+  `look` says the suite was due but the run's jobs could not be read at all →
+  not carried, and the line says that rather than saying the suite never ran
+  (GitHub answers nothing while it is still processing a run's results); the
+  jobs were read but its suite jobs were not green on Linux and macOS → not
+  carried (a `look` weakened on `cloud` cannot smuggle code past the judge);
+  `.github/workflows/` or `gate.sh` differs between `main` and
   the tested commit → not carried (such a change goes to `main` by a raw
   `git push` from an attended session after green checks; an unattended run
   puts `main`'s copy back); `main` cannot fast-forward → not carried, "main
@@ -271,9 +274,11 @@ None open.
       untouched.
 - [x] `just self-test`: `gate.sh carry` refuses a candidate whose
       `.github/workflows/` or `gate.sh` differs from `main`'s, one `main` cannot
-      fast-forward to, and one whose suite was due but did not run, each with
-      the reason in that line and `main` untouched; a tag that exists at another
-      commit lets `main` through alone and the line says the tag stood.
+      fast-forward to, one whose suite was due but did not run, and one whose
+      jobs could not be read (the line says so instead of blaming the suite),
+      each with the reason in that line and `main` untouched; a tag that exists
+      at another commit lets `main` through alone and the line says the tag
+      stood.
 - [x] `just self-test`: `_backbone-level` calls a no-branch checkout up to date
       at `origin/cloud` or at `origin/cloud` merged with `origin/main`; a clone
       on `cloud` takes what is new by a merge and never pulls `main`; a clone on

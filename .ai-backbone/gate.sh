@@ -71,6 +71,15 @@ jobs_of() {
   gh run view "$1" --json jobs --jq '.jobs[] | "\(.databaseId)\t\(.name)\t\(.conclusion)"' 2>/dev/null
 }
 
+# Whether gh answered with the run's jobs at all. It answers nothing while
+# GitHub is still processing a run's results — 2026-10-22, during the hour the
+# status page called "Incident with Actions Results" — and a gate that calls an
+# empty answer "no green suite job" writes a sentence it cannot know, which
+# sends the next session looking for a test that never ran.
+jobs_read() {
+  [ -n "$(jobs_of "$1")" ]
+}
+
 # The files a commit changes outside the routine's own, at most three named.
 code_of() {
   local f n=0 out=""
@@ -153,8 +162,10 @@ carry() {
     why="main moved ($(git rev-list --count "$sha..origin/main" 2>/dev/null || echo '?') commit(s) cloud does not have); the next run merges origin/main into cloud and pushes"
   elif ! git diff --quiet origin/main "$sha" -- .github/workflows .ai-backbone/gate.sh 2>/dev/null; then
     why="the push changes .github/workflows or gate.sh, which only an attended carry takes to main (just carry $short after green checks, on the maintainer's yes); an unattended run puts main's copy back"
+  elif [ "$(look "$sha" 2>/dev/null)" = suite ] && ! jobs_read "$run"; then
+    why="the suite was due for this push and the run's jobs could not be read (run $run); the next push is judged instead"
   elif [ "$(look "$sha" 2>/dev/null)" = suite ] && ! suite_green "$run"; then
-    why="the suite was due for this push and the run has no green suite job for Linux and macOS"
+    why="the suite was due for this push and the run's suite jobs were not green on Linux and macOS when the gate read them (run $run): the suite never ran, or GitHub had not finished processing its result; the next push is judged instead"
   elif [ "$(look "$sha" 2>/dev/null)" = suite ]; then
     # Spec 031: green is not enough for code. A changelog a stranger wrote can
     # shape what a scheduled run builds, so code reaches the projects only
