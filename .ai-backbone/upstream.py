@@ -68,6 +68,14 @@ SHARE_DAY = 86400
 # person who typed it is waiting for the answer. The suite sets the budget to
 # zero to exercise the stop without sleeping.
 FRESH_BUDGET = float(os.environ.get("AI_BACKBONE_UPSTREAM_BUDGET", "10") or "10")
+# npm outdated and npm audit run beside the RustSec check at session start
+# (spec 035's block). One call may spend this long, and the whole check this
+# long: a slow registry is a line saying so, never a session waiting on it.
+NPM_TIMEOUT = float(os.environ.get("AI_BACKBONE_NPM_TIMEOUT", "6") or "6")
+NPM_BUDGET = float(os.environ.get("AI_BACKBONE_NPM_BUDGET", "8") or "8")
+# Folders that are not the project's own packages: a dependency tree, another
+# repository, a retired copy, the code map's output.
+NPM_SKIP = {"node_modules", ".git", ".references", ".archive", "graphify-out"}
 # The deadline of the check that is running, or None when a person typed
 # `just upstream` and is waiting. A lookup uses the shorter of its own limit
 # and what is left, so one source's thirty seconds cannot spend the ten.
@@ -1783,6 +1791,128 @@ def advisories(mode, locks):
     return 0
 
 
+def package_dirs():
+    """Every folder the project holds a package.json in, node_modules and the
+    folders that are not the project's own left out. os.walk, not glob: a
+    dependency tree is tens of thousands of folders and must not be entered."""
+    out = []
+    for base, dirs, files in os.walk("."):
+        dirs[:] = sorted(d for d in dirs if d not in NPM_SKIP)
+        if "package.json" in files:
+            out.append(os.path.normpath(base))
+    return out
+
+
+def npm_call(folder, args, seconds):
+    """One npm call, its answer as text. Through temporary files, not pipes: a
+    child npm started that outlives its parent must not hold this session on a
+    pipe that never closes. The return code is npm's; 1 means "found something"
+    for both outdated and audit, not a failure."""
+    env = dict(os.environ)
+    env.update({"NO_UPDATE_NOTIFIER": "1", "npm_config_update_notifier": "false",
+                "npm_config_fund": "false", "npm_config_progress": "false",
+                "npm_config_audit": "false"})
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as out, \
+            tempfile.TemporaryFile(mode="w+", encoding="utf-8") as err:
+        done = subprocess.run(["npm", *args], cwd=folder, stdout=out, stderr=err,
+                              text=True, timeout=max(seconds, 0.05), env=env)
+        out.seek(0)
+        return done.returncode, out.read()
+
+
+def _npm_count(value):
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def npm_check():
+    """npm outdated and npm audit for every package.json a project holds, next
+    to the RustSec check. Quiet when there is none, and only findings or a
+    could-not-check line when there is one. A slow or failing npm is one line:
+    it never holds the session, and npm is never run for a folder that has no
+    lock file to audit."""
+    folders = package_dirs()
+    if not folders:
+        return 0
+    deadline = time.monotonic() + NPM_BUDGET
+    lines, missing = [], False
+    for folder in folders:
+        where = "." if folder == "." else folder[2:] if folder.startswith("./") else folder
+        if time.monotonic() >= deadline:
+            lines.append(f"npm: {where}: could not check (slow: the npm check ran out of time)")
+            continue
+        try:
+            code, text = npm_call(folder, ["outdated", "--json"],
+                                  min(NPM_TIMEOUT, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            lines.append(f"npm: {where}: could not check outdated (slow)")
+        except FileNotFoundError:
+            missing = True
+            break
+        except OSError as err:
+            lines.append(f"npm: {where}: could not check outdated ({one_line(err)})")
+        else:
+            if code not in (0, 1):
+                lines.append(f"npm: {where}: could not check outdated (npm said {code})")
+            else:
+                try:
+                    data = json.loads(text or "{}")
+                except ValueError:
+                    data = None
+                if not isinstance(data, dict):
+                    lines.append(f"npm: {where}: could not check outdated (npm's answer was not JSON)")
+                elif data:
+                    names = sorted(data)
+                    shown = ", ".join(
+                        f"{n} {str((data[n] or {}).get('current') or '?')} →"
+                        f" {str((data[n] or {}).get('latest') or '?')}" for n in names[:3])
+                    more = f" and {len(names) - 3} more" if len(names) > 3 else ""
+                    lines.append(f"npm: {where}: {len(names)} outdated ({shown}{more})")
+        lock = Path(folder) / "package-lock.json"
+        if not lock.is_file() and not (Path(folder) / "npm-shrinkwrap.json").is_file():
+            continue
+        if time.monotonic() >= deadline:
+            lines.append(f"npm: {where}: could not check audit (slow: the npm check ran out of time)")
+            continue
+        try:
+            code, text = npm_call(folder, ["audit", "--json"],
+                                  min(NPM_TIMEOUT, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            lines.append(f"npm: {where}: could not check audit (slow)")
+        except FileNotFoundError:
+            missing = True
+            break
+        except OSError as err:
+            lines.append(f"npm: {where}: could not check audit ({one_line(err)})")
+        else:
+            try:
+                data = json.loads(text or "{}")
+            except ValueError:
+                data = None
+            meta = data.get("metadata", {}).get("vulnerabilities") if isinstance(data, dict) else None
+            if not isinstance(meta, dict):
+                why = f"npm said {code}" if code not in (0, 1) else "npm's answer was not JSON"
+                lines.append(f"npm: {where}: could not check audit ({why})")
+            elif _npm_count(meta.get("total")) > 0:
+                parts = [f"{_npm_count(meta[k])} {k}"
+                         for k in ("critical", "high", "moderate", "low", "info")
+                         if _npm_count(meta.get(k))]
+                lines.append(f"npm: {where}: {_npm_count(meta.get('total'))} vulnerabilities"
+                             f" ({', '.join(parts)}) -> npm audit")
+    if missing:
+        lines.append("npm: could not check (npm is not installed)")
+    if not lines:
+        return 0
+    say(f"=== NPM PACKAGES ({len(folders)}) ===")
+    for line in lines[:12]:
+        say(line)
+    if len(lines) > 12:
+        say(f"  ... and {len(lines) - 12} more: npm outdated; npm audit")
+    return 0
+
+
 def advisories_gate(args):
     """A ship's question for these Cargo.lock files: is every advisory in them
     one the triage file covers? One line per advisory and lock, its state first;
@@ -2137,6 +2267,8 @@ def main():
         return crate_sources(sys.argv[2:])
     if len(sys.argv) > 2 and sys.argv[1] == "--advisories" and sys.argv[2] == "gate":
         return advisories_gate(sys.argv[3:])
+    if len(sys.argv) > 1 and sys.argv[1] == "--npm":
+        return npm_check()
     if len(sys.argv) > 3 and sys.argv[1] == "--advisories" and sys.argv[2] in ("doctor", "session"):
         return advisories(sys.argv[2], sys.argv[3:])
     if not LIST.is_file():

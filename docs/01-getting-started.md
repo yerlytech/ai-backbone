@@ -451,6 +451,12 @@ with a spec and a test that proves what it might have broken still holds.
 `just doctor` says when a tool on this machine is older than its pin, and when
 a project with a language has no watch list yet.
 
+Each session also reads the project's own dependencies: every `Cargo.lock`
+against the RustSec advisories, and every `package.json` (node_modules skipped)
+with `npm outdated` and `npm audit`. Only findings and could-not-check lines are
+shown. A slow or failing npm is one such line and the session goes on; with no
+`package.json` there is no line and nothing is asked.
+
 A machine whose owner keeps heavy work in check (one reached by remote desktop
 that must stay usable) says so once, and every save's checks and the Rust
 layer's builds follow it:

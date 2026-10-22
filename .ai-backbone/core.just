@@ -1390,6 +1390,11 @@ _session-start-body:
       adv=$("$(just _py)" .ai-backbone/upstream.py --advisories session "${locks[@]}" 2>/dev/null || true)
       if [ -n "$adv" ]; then echo; printf '%s\n' "$adv"; echo "  (update the crate: cargo update -p <name>, or the line in Cargo.toml when the fix is a new major; one that cannot be updated gets a row in docs/advisories.toml, session skill)"; fi
     fi
+    # npm packages the same way: every package.json the project holds, node_modules
+    # left out, read with npm outdated and npm audit. Quiet when there is none; a
+    # slow or failing npm is a line, and the check stops at its own budget.
+    npmout=$("$(just _py)" .ai-backbone/upstream.py --npm 2>/dev/null || true)
+    if [ -n "$npmout" ]; then echo; printf '%s\n' "$npmout"; fi
     echo; echo "=== LAST COMMITS ==="
     git log --oneline -8 2>/dev/null | cut -c1-120 || { [ -n "$(just _is-repo)" ] && echo "(nothing saved yet)" || echo "(no git repo)"; }
     # The journal last, and only its head: what was done is in the commits and the

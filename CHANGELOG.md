@@ -15,6 +15,15 @@ below are the record of every version.
 
 ## [Unreleased]
 
+**Session start reads the project's npm packages.** Every `package.json` the
+project holds, `node_modules` skipped, is read with `npm outdated` and `npm
+audit`, next to the RustSec check. Only findings are printed: how many packages
+are behind, and how many known vulnerabilities by severity. A project with no
+`package.json` gets no line and no npm call. npm gets six seconds a call and the
+whole check eight (`AI_BACKBONE_NPM_TIMEOUT`, `AI_BACKBONE_NPM_BUDGET`); a slow
+or failing npm is a `could not check` line and the session goes on. Nothing to
+do until `just template-update`.
+
 **opencode is watched where it is installed from.** Its row reads the Homebrew
 formula, `brew:opencode` — what `brew upgrade` would install — instead of
 GitHub releases, whose last tag was v1.19.3 while the formula built 2.1.2 and

@@ -2144,6 +2144,82 @@ elif mode == "brew":
             fail(str(err))
     else:
         fail("a formula with no stable version was read as an answer")
+elif mode.startswith("npm-"):
+    tree = Path(base) / (mode + "-tree")
+    bindir = Path(base) / (mode + "-bin")
+    bindir.mkdir(parents=True, exist_ok=True)
+    log = Path(base) / (mode + ".log")
+    script = bindir / "npm"
+    script.write_text(
+        '#!/bin/sh\n'
+        'printf \'%s %s\\n\' "$PWD" "$1" >> "$FAKE_NPM_LOG"\n'
+        'case "$1" in\n'
+        '  outdated) [ -n "${FAKE_NPM_SLEEP:-}" ] && /bin/sleep "$FAKE_NPM_SLEEP"; printf \'%s\' "$FAKE_NPM_OUTDATED"; exit "${FAKE_NPM_OUTDATED_RC:-1}";;\n'
+        '  audit) [ -n "${FAKE_NPM_SLEEP:-}" ] && /bin/sleep "$FAKE_NPM_SLEEP"; printf \'%s\' "$FAKE_NPM_AUDIT"; exit "${FAKE_NPM_AUDIT_RC:-1}";;\n'
+        'esac\n'
+        'exit 0\n', encoding="utf-8")
+    script.chmod(0o755)
+    os.environ["FAKE_NPM_LOG"] = str(log)
+    if mode == "npm-none":
+        tree.mkdir(parents=True, exist_ok=True)
+    else:
+        (tree / ".git").mkdir(parents=True, exist_ok=True)
+        (tree / "package.json").write_text("{}", encoding="utf-8")
+        (tree / "web").mkdir(parents=True, exist_ok=True)
+        (tree / "web" / "package.json").write_text("{}", encoding="utf-8")
+        (tree / "web" / "package-lock.json").write_text("{}", encoding="utf-8")
+        (tree / "node_modules" / "dep").mkdir(parents=True, exist_ok=True)
+        (tree / "node_modules" / "dep" / "package.json").write_text("{}", encoding="utf-8")
+    if mode == "npm-missing":
+        os.environ["PATH"] = str(tree / "no-bin")
+    else:
+        os.environ["PATH"] = str(bindir)
+    os.environ["FAKE_NPM_OUTDATED"] = (
+        '{"vite":{"current":"5.0.0","latest":"5.4.0"},'
+        '"react":{"current":"18.0.0","latest":"18.3.1"}}')
+    os.environ["FAKE_NPM_AUDIT"] = (
+        '{"metadata":{"vulnerabilities":{"info":0,"low":0,"moderate":1,"high":2,'
+        '"critical":0,"total":3}}}')
+    os.environ.pop("FAKE_NPM_SLEEP", None)
+    os.environ.pop("FAKE_NPM_OUTDATED_RC", None)
+    if mode == "npm-slow":
+        os.environ["FAKE_NPM_SLEEP"] = "5"
+        os.environ["AI_BACKBONE_NPM_TIMEOUT"] = "0.3"
+        u.NPM_TIMEOUT = 0.3
+    if mode == "npm-fail":
+        os.environ["FAKE_NPM_OUTDATED_RC"] = "2"
+        os.environ["FAKE_NPM_OUTDATED"] = ""
+    started = time.monotonic()
+    rc, out = run(tree, "--npm")
+    took = time.monotonic() - started
+    calls = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+    if mode == "npm-none":
+        if rc != 0 or out != "" or calls:
+            fail(f"rc={rc} calls={calls}\n{out}")
+    elif mode == "npm-report":
+        if rc != 0 or "=== NPM PACKAGES (2) ===" not in out:
+            fail(f"rc={rc}\n{out}")
+        if "2 outdated (react 18.0.0 → 18.3.1, vite 5.0.0 → 5.4.0)" not in out:
+            fail(out)
+        if "3 vulnerabilities (2 high, 1 moderate) -> npm audit" not in out:
+            fail(out)
+        if any("node_modules" in c for c in calls):
+            fail("node_modules was read: " + repr(calls))
+        if not any(c.endswith(" audit") and "/web" in c for c in calls):
+            fail("audit was not asked of the folder with a lock file: " + repr(calls))
+        if sum(1 for c in calls if c.endswith(" audit")) != 1:
+            fail("audit was asked of a folder with no lock file: " + repr(calls))
+    elif mode == "npm-slow":
+        if rc != 0 or "could not check outdated (slow)" not in out or took > 3:
+            fail(f"rc={rc} took={took:.1f}\n{out}")
+    elif mode == "npm-fail":
+        if rc != 0 or "could not check outdated (npm said 2)" not in out:
+            fail(f"rc={rc}\n{out}")
+    elif mode == "npm-missing":
+        if rc != 0 or "could not check (npm is not installed)" not in out:
+            fail(f"rc={rc}\n{out}")
+    else:
+        fail("unknown mode " + mode)
 else:
     fail("unknown mode " + mode)
 PY
@@ -2172,6 +2248,13 @@ check "a pointer with no version is unreachable, never current"      "fresh035 p
 check "a stable channel is not compared with a registry's alpha"     "fresh035 pointer-fresh"
 check "a worker CLI is compared with the channel it was installed on" "fresh035 channel-fresh"
 check "a Homebrew formula says the stable version brew would install" "fresh035 brew"
+check "npm outdated and audit are read for every package.json, node_modules skipped" "fresh035 npm-report"
+check "no package.json means no npm call and no line"                "fresh035 npm-none"
+check "a slow npm is one line, and the session goes on"              "fresh035 npm-slow"
+check "a failing npm is a could-not-check line"                      "fresh035 npm-fail"
+check "npm missing is said, never a failed session"                  "fresh035 npm-missing"
+check "session-start reads npm next to the RustSec check" \
+  "grep -q 'upstream.py --npm' '$root/.ai-backbone/core.just' && [ \"\$(awk '/upstream.py --advisories session/{a=NR} /upstream.py --npm/{n=NR} END{print (n>a && a>0) ? \"next\" : \"not-next\"}' '$root/.ai-backbone/core.just')\" = next ]"
 check "the backbone reads grok from its stable channel, not from npm" \
   "grep -qx 'source = \"pointer:https://x.ai/cli/stable\"' '$root/docs/upstream.toml' && ! grep -qx 'source = \"npm:@xai-official/grok\"' '$root/docs/upstream.toml'"
 check "and reads claude-code at the stable channel its doctor prints, not npm's newest" \
