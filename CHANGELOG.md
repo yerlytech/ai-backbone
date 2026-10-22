@@ -15,6 +15,16 @@ below are the record of every version.
 
 ## [Unreleased]
 
+**An old skill copy is adopted, not frozen (n-939129).** `.claude/skills/.ai-backbone-owned`
+records only the copies `just sync-rules` wrote since 3.41.3, so a copy an
+earlier version generated and committed was kept as "not a recorded generated
+copy" while `.agents/skills` moved on. `just sync-rules` now adopts such a copy
+when it is exactly a version of the source the project's own history holds, or
+when the save that last touched it is a backbone update (`chore: backbone …`),
+and then replaces it like any generated copy. A copy with unsaved changes, or
+one matching neither, is still named and kept. Nothing to do until
+`just template-update`; then `just sync-rules` once.
+
 **An opencode worker climbs a model ladder (spec 038).** `WORKER=opencode`
 runs `opencode run --standalone --auto --format json` on a `delegate/` branch.
 The config goes through `OPENCODE_CONFIG`, a file outside the project, with

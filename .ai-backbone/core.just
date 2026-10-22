@@ -5607,7 +5607,10 @@ _skill-sum dir:
 # Claude's skill copies, and the record of which ones this recipe wrote
 # (.claude/skills/.ai-backbone-owned: "name hash" per line). A copy whose
 # source is gone is removed only when it still matches that hash. A copy
-# someone edited, or one this recipe never recorded, is named and left.
+# someone edited, or one this recipe never recorded, is named and left —
+# except that a copy made before the record existed is adopted when it is a
+# version of the source this project's own history holds, or when the save
+# that last touched it is a backbone update (n-939129).
 # Links are replaced: Git for Windows checks a link out as a text file (spec 020).
 # mode=check prints what apply would change and exits 1 when a sync is due;
 # a kept copy is named and is not a failure, because sync will not overwrite it.
@@ -5632,6 +5635,31 @@ _sync-skill-copies mode="apply":
       done
     fi
     is_src() { case "$sources" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+    # A copy made by an earlier version of sync-rules is not in the record, and
+    # every one of those stayed frozen while .agents/skills moved on (n-939129).
+    # It is adopted when it is exactly one version of the source this project's
+    # own history holds — a version the backbone shipped — or when the save that
+    # last touched it is a backbone update. Only a copy with nothing unsaved in
+    # it: an edit nobody committed is a person's, and is never thrown away.
+    tree_of() {
+      git ls-tree -r "$1" -- "$2" 2>/dev/null | awk -v p="$2/" '
+        BEGIN { FS = "\t" }
+        NF >= 2 && index($2, p) == 1 { print $1, substr($2, length(p) + 1) }'
+    }
+    adoptable() {
+      local n="$1" copy c
+      git rev-parse -q --verify HEAD >/dev/null 2>&1 || return 1
+      [ -z "$(git status --porcelain -- ".claude/skills/$n" 2>/dev/null)" ] || return 1
+      case "$(git log -1 --format=%s -- ".claude/skills/$n" 2>/dev/null)" in
+        "chore: backbone"*|"chore(backbone)"*) return 0 ;;
+      esac
+      copy=$(tree_of HEAD ".claude/skills/$n")
+      [ -n "$copy" ] || return 1
+      for c in $(git log -n 50 --format=%H -- ".agents/skills/$n" 2>/dev/null); do
+        [ "$(tree_of "$c" ".agents/skills/$n")" = "$copy" ] && return 0
+      done
+      return 1
+    }
     # One source skill: copy it, or keep a copy we did not write.
     one() {
       local n="$1" src=".agents/skills/$1" dest=".claude/skills/$1" prev cur
@@ -5662,6 +5690,12 @@ _sync-skill-copies mode="apply":
         return
       fi
       if [ -n "$prev" ]; then echo "  kept .claude/skills/$n (edited since it was generated)"; remember "$n" "$prev"
+      elif adoptable "$n"; then
+        if [ "$mode" = check ]; then echo ".claude/skills/$n is out of date. Run just sync-rules, then stage the result."; bad=1; return; fi
+        rm -rf "$dest"
+        cp -R "$src" "$dest"
+        remember "$n" "$(sum "$dest")"
+        echo "  copied .claude/skills/$n (an earlier version left it, adopted)"
       else echo "  kept .claude/skills/$n (not a recorded generated copy)"; fi
     }
     if [ "$on" = 1 ]; then

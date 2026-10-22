@@ -530,6 +530,30 @@ rm -rf .claude/skills/mine && just sync-rules >/dev/null
 rm -rf .claude/skills/spec; ln -s ../../.agents/skills/spec .claude/skills/spec
 cp .agents/skills/spec/SKILL.md "$tmp/spec-skill-before"
 check "sync-rules turns an older project's link into a copy, and writes nothing through it" "just sync-rules >/dev/null && [ ! -L .claude/skills/spec ] && diff -r .agents/skills/spec .claude/skills/spec && cmp -s .agents/skills/spec/SKILL.md '$tmp/spec-skill-before' && just _rules-check"
+# A copy an earlier version of sync-rules wrote was never recorded, so it stayed
+# frozen at its old version while .agents/skills moved on (n-939129). Its own
+# history says what it is: here, a version the backbone shipped, then a save
+# that is a backbone update. A copy matching neither, last touched by an
+# ordinary save, is still the person's and is kept.
+ad="$tmp/adopt"
+( cd "$root" && just new-project "$ad" ) >/dev/null 2>&1
+cd "$ad" || exit 1
+printf 'an older version\n' >> .agents/skills/session/SKILL.md
+cp -R .agents/skills/session/. .claude/skills/session/
+perl -ni -e 'print unless /^session /' .claude/skills/.ai-backbone-owned
+git add -A >/dev/null 2>&1; git commit -qm "docs: an old copy" --no-verify >/dev/null 2>&1
+cp -R "$root/.agents/skills/session/." .agents/skills/session/
+git add -A >/dev/null 2>&1; git commit -qm "docs: the backbone arrives" --no-verify >/dev/null 2>&1
+check "a committed copy that is a version the backbone shipped is adopted and brought level" "says 'copied .claude/skills/session \\(an earlier version left it, adopted\\)' just sync-rules && diff -rq .agents/skills/session .claude/skills/session && grep -q '^session ' .claude/skills/.ai-backbone-owned && just _rules-check"
+printf 'edited by an old backbone\n' >> .claude/skills/spec/SKILL.md
+perl -ni -e 'print unless /^spec /' .claude/skills/.ai-backbone-owned
+git add -A >/dev/null 2>&1; git commit -qm "chore: backbone 3.40.0" --no-verify >/dev/null 2>&1
+check "and one whose last save is a backbone update, though no version of the source matches it" "says 'copied .claude/skills/spec \\(an earlier version left it, adopted\\)' just sync-rules && diff -rq .agents/skills/spec .claude/skills/spec && grep -q '^spec ' .claude/skills/.ai-backbone-owned"
+printf 'someone edited this copy\n' >> .claude/skills/team/SKILL.md
+perl -ni -e 'print unless /^team /' .claude/skills/.ai-backbone-owned
+git add -A >/dev/null 2>&1; git commit -qm "docs: a copy somebody edited" --no-verify >/dev/null 2>&1
+check "but one matching no shipped version, last touched by an ordinary save, is kept" "says 'kept .claude/skills/team \\(not a recorded generated copy\\)' just sync-rules && grep -q 'someone edited this copy' .claude/skills/team/SKILL.md"
+cd "$p" || exit 1
 
 check "what python leaves behind is never saved"      "[ -z \"\$(git status --porcelain --untracked-files=all -- .ai-backbone/__pycache__)\" ] && git check-ignore -q .ai-backbone/__pycache__/upstream.cpython-311.pyc"
 check "LICENSE names the maker, not the backbone"     "! grep -qF \"\$(sed -n 's/^Copyright (c) [0-9]* //p' '$root/LICENSE')\" LICENSE"
