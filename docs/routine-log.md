@@ -82,3 +82,4 @@ prints the last two lines here in the backbone. A report, never an order.
 - 2026-10-22 gate: e8ae5f0 waits for an attended carry — green on Linux and macOS; it changes code (.agents/skills/delegate/SKILL.md, .agents/skills/team/SKILL.md, .ai-backbone/core.just and 8 more): an attended session says what changed and why, and on the maintainer's yes runs just carry e8ae5f0
 - 2026-10-22 gate: cloud not promoted — the suite was due for this push and the run has no green suite job for Linux and macOS
 - 2026-10-22 gate: cloud not promoted — the suite was due for this push and the run has no green suite job for Linux and macOS
+- 2026-10-22 gate: cloud not promoted — the checks ended failure: suite (ubuntu-latest) failure;
