@@ -2454,6 +2454,18 @@ publish-on-save mode="on":
       *) echo "Say on or off: just publish-on-save on"; exit 1 ;;
     esac
 
+# After this project's GitHub repository is created: delete a branch once a
+# merge has finished with it, as one does by hand in the repository's settings.
+# Said, and never fatal: a repository whose settings gh cannot change is still
+# created and pushed (n-baecb7).
+_repo-autodelete:
+    #!/usr/bin/env bash
+    [ -z "${AI_BACKBONE_OFFLINE:-}" ] || exit 0
+    command -v gh >/dev/null 2>&1 || exit 0
+    if GH_PAGER=cat gh api -X PATCH 'repos/{owner}/{repo}' -F delete_branch_on_merge=true </dev/null >/dev/null 2>&1; then
+      echo "  merged branches are deleted on GitHub after a merge"
+    fi
+
 # Send saved work to GitHub; offers to create the repo when there is no address yet
 [group('safety')]
 publish:
@@ -2469,12 +2481,14 @@ publish:
         printf '%s' "$(just _msg create-repo)"; read -r a || a=""
         case "$a" in
           y|Y|e|E) gh repo create "$name" --private --source=. --remote=origin >/dev/null
-                   echo "  created  github.com/$(gh api user -q .login)/$name (private)" ;;
+                   echo "  created  github.com/$(gh api user -q .login)/$name (private)"
+                   just _repo-autodelete ;;
           *)       just _msg nothing-sent; exit 0 ;;
         esac
       else
         echo "To create one:"
         echo "  gh repo create $name --private --source=. --push"
+        echo "  Then under Settings > General, turn on 'Automatically delete head branches'."
         exit 0
       fi
     fi

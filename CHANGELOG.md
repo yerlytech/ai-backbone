@@ -15,6 +15,13 @@ below are the record of every version.
 
 ## [Unreleased]
 
+**A created repository deletes the branches a merge finished with (n-baecb7).**
+`just publish`, on the run that creates the project's GitHub repository, now
+also turns on `delete_branch_on_merge` there with `gh api -X PATCH`. It says
+when that worked and says nothing when gh could not change it; the repository
+is created and pushed either way. The advice shown when gh is missing names
+the setting to turn on by hand. Nothing to do until `just template-update`.
+
 **`just trim-build` finds a workspace below the root (n-2a36ec).** It trimmed
 only the folder the language layer names, so a Rust workspace that lives in
 `src/<app>` (its own `target/` with cargo's `CACHEDIR.TAG`) grew without a cap

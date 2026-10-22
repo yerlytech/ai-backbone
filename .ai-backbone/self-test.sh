@@ -4588,6 +4588,49 @@ dst=$(env -u WORKER HOME="$dhome" just -f "$root/Justfile" -d "$dproj" delegate-
 check "delegate-status shows the model and the cost of the last opencode run" \
   "grep -qx 'job: none' <<<\"\$dst\" && grep -qx 'last run: cost: \$0.03 on opencode-go/deepseek-v4.1-flash, 2 steps' <<<\"\$dst\""
 
+section "a GitHub repository the backbone creates (n-baecb7)"
+# A stub gh on PATH records every call and makes a bare repository where the
+# real one adds origin. Nothing here reaches GitHub.
+ghs="$tmp/ghs"; mkdir -p "$ghs/bin"
+cat > "$ghs/bin/gh" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >> "$GH_CALLS"
+case "$1 $2" in
+  "auth status") exit 0 ;;
+  "repo create")
+    git init -q --bare "$GH_REMOTE"
+    git remote add origin "$GH_REMOTE"
+    exit 0 ;;
+  "api user") echo someone; exit 0 ;;
+esac
+exit 0
+EOF
+chmod +x "$ghs/bin/gh"
+ghrun() { env -u AI_BACKBONE_OFFLINE PATH="$ghs/bin:$PATH" GH_CALLS="$tmp/gh-calls" GH_REMOTE="$tmp/gh-remote.git" "$@"; }
+ghp="$tmp/gh-proj"
+( cd "$root" && just new-project "$ghp" ) >/dev/null 2>&1
+cd "$ghp" || exit 1
+rm -f "$tmp/gh-calls"
+check "a created repository has the branches a merge finished with deleted" "says 'merged branches are deleted on GitHub after a merge' ghrun just _repo-autodelete && grep -qx 'api -X PATCH repos/{owner}/{repo} -F delete_branch_on_merge=true' '$tmp/gh-calls'"
+# The create path itself, under a terminal because that is where it asks; the
+# settings call comes after the repository exists.
+if "$py" -c 'import pty' 2>/dev/null; then
+  cat > "$tmp/ptyrun.py" <<'PY'
+import os, pty, subprocess, sys
+m, s = os.openpty()
+p = subprocess.Popen(sys.argv[1:], stdin=s, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+os.close(s)
+os.write(m, b"y\n")
+out, _ = p.communicate()
+sys.stdout.write(out)
+sys.exit(p.returncode)
+PY
+  rm -f "$tmp/gh-calls"
+  out=$(ghrun "$py" "$tmp/ptyrun.py" just publish 2>&1) && rc=0 || rc=$?
+  check "publish creates the repo, then turns the setting on" "[ $rc -eq 0 ] && [ \"\$(git remote get-url origin)\" = '$tmp/gh-remote.git' ] && grep -qx 'repo create gh-proj --private --source=. --remote=origin' '$tmp/gh-calls' && grep -qx 'api -X PATCH repos/{owner}/{repo} -F delete_branch_on_merge=true' '$tmp/gh-calls'"
+fi
+cd "$tmp" || exit 1
+
 sec_times="$sec_times$((SECONDS-sec_start)) $sec_name"$'\n'
 echo
 echo "== time by section, slowest first (${SECONDS}s in all) =="

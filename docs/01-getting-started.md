@@ -170,7 +170,7 @@ say **approved**, it builds. Until then, no code.
 just                 # the four commands a person types
 just save "msg"      # save your work
 just undo            # throw away changes since the last save
-just publish         # send it to GitHub; offers to create the repo the first time
+just publish         # send it to GitHub; offers to create the repo the first time, private, with merged branches deleted
 just doctor          # what is missing on this machine
 ```
 
