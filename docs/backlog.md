@@ -19,3 +19,4 @@ project's name: the backbone is public and knows no project (spec 024). A
 - [ ] 2026-10-21, n-128dbe: just session-start freshness block: also read npm outdated and npm audit for every package.json a project holds, next to the RustSec check
 - [ ] 2026-10-21, n-af7a23: just delegate: a finished grok worker can stay alive idle for hours with no child process, so the job never ends; the recipe should end the run when the worker goes quiet after its last commit
 - [ ] 2026-10-22, n-5d942c: just delegate and docs/upstream.toml: watch opencode (brew) like grok in the freshness block, and when just delegate gains an opencode worker, run it with autoupdate off so a headless run never changes version mid-task
+- [ ] 2026-10-22, n-fc65ca: just delegate (delegate_grok): measure whether grok's --deny Bash(rm:*) is stepped around by sh -c 'rm x' as opencode's was on 2026-10-22 (spec 038); if so add the shell wrappers sh, bash, zsh, eval, xargs, env to its deny list
