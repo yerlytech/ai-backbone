@@ -13,7 +13,7 @@
 # uv from PyPI, so PyPI says what can be installed and when (spec 021); GitHub's
 # tags ran ahead of it once. gitleaks is fetched by prek from GitHub, and
 # actions/checkout is what GitHub runs the gate with. grok and Claude Code are
-# npm packages. Zed publishes GitHub releases.
+# npm packages. opencode and Zed publish GitHub releases.
 #
 # Pins dated 2026-10-20. just 1.59.0, prek 0.5.6, graphify 0.9.92 and uv 0.13.3
 # are the newest releases. gitleaks v8.30.1 and actions/checkout v7 are what
@@ -26,6 +26,8 @@
 # claude-delegator publishes no release (the releases list was empty that
 # day), so it is pinned by the newest commit on its default branch, read the
 # same day. The commit itself is dated 2026-10-12. A later commit is to read.
+# opencode v2.1.2 is what `opencode --version` printed on 2026-10-22. The
+# Homebrew formula builds that same GitHub tag. No registry was asked.
 
 [[watch]]
 name = "just"
@@ -85,6 +87,13 @@ source = "npm:@anthropic-ai/claude-code"
 pin = "2.1.296"
 why = "the other worker, and the session that reads these rules"
 check = "what SessionStart shows, and whether a skill is still read from .claude/skills"
+
+[[watch]]
+name = "opencode"
+source = "github:anomalyco/opencode"
+pin = "v2.1.2"
+why = "the worker CLI a delegated job is handed to, when WORKER is opencode"
+check = "what a headless run accepts, and whether the binary still answers `opencode --version`"
 
 [[watch]]
 name = "zed"

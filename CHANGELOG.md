@@ -15,6 +15,19 @@ below are the record of every version.
 
 ## [Unreleased]
 
+**An opencode worker climbs a model ladder (spec 038).** `WORKER=opencode`
+runs `opencode run --standalone --auto --format json` on a `delegate/` branch.
+The config goes through `OPENCODE_CONFIG`, a file outside the project, with
+autoupdate off. The deny list is the one grok gets, plus the shell wrappers
+`sh`, `bash`, `zsh`, `eval`, `xargs` and `env`, and no web fetch or path
+outside the project. `WORKER_LADDER` defaults to
+`opencode-go/deepseek-v4.1-flash`, then `opencode-go/glm-5.3`, then
+`opencode-go/kimi-k3`: the first try uses the first, each fix round the next,
+and past the last the job refuses. `WORKER_MODEL` still pins one model. The
+report ends with `cost: $<sum> on <model>, <n> steps`, summed from the run's
+own events. `just delegate-status` shows that model and cost. The freshness
+list watches opencode at v2.1.2. Nothing to do until `just template-update`.
+
 **A delegate job ends when its worker goes quiet.** A worker that has
 committed, printed its report and then sits with nothing running in its
 process group for `DELEGATE_IDLE` minutes (default 20; 0 turns it off) is

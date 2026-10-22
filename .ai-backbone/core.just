@@ -1463,8 +1463,8 @@ delegate task="":
         if [ -z "$worker" ]; then echo "delegation is off (WORKER is unset). This session does the work itself."
         else echo "delegation is off (WORKER=off). This session does the work itself."; fi
         exit 1 ;;
-      grok|claude) ;;
-      *) echo "refuses: unknown worker '$worker' (known: claude, grok)"; exit 1 ;;
+      grok|claude|opencode) ;;
+      *) echo "refuses: unknown worker '$worker' (known: claude, grok, opencode)"; exit 1 ;;
     esac
     # grok installs itself at ~/.grok/bin/grok and is often left off PATH, so
     # `command -v` alone said it was not installed. WORKER_BIN is a path and
@@ -1489,6 +1489,9 @@ delegate task="":
         claude)
           if [ -x "$HOME/.claude/local/claude" ]; then worker_bin="$HOME/.claude/local/claude"
           elif [ -x "$HOME/.local/bin/claude" ]; then worker_bin="$HOME/.local/bin/claude"; fi
+          ;;
+        opencode)
+          if [ -x "$HOME/.opencode/bin/opencode" ]; then worker_bin="$HOME/.opencode/bin/opencode"; fi
           ;;
       esac
       if [ -z "$worker_bin" ]; then echo "refuses: $worker is not installed"; exit 1; fi
@@ -1586,10 +1589,53 @@ delegate task="":
     wpid=""
     tpid=""
     trap 'if [ -n "$tpid" ]; then kill -TERM -"$tpid" 2>/dev/null || kill -TERM "$tpid" 2>/dev/null || true; fi; if [ -n "$wpid" ]; then kill -TERM -"$wpid" 2>/dev/null || kill -TERM "$wpid" 2>/dev/null || true; fi; rm -rf "$lock"' EXIT
+    # opencode climbs WORKER_LADDER (spec 038). The first try of a branch takes
+    # the first model; each fix round takes the next. Past the last, the job
+    # stops. WORKER_MODEL pins one model and does not climb. Grok and claude
+    # ignore the ladder. The next index is branch.<name>.delegateRung, the same
+    # kind of record as delegateBase. A new branch starts at the first model
+    # even when a dropped branch left a rung behind. Resolved before checkout,
+    # so a refusal does not leave a branch.
+    model="${WORKER_MODEL:-}"
+    oc_idx=""
+    if [ "$worker" = opencode ] && [ -z "$model" ]; then
+      if [ -z "${WORKER_LADDER+x}" ]; then
+        ladder="opencode-go/deepseek-v4.1-flash,opencode-go/glm-5.3,opencode-go/kimi-k3"
+      else
+        ladder=$WORKER_LADDER
+      fi
+      IFS=',' read -r -a oc_raw <<< "$ladder"
+      oc_models=()
+      for oc_piece in "${oc_raw[@]+"${oc_raw[@]}"}"; do
+        oc_piece="${oc_piece#"${oc_piece%%[![:space:]]*}"}"
+        oc_piece="${oc_piece%"${oc_piece##*[![:space:]]}"}"
+        [ -n "$oc_piece" ] || continue
+        oc_models[${#oc_models[@]}]=$oc_piece
+      done
+      if [ "${#oc_models[@]}" -eq 0 ]; then
+        echo "refuses: WORKER_LADDER has no model"
+        exit 1
+      fi
+      if [ "$fix_round" -eq 1 ]; then
+        oc_idx=$(git config --get "branch.${branch}.delegateRung" 2>/dev/null || true)
+        case "$oc_idx" in
+          ''|*[!0-9]*) oc_idx=0 ;;
+        esac
+        oc_idx=$((10#$oc_idx))
+      else
+        oc_idx=0
+      fi
+      if [ "$oc_idx" -ge "${#oc_models[@]}" ]; then
+        echo "refuses: past the last model of the ladder; two failed tries go to the maintainer"
+        exit 1
+      fi
+      model=${oc_models[$oc_idx]}
+    fi
     if [ "$fix_round" -eq 0 ]; then
       git checkout -q -b "$branch"
       if [ -n "$base" ]; then git config "branch.${branch}.delegateBase" "$base"; fi
     fi
+    if [ -n "$oc_idx" ]; then git config "branch.${branch}.delegateRung" "$((oc_idx + 1))"; fi
     # Adapters: how to call the CLI headless, in this folder, with the prompt.
     # `exec` so a later stop reaches the CLI and not the shell around it. The
     # call is always in a subshell, or exec would replace this recipe.
@@ -1613,6 +1659,61 @@ delegate task="":
     delegate_claude() {
       if [ -n "${WORKER_MODEL:-}" ]; then exec "$worker_bin" -p "$1" --model "$WORKER_MODEL"
       else exec "$worker_bin" -p "$1"; fi
+    }
+    # opencode 2.1.2, measured 2026-10-22. --standalone is what reads this
+    # config; without it a denied rm ran. The last matching rule wins, so the
+    # catch-all deny comes first and the shell's allow comes before its deny
+    # patterns. A pattern ending in " *" matches the command and that command
+    # with arguments, and not a longer name. A shell wrapper steps around a
+    # command-shaped pattern, so sh, bash, zsh, eval, xargs and env are denied
+    # too. Project config is merged after OPENCODE_CONFIG, so the run turns
+    # project config off or a file in the tree would replace this list.
+    delegate_opencode() {
+      local cfg="$dir/${id}.opencode.json"
+      cat > "$cfg" <<'OCJSON'
+    {
+      "autoupdate": false,
+      "update": "disable",
+      "permission": {
+        "*": "deny",
+        "read": "allow",
+        "edit": "allow",
+        "write": "allow",
+        "webfetch": "deny",
+        "websearch": "deny",
+        "external_directory": "deny",
+        "shell": {
+          "*": "allow",
+          "git push *": "deny",
+          "git merge *": "deny",
+          "git rebase *": "deny",
+          "git checkout *": "deny",
+          "git switch *": "deny",
+          "git reset *": "deny",
+          "git branch -d *": "deny",
+          "git branch -D *": "deny",
+          "git tag *": "deny",
+          "just publish *": "deny",
+          "just ship *": "deny",
+          "just deploy *": "deny",
+          "just release *": "deny",
+          "just undo *": "deny",
+          "gh *": "deny",
+          "curl *": "deny",
+          "ssh *": "deny",
+          "rm *": "deny",
+          "sh *": "deny",
+          "bash *": "deny",
+          "zsh *": "deny",
+          "eval *": "deny",
+          "xargs *": "deny",
+          "env *": "deny"
+        }
+      }
+    }
+    OCJSON
+      OPENCODE_CONFIG=$cfg OPENCODE_CONFIG_PROJECT_DISABLE=1 \
+        exec "$worker_bin" run --standalone --auto --format json -m "$model" "$1"
     }
     preamble=$(printf '%s\n' \
       "You are the worker for this repository. A manager reviews your work. Read AGENTS.md first and follow it. You are on branch ${branch}; stay on it." \
@@ -1769,6 +1870,32 @@ delegate task="":
       breach=1
     fi
     if [ "$after_branches" != "$before_branches" ]; then echo "BREACH: branch list changed"; breach=1; fi
+    # opencode's --format json events stay in the log, outside the repo. The
+    # report ends with the sum of part.cost on step_finish only (spec 038,
+    # opencode 2.1.2). A cost on any other event is not this run's spend.
+    if [ "$worker" = opencode ]; then
+      oc_sum=$(LC_ALL=C awk '
+        /"type"[[:space:]]*:[[:space:]]*"step_finish"/ {
+          if (match($0, /"cost"[[:space:]]*:[[:space:]]*-?[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?/)) {
+            s = substr($0, RSTART, RLENGTH)
+            sub(/^"cost"[[:space:]]*:[[:space:]]*/, "", s)
+            sum += s + 0
+            n++
+          }
+        }
+        END { printf "%.6f %d\n", sum + 0, n + 0 }
+      ' "$log")
+      oc_dollars=${oc_sum%% *}
+      oc_steps=${oc_sum##* }
+      oc_dollars=$(printf '%s\n' "$oc_dollars" | LC_ALL=C awk '{
+        s = $1
+        sub(/0+$/, "", s)
+        sub(/\.$/, "", s)
+        if (s == "" || s == "-" || s == "-0") s = "0"
+        printf "%s", s
+      }')
+      printf 'cost: $%s on %s, %s steps\n' "$oc_dollars" "$model" "$oc_steps" >> "$log"
+    fi
     # The worker's whole output stays in the log. The last 15 lines are the
     # report: the preamble tells the worker to end with it.
     tail -n 15 "$log"
@@ -1787,7 +1914,8 @@ delegate task="":
     if [ "$timed_out" -eq 1 ]; then exit 124; fi
     exit "$rc"
 
-# Whether a job of this project is running, its last report, and the open delegate branches.
+# Whether a job of this project is running, its last report, the cost of the
+# last opencode run when the log has one, and the open delegate branches.
 [group('session')]
 [no-exit-message]
 delegate-status:
@@ -1814,7 +1942,18 @@ delegate-status:
         if [ -z "$latest" ] || [ "$f" -nt "$latest" ]; then latest=$f; fi
       done
     fi
-    if [ -n "$latest" ]; then tail -n 15 "$latest"; else echo none; fi
+    if [ -n "$latest" ]; then
+      tail -n 15 "$latest"
+      # The last cost line is the run's own sum (spec 038). A grok or claude
+      # log has none, and then this line is left off.
+      cost_line=""
+      while IFS= read -r line; do
+        case "$line" in
+          'cost: $'*) cost_line=$line ;;
+        esac
+      done < "$latest"
+      if [ -n "$cost_line" ]; then echo "last run: $cost_line"; fi
+    else echo none; fi
     echo
     echo "open branches:"
     # No heredoc: just 1.59.0 fails to parse `$(… --format)` on its own line
