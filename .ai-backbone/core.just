@@ -1559,6 +1559,12 @@ delegate task="":
     # check above still accepts "0.05" there (t+0 is 0.05). Measured on
     # macOS awk 20200816.
     timeout_secs=$(LC_ALL=C awk -v t="$timeout_min" 'BEGIN { printf "%.3f", t * 60 }')
+    # grok -p stops a background task it started 600 s after the turn ends
+    # (n-8a7ff2, measured 2026-10-22). The job's own timeout is the ceiling,
+    # so a long command started in the background is not lost first. The
+    # flag is hidden from `grok --help` and takes whole seconds (grok 1.0.62,
+    # measured 2026-10-22).
+    background_wait=$(LC_ALL=C awk -v t="$timeout_min" 'BEGIN { printf "%d", t * 60 }')
     # The same fold as `_slug`. Inlined: a nested `just` looks for a Justfile
     # from this folder, and a run pointed at another directory has none.
     # A fix round already has its branch, so the task needs no slug.
@@ -1647,6 +1653,7 @@ delegate task="":
     # bypassPermissions: Claude Code's auto mode refuses to launch it.
     delegate_grok() {
       exec "$worker_bin" -p "$1" --output-format plain --permission-mode auto \
+        --background-wait-timeout "$background_wait" \
         --allow 'Bash(just:*)' --allow 'Bash(git:*)' --allow 'Bash(cargo:*)' --allow 'Bash(npm:*)' \
         --allow 'Bash(npx:*)' --allow 'Bash(flutter:*)' --allow 'Bash(dart:*)' --allow 'Bash(uv:*)' \
         --deny 'Bash(git push:*)' --deny 'Bash(git merge:*)' --deny 'Bash(git rebase:*)' \
@@ -1718,6 +1725,7 @@ delegate task="":
     preamble=$(printf '%s\n' \
       "You are the worker for this repository. A manager reviews your work. Read AGENTS.md first and follow it. You are on branch ${branch}; stay on it." \
       "Commit with just save. Run the project's tests before each commit." \
+      "Run long commands in the foreground. A background task is stopped when the turn ends." \
       "Never run just publish, git push, just ship, or just deploy. Never call a server or GitHub. Never merge, rebase, or delete a branch." \
       "When you finish, the report is the last thing you print: at most 15 lines, and nothing after it.")
     # One line: a blank line inside a quoted string is a just parse error

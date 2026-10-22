@@ -3768,6 +3768,7 @@ while [ $# -gt 0 ]; do
     --output-format) fmt=$2; shift 2 ;;
     --model) model=$2; shift 2 ;;
     --permission-mode) perm=$2; shift 2 ;;
+    --background-wait-timeout) bgwait=$2; shift 2 ;;
     --deny) deny="$deny$2
 "; shift 2 ;;
     --rules|--allow) shift 2 ;;
@@ -3779,6 +3780,7 @@ if [ -n "${FAKE_WORKER_PROMPT:-}" ]; then
   printf '%s\n' "$fmt" > "$FAKE_WORKER_PROMPT.fmt"
   printf '%s\n' "$model" > "$FAKE_WORKER_PROMPT.model"
   printf '%s\n' "$perm" > "$FAKE_WORKER_PROMPT.perm"
+  printf '%s\n' "$bgwait" > "$FAKE_WORKER_PROMPT.bgwait"
   printf '%s' "$deny" > "$FAKE_WORKER_PROMPT.deny"
 fi
 if [ -n "${FAKE_WORKER_BINLOG:-}" ]; then printf '%s\n' "$0" > "$FAKE_WORKER_BINLOG"; fi
@@ -3988,7 +3990,7 @@ d_new() {
   rm -f "$dgo" "$dprompt" "$dprompt.fmt" "$dprompt.model" \
     "$dprompt.standalone" "$dprompt.auto" "$dprompt.configpath" \
     "$dprompt.config" "$dprompt.projectdisable" "$dprompt.models" \
-    "$dprompt.argv"
+    "$dprompt.argv" "$dprompt.perm" "$dprompt.bgwait"
 }
 # d_run MODE WORKER WORKER_MODEL -- just args. An empty WORKER is unset.
 d_run() {
@@ -4111,6 +4113,11 @@ check "the worker's prompt is the preamble, then the task, and grok is called he
 git -C "$dproj" checkout -q main
 d_run ok grok "" delegate "add a line"
 check "the same task on the same day is refused, and the first branch stays" "[ \$d_rc -ne 0 ] && grep -q 'already exists' <<<\"\$d_out\" && git -C \"\$dproj\" show-ref --verify --quiet \"refs/heads/\$dbr\""
+d_new bgwait
+d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=ok FAKE_WORKER_PROMPT="$dprompt" \
+  WORKER=grok DELEGATE_TIMEOUT=2 just -f "$root/Justfile" -d "$dproj" delegate "wait in the background" 2>&1) && d_rc=0 || d_rc=$?
+check "grok's background tasks are allowed the job's timeout, and the preamble says to stay in the foreground" \
+  "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$dprompt.bgwait\")\" = 120 ] && grep -q 'Run long commands in the foreground' \"\$dprompt\""
 d_new model
 d_run ok claude cheap delegate "use claude"
 check "the claude adapter calls claude -p with WORKER_MODEL" "[ \$d_rc -eq 0 ] && grep -q 'Read AGENTS.md' \"\$dprompt\" && [ -z \"\$(cat \"\$dprompt.fmt\")\" ] && [ \"\$(cat \"\$dprompt.model\")\" = cheap ]"

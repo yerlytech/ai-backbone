@@ -15,6 +15,12 @@ below are the record of every version.
 
 ## [Unreleased]
 
+**A grok worker's long command is not lost to the 600 s background stop.**
+`delegate_grok` passes `--background-wait-timeout` in seconds, up to the job's
+`DELEGATE_TIMEOUT` (grok 1.0.62; the flag is hidden from `grok --help`), and
+the worker preamble says to run long commands in the foreground. Nothing to
+do until `just template-update`.
+
 **An opencode worker climbs a model ladder (spec 038).** `WORKER=opencode`
 runs `opencode run --standalone --auto --format json` on a `delegate/` branch.
 The config goes through `OPENCODE_CONFIG`, a file outside the project, with
