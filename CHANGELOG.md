@@ -15,6 +15,15 @@ below are the record of every version.
 
 ## [Unreleased]
 
+**A worker CLI is followed on the channel it was installed on, not on a
+registry's newest.** A watch row may read a release channel's own version
+pointer, `pointer:https://…`: one version, plain text or a small JSON, at the
+address the tool's own updater reads. grok is read from
+`https://x.ai/cli/stable`, whose stable was 1.0.62 while npm's newest was the
+alpha channel and the freshness block said grok was behind. A pointer has no
+dates and no notes, so `just upstream` says the version and the row's `check`
+names what to read. Nothing to do until `just template-update`.
+
 **An opencode worker climbs a model ladder (spec 038).** `WORKER=opencode`
 runs `opencode run --standalone --auto --format json` on a `delegate/` branch.
 The config goes through `OPENCODE_CONFIG`, a file outside the project, with

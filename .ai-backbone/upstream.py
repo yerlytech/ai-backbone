@@ -95,6 +95,14 @@ def fetch_json(url, headers=None):
         return json.load(response)
 
 
+def fetch_text(url):
+    """A channel pointer is plain text more often than not: the tool's own
+    updater reads one version from the address and nothing else."""
+    request = urllib.request.Request(url, headers={"User-Agent": "ai-backbone"})
+    with urllib.request.urlopen(request, timeout=call_timeout(10)) as response:
+        return response.read().decode("utf-8", "replace")
+
+
 class Unreachable(Exception):
     """The source could not be read. Not the same as "nothing newer", and the
     difference matters: one is an answer and the other is silence wearing one."""
@@ -196,6 +204,38 @@ def from_github(repo):
          "url": r.get("html_url", ""), "prerelease": bool(r.get("prerelease"))}
         for r in data
     ]
+
+
+def from_pointer(url):
+    """A release channel's own version pointer: the address the tool's updater
+    reads, with one version on it. Claude Code's native install answers
+    .../claude-code-releases/stable with the version in plain text, and grok's
+    stable channel is https://x.ai/cli/stable. This is the channel a worker CLI
+    was installed on, not a registry's newest: npm's newest grok was the alpha
+    channel while stable was 1.0.62 (2026-10-21). A pointer that answers JSON
+    with a version is read too, and a body with prose is searched for the one
+    version in it."""
+    text = fetch_text(url).strip()
+    version = ""
+    try:
+        data = json.loads(text)
+    except ValueError:
+        data = None
+    if isinstance(data, dict):
+        for key in ("version", "stable_version", "tag_name", "tag"):
+            value = data.get(key)
+            if isinstance(value, str) and value.strip():
+                version = value.strip()
+                break
+    elif isinstance(data, str):
+        text = data.strip()
+    if not version:
+        found = re.search(r"(?<![a-z0-9])v?\d+(?:\.\d+)+(?:[-+][0-9a-z.-]+)?", text, re.IGNORECASE)
+        if not found:
+            raise Unreachable(f"{url} returned no version ({len(text)} characters)")
+        version = found.group(0)
+    return [{"version": version, "at": "", "title": version, "notes": "",
+             "url": url, "prerelease": "-" in version.split("+", 1)[0]}]
 
 
 def github_one(repo, path):
@@ -795,7 +835,8 @@ def pin_is_real(entry):
 
 
 SOURCES = {"github": from_github, "crates": from_crates, "npm": from_npm, "pub": from_pub,
-           "pypi": from_pypi, "flutter": from_flutter, "hf": from_hf, "ghcommit": from_ghcommit}
+           "pypi": from_pypi, "flutter": from_flutter, "hf": from_hf, "ghcommit": from_ghcommit,
+           "pointer": from_pointer}
 
 
 def look(entry):
@@ -804,8 +845,8 @@ def look(entry):
     source = entry.get("source", "")
     kind, _, rest = source.partition(":")
     if kind not in SOURCES or not rest:
-        raise ValueError(f"unknown source `{source}` — use github:owner/repo, crates:name, npm:name,"
-                         " pub:name, pypi:name, flutter:stable, hf:owner/name or ghcommit:owner/repo")
+        raise ValueError(f"unknown source `{source}` — use github:owner/repo, crates:, npm:, pub:,"
+                         " pypi:, flutter:stable, hf:owner/name, ghcommit:owner/repo or pointer:https://…")
     if OFFLINE:
         raise Unreachable("offline: AI_BACKBONE_OFFLINE is set")
     if kind in COMMIT_KINDS:

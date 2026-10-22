@@ -1756,7 +1756,7 @@ fl() { ( cd "$tmp/hostile" && cp "$tmp/flutter.toml" docs/upstream.toml && "$py"
 check "flutter:stable reads Flutter's own list, one row per version" "says '^  flutter +3\\.44\\.0 +2026-05-18 +3\\.47\\.5 +2 newer' fl"
 check "a version built more than once is dated by its first day" "says '^  rebuilt +3\\.13\\.3 +2023-09-08 +3\\.47\\.5 +3 newer' fl"
 check "on the beta channel a beta is the release"          "says '^  beta +3\\.48\\.0-0\\.4\\.pre +2026-09-03 +3\\.48\\.0-0\\.5\\.pre +1 newer' fl"
-check "a channel that is not there is said, with the ones that are" "says '^  typo: .*stabel.* beta, stable' fl && says '^  kind: unknown source .* flutter:stable, hf:owner/name or ghcommit:owner/repo' fl"
+check "a channel that is not there is said, with the ones that are" "says '^  typo: .*stabel.* beta, stable' fl && says '^  kind: unknown source .* flutter:stable, hf:owner/name, ghcommit:owner/repo or pointer:https://' fl"
 check "the template names Flutter's own source"           "grep -q 'flutter:stable' '$root/.ai-backbone/templates/upstream.toml'"
 # pin_is_real asked whether the file held the pin anywhere in its text, so a file
 # that had moved on to 1.38.20 still "held" 1.38.2 and MOVED was never said. And
@@ -2049,6 +2049,56 @@ elif mode == "npm-scope":
         fail("asked " + seen.get("url", ""))
     if not rows or rows[0]["version"] != "1.0.62":
         fail(repr(rows))
+elif mode.startswith("pointer"):
+    def pointer(body):
+        seen = {}
+
+        def fake(url):
+            seen["url"] = url
+            return body
+
+        u.fetch_text = fake
+        return seen
+
+    def versions(seen, body):
+        rows = u.SOURCES["pointer"]("https://x.ai/cli/stable")
+        if seen.get("url") != "https://x.ai/cli/stable":
+            fail("asked " + seen.get("url", ""))
+        if [r["version"] for r in rows] != ["1.0.62"]:
+            fail(body + " -> " + repr(rows))
+
+    if mode == "pointer-text":
+        versions(pointer("1.0.62\n"), "plain text")
+    elif mode == "pointer-prose":
+        versions(pointer("Grok CLI, stable channel\nversion 1.0.62\n"), "prose")
+    elif mode == "pointer-json":
+        versions(pointer('{"stable_version": "1.0.62"}'), "json")
+    elif mode == "pointer-empty":
+        pointer("<html>no release here</html>")
+        try:
+            u.SOURCES["pointer"]("https://x.ai/cli/stable")
+        except u.Unreachable as err:
+            if "returned no version" not in str(err):
+                fail(str(err))
+        else:
+            fail("a pointer with no version was read as an answer")
+    elif mode == "pointer-fresh":
+        # The channel says 1.0.62; npm's 1.0.66 is the alpha channel and is
+        # never asked. This is grok's row as it is written.
+        (one / "docs" / "upstream.toml").write_text(
+            '[[watch]]\nname = "grok"\nsource = "pointer:https://x.ai/cli/stable"\npin = "1.0.62"\n',
+            encoding="utf-8")
+
+        def no_json(url, headers=None):
+            fail("a registry was asked: " + url)
+
+        u.fetch_json = no_json
+        pointer("1.0.62\n")
+        rc, out = run(one, "--freshness")
+        if rc != 0 or "Behind: nothing" not in out or "1.0.66" in out:
+            fail(f"rc={rc}\n{out}")
+    else:
+        fail("unknown mode " + mode)
 else:
     fail("unknown mode " + mode)
 PY
@@ -2070,10 +2120,17 @@ check "a pin the file does not hold is the job when nothing is behind" "fresh035
 check "an idea's newer release is to read, never behind"              "fresh035 fresh-idea"
 check "the table lists an idea apart, and not as newer"             "fresh035 idea-table"
 check "a scoped npm package is asked with the slash encoded"        "fresh035 npm-scope"
+check "a channel pointer says the one version the channel holds"    "fresh035 pointer-text"
+check "a pointer that writes its version in prose is read the same"  "fresh035 pointer-prose"
+check "a pointer that answers JSON is read too"                     "fresh035 pointer-json"
+check "a pointer with no version is unreachable, never current"      "fresh035 pointer-empty"
+check "a stable channel is not compared with a registry's alpha"     "fresh035 pointer-fresh"
+check "the backbone reads grok from its stable channel, not from npm" \
+  "grep -qx 'source = \"pointer:https://x.ai/cli/stable\"' '$root/docs/upstream.toml' && ! grep -qx 'source = \"npm:@xai-official/grok\"' '$root/docs/upstream.toml'"
 check "the backbone's tool pins name a version for just, prek, graphify, uv, gitleaks and the actions" \
   "(for n in just prek graphify uv gitleaks; do awk -v n=\"\$n\" '/^\\[\\[watch\\]\\]/{w=0} \$0==\"name = \\\"\"n\"\\\"\"{w=1} w&&/^pin = \"[^\"]+\"\$/{f=1} END{exit !f}' '$root/docs/upstream.toml' || exit 1; done) && grep -qx 'pin = \"v7\"' '$root/docs/upstream.toml'"
 check "the backbone watches grok, claude-code, zed and the two ideas" \
-  "grep -qx 'source = \"npm:@xai-official/grok\"' '$root/docs/upstream.toml' && grep -qx 'source = \"npm:@anthropic-ai/claude-code\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:zed-industries/zed\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:OrchestratorInc/agent-orchestrator\"' '$root/docs/upstream.toml' && grep -qx 'source = \"ghcommit:jarrodwatts/claude-delegator\"' '$root/docs/upstream.toml' && grep -qx 'look_for = \"a board of every running job across projects\"' '$root/docs/upstream.toml' && grep -qx 'look_for = \"an ask-only mode\"' '$root/docs/upstream.toml'"
+  "grep -qx 'source = \"pointer:https://x.ai/cli/stable\"' '$root/docs/upstream.toml' && grep -qx 'source = \"npm:@anthropic-ai/claude-code\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:zed-industries/zed\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:OrchestratorInc/agent-orchestrator\"' '$root/docs/upstream.toml' && grep -qx 'source = \"ghcommit:jarrodwatts/claude-delegator\"' '$root/docs/upstream.toml' && grep -qx 'look_for = \"a board of every running job across projects\"' '$root/docs/upstream.toml' && grep -qx 'look_for = \"an ask-only mode\"' '$root/docs/upstream.toml'"
 check "the backbone watches opencode the way it watches grok" \
   "grep -qx 'name = \"opencode\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:anomalyco/opencode\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"v2.1.2\"' '$root/docs/upstream.toml'"
 check "the two ideas are pinned at what was read on 2026-10-20" \
