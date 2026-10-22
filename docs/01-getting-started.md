@@ -451,6 +451,12 @@ with a spec and a test that proves what it might have broken still holds.
 `just doctor` says when a tool on this machine is older than its pin, and when
 a project with a language has no watch list yet.
 
+Each session also reads the project's own dependencies: every `Cargo.lock`
+against the RustSec advisories, and every `package.json` (node_modules skipped)
+with `npm outdated` and `npm audit`. Only findings and could-not-check lines are
+shown. A slow or failing npm is one such line and the session goes on; with no
+`package.json` there is no line and nothing is asked.
+
 A machine whose owner keeps heavy work in check (one reached by remote desktop
 that must stay usable) says so once, and every save's checks and the Rust
 layer's builds follow it:
@@ -468,8 +474,13 @@ read on this machine — the source folder, its changelog, the docs — so it is
 read, not guessed.
 
 The watch list takes a source from GitHub, crates.io, npm or pub.dev
-(`github:owner/repo`, `crates:name`, `npm:name`, `pub:name`), so a Rust server,
-a web front end and a Flutter game are watched the same way.
+(`github:owner/repo`, `crates:name`, `npm:name`, `pub:name`), a release
+channel's own version pointer (`pointer:https://…`), or a Homebrew formula
+(`brew:name`, what `brew upgrade` would install), so a Rust server, a web front
+end and a Flutter game are watched the same way. A worker CLI is followed on the
+channel it was installed on, not on a registry's newest: npm's newest grok was
+its alpha channel while stable was older. `claude doctor` prints the channel
+Claude Code updates on (`stable` or `latest`); point its row at that channel.
 
 ## What is in the hidden folders
 

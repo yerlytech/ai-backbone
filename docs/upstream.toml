@@ -12,22 +12,28 @@
 # Read where each is installed from: just, prek, graphify and uv come through
 # uv from PyPI, so PyPI says what can be installed and when (spec 021); GitHub's
 # tags ran ahead of it once. gitleaks is fetched by prek from GitHub, and
-# actions/checkout is what GitHub runs the gate with. grok and Claude Code are
-# npm packages. opencode and Zed publish GitHub releases.
+# actions/checkout is what GitHub runs the gate with. grok is read from its
+# stable release channel, and Claude Code from the channel it was installed on:
+# `claude doctor` prints `Auto-update channel: stable`, and that channel's own
+# version pointer is what its updater reads. Not a registry's newest: npm's
+# newest grok was the alpha channel while stable was 1.0.62, and npm's newest
+# Claude Code runs ahead of stable (2026-10-21). opencode is installed with
+# Homebrew, so its formula says what `brew upgrade` would install; its GitHub
+# release pages stopped before 2.x. Zed publishes GitHub releases.
 #
 # Pins dated 2026-10-20. just 1.59.0, prek 0.5.6, graphify 0.9.92 and uv 0.13.3
 # are the newest releases. gitleaks v8.30.1 and actions/checkout v7 are what
 # the files named in pinned_in hold. grok 1.0.62 is what `~/.grok/bin/grok
-# version` printed. claude-code 2.1.296 is the last version this repo recorded
-# (docs/radar.toml, read 2026-10-13); no claude binary was on this machine.
-# zed v1.24.3 is what `zed --version` printed, written with the v this list
-# uses for a GitHub tag. agent-orchestrator v0.14.3 is its newest release,
-# read 2026-10-20: a pin of 0 counted every release before that as to read.
-# claude-delegator publishes no release (the releases list was empty that
-# day), so it is pinned by the newest commit on its default branch, read the
-# same day. The commit itself is dated 2026-10-12. A later commit is to read.
-# opencode v2.1.2 is what `opencode --version` printed on 2026-10-22. The
-# Homebrew formula builds that same GitHub tag. No registry was asked.
+# version` printed. claude-code 2.1.304 is the running version `claude doctor`
+# printed, on its stable auto-update channel. zed v1.24.3 is what
+# `zed --version` printed, written with the v this list uses for a GitHub tag.
+# agent-orchestrator v0.14.3 is its newest release, read 2026-10-20: a pin of 0
+# counted every release before that as to read. claude-delegator publishes no
+# release (the releases list was empty that day), so it is pinned by the newest
+# commit on its default branch, read the same day. The commit itself is dated
+# 2026-10-12. A later commit is to read. opencode 2.1.2 is what `opencode
+# --version` printed, and the Homebrew formula builds that same version on
+# 2026-10-22: its GitHub tags stopped at v1.19.3. No registry was asked.
 
 [[watch]]
 name = "just"
@@ -76,22 +82,22 @@ check = "what the new major drops or changes (fetch-depth, credentials, the Node
 
 [[watch]]
 name = "grok"
-source = "npm:@xai-official/grok"
+source = "pointer:https://x.ai/cli/stable"
 pin = "1.0.62"
 why = "the worker CLI a delegated job is handed to"
 check = "what a headless run accepts, and whether the binary still answers `grok version`"
 
 [[watch]]
 name = "claude-code"
-source = "npm:@anthropic-ai/claude-code"
-pin = "2.1.296"
+source = "pointer:https://downloads.claude.ai/claude-code-releases/stable"
+pin = "2.1.304"
 why = "the other worker, and the session that reads these rules"
-check = "what SessionStart shows, and whether a skill is still read from .claude/skills"
+check = "`claude doctor` says the installed version and `Auto-update channel`; point this at that channel, then read what SessionStart and the skills changed"
 
 [[watch]]
 name = "opencode"
-source = "github:anomalyco/opencode"
-pin = "v2.1.2"
+source = "brew:opencode"
+pin = "2.1.2"
 why = "the worker CLI a delegated job is handed to, when WORKER is opencode"
 check = "what a headless run accepts, and whether the binary still answers `opencode --version`"
 

@@ -48,6 +48,40 @@ and then replaces it like any generated copy. A copy with unsaved changes, or
 one matching neither, is still named and kept. Nothing to do until
 `just template-update`; then `just sync-rules` once.
 
+**Session start reads the project's npm packages.** Every `package.json` the
+project holds, `node_modules` skipped, is read with `npm outdated` and `npm
+audit`, next to the RustSec check. Only findings are printed: how many packages
+are behind, and how many known vulnerabilities by severity. A project with no
+`package.json` gets no line and no npm call. npm gets six seconds a call and the
+whole check eight (`AI_BACKBONE_NPM_TIMEOUT`, `AI_BACKBONE_NPM_BUDGET`); a slow
+or failing npm is a `could not check` line and the session goes on. Nothing to
+do until `just template-update`.
+
+**opencode is watched where it is installed from.** Its row reads the Homebrew
+formula, `brew:opencode` — what `brew upgrade` would install — instead of
+GitHub releases, whose last tag was v1.19.3 while the formula built 2.1.2 and
+the freshness block could not check it. The delegated opencode run already gets
+autoupdate off from its own config (spec 038), so a headless run never changes
+version mid-task. Nothing to do until `just template-update`.
+
+**A worker CLI is compared with the channel it was installed on.** claude-code's
+row reads its stable channel's own version pointer,
+`https://downloads.claude.ai/claude-code-releases/stable`, and its pin is the
+version `claude doctor` printed as running (2.1.304). npm's newest was 2.1.306
+on the faster channel, so the freshness block called a native stable install
+behind while it was current. The row's `check` says to point it at the channel
+`claude doctor` names; an install on `latest` points at `…/latest`. Nothing to
+do until `just template-update`.
+
+**A worker CLI is followed on the channel it was installed on, not on a
+registry's newest.** A watch row may read a release channel's own version
+pointer, `pointer:https://…`: one version, plain text or a small JSON, at the
+address the tool's own updater reads. grok is read from
+`https://x.ai/cli/stable`, whose stable was 1.0.62 while npm's newest was the
+alpha channel and the freshness block said grok was behind. A pointer has no
+dates and no notes, so `just upstream` says the version and the row's `check`
+names what to read. Nothing to do until `just template-update`.
+
 **An opencode worker climbs a model ladder (spec 038).** `WORKER=opencode`
 runs `opencode run --standalone --auto --format json` on a `delegate/` branch.
 The config goes through `OPENCODE_CONFIG`, a file outside the project, with

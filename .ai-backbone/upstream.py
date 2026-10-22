@@ -68,6 +68,14 @@ SHARE_DAY = 86400
 # person who typed it is waiting for the answer. The suite sets the budget to
 # zero to exercise the stop without sleeping.
 FRESH_BUDGET = float(os.environ.get("AI_BACKBONE_UPSTREAM_BUDGET", "10") or "10")
+# npm outdated and npm audit run beside the RustSec check at session start
+# (spec 035's block). One call may spend this long, and the whole check this
+# long: a slow registry is a line saying so, never a session waiting on it.
+NPM_TIMEOUT = float(os.environ.get("AI_BACKBONE_NPM_TIMEOUT", "6") or "6")
+NPM_BUDGET = float(os.environ.get("AI_BACKBONE_NPM_BUDGET", "8") or "8")
+# Folders that are not the project's own packages: a dependency tree, another
+# repository, a retired copy, the code map's output.
+NPM_SKIP = {"node_modules", ".git", ".references", ".archive", "graphify-out"}
 # The deadline of the check that is running, or None when a person typed
 # `just upstream` and is waiting. A lookup uses the shorter of its own limit
 # and what is left, so one source's thirty seconds cannot spend the ten.
@@ -93,6 +101,14 @@ def fetch_json(url, headers=None):
     request = urllib.request.Request(url, headers=headers or {"User-Agent": "ai-backbone"})
     with urllib.request.urlopen(request, timeout=call_timeout(10)) as response:
         return json.load(response)
+
+
+def fetch_text(url):
+    """A channel pointer is plain text more often than not: the tool's own
+    updater reads one version from the address and nothing else."""
+    request = urllib.request.Request(url, headers={"User-Agent": "ai-backbone"})
+    with urllib.request.urlopen(request, timeout=call_timeout(10)) as response:
+        return response.read().decode("utf-8", "replace")
 
 
 class Unreachable(Exception):
@@ -198,6 +214,38 @@ def from_github(repo):
     ]
 
 
+def from_pointer(url):
+    """A release channel's own version pointer: the address the tool's updater
+    reads, with one version on it. Claude Code's native install answers
+    .../claude-code-releases/stable with the version in plain text, and grok's
+    stable channel is https://x.ai/cli/stable. This is the channel a worker CLI
+    was installed on, not a registry's newest: npm's newest grok was the alpha
+    channel while stable was 1.0.62 (2026-10-21). A pointer that answers JSON
+    with a version is read too, and a body with prose is searched for the one
+    version in it."""
+    text = fetch_text(url).strip()
+    version = ""
+    try:
+        data = json.loads(text)
+    except ValueError:
+        data = None
+    if isinstance(data, dict):
+        for key in ("version", "stable_version", "tag_name", "tag"):
+            value = data.get(key)
+            if isinstance(value, str) and value.strip():
+                version = value.strip()
+                break
+    elif isinstance(data, str):
+        text = data.strip()
+    if not version:
+        found = re.search(r"(?<![a-z0-9])v?\d+(?:\.\d+)+(?:[-+][0-9a-z.-]+)?", text, re.IGNORECASE)
+        if not found:
+            raise Unreachable(f"{url} returned no version ({len(text)} characters)")
+        version = found.group(0)
+    return [{"version": version, "at": "", "title": version, "notes": "",
+             "url": url, "prerelease": "-" in version.split("+", 1)[0]}]
+
+
 def github_one(repo, path):
     """One object from the GitHub API, or None when there is none. Through gh
     when it is installed, since it carries the login; plain HTTPS otherwise."""
@@ -237,6 +285,23 @@ def from_npm(name):
          "prerelease": "-" in v.split("+", 1)[0]}
         for v in versions
     ]
+
+
+def from_brew(name):
+    """Homebrew's formula API: the stable version `brew upgrade` would install.
+    A formula publishes one stable version, not a history, so the list holds one
+    row and `just upstream` has no notes for it. This is the source for a tool
+    installed with brew whose own release pages are not what the formula builds:
+    opencode's GitHub tags stopped at v1.19.3 while the formula built 2.1.2
+    (2026-10-22)."""
+    quoted = urllib.parse.quote(name, safe="@")
+    data = fetch_json(f"https://formulae.brew.sh/api/formula/{quoted}.json")
+    version = str((data.get("versions") or {}).get("stable") or "").strip()
+    if not version:
+        raise Unreachable(f"formulae.brew.sh lists no stable version for {name}")
+    return [{"version": version, "at": "", "title": version, "notes": "",
+             "url": f"https://formulae.brew.sh/formula/{name}",
+             "prerelease": "-" in version.split("+", 1)[0]}]
 
 
 def from_pub(name):
@@ -795,7 +860,8 @@ def pin_is_real(entry):
 
 
 SOURCES = {"github": from_github, "crates": from_crates, "npm": from_npm, "pub": from_pub,
-           "pypi": from_pypi, "flutter": from_flutter, "hf": from_hf, "ghcommit": from_ghcommit}
+           "pypi": from_pypi, "flutter": from_flutter, "hf": from_hf, "ghcommit": from_ghcommit,
+           "pointer": from_pointer, "brew": from_brew}
 
 
 def look(entry):
@@ -804,8 +870,8 @@ def look(entry):
     source = entry.get("source", "")
     kind, _, rest = source.partition(":")
     if kind not in SOURCES or not rest:
-        raise ValueError(f"unknown source `{source}` — use github:owner/repo, crates:name, npm:name,"
-                         " pub:name, pypi:name, flutter:stable, hf:owner/name or ghcommit:owner/repo")
+        raise ValueError(f"unknown source `{source}` — use github:owner/repo, crates:, npm:, pub:,"
+                         " pypi:, flutter:stable, hf:owner/name, ghcommit:owner/repo, brew:name, pointer:url")
     if OFFLINE:
         raise Unreachable("offline: AI_BACKBONE_OFFLINE is set")
     if kind in COMMIT_KINDS:
@@ -1725,6 +1791,128 @@ def advisories(mode, locks):
     return 0
 
 
+def package_dirs():
+    """Every folder the project holds a package.json in, node_modules and the
+    folders that are not the project's own left out. os.walk, not glob: a
+    dependency tree is tens of thousands of folders and must not be entered."""
+    out = []
+    for base, dirs, files in os.walk("."):
+        dirs[:] = sorted(d for d in dirs if d not in NPM_SKIP)
+        if "package.json" in files:
+            out.append(os.path.normpath(base))
+    return out
+
+
+def npm_call(folder, args, seconds):
+    """One npm call, its answer as text. Through temporary files, not pipes: a
+    child npm started that outlives its parent must not hold this session on a
+    pipe that never closes. The return code is npm's; 1 means "found something"
+    for both outdated and audit, not a failure."""
+    env = dict(os.environ)
+    env.update({"NO_UPDATE_NOTIFIER": "1", "npm_config_update_notifier": "false",
+                "npm_config_fund": "false", "npm_config_progress": "false",
+                "npm_config_audit": "false"})
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as out, \
+            tempfile.TemporaryFile(mode="w+", encoding="utf-8") as err:
+        done = subprocess.run(["npm", *args], cwd=folder, stdout=out, stderr=err,
+                              text=True, timeout=max(seconds, 0.05), env=env)
+        out.seek(0)
+        return done.returncode, out.read()
+
+
+def _npm_count(value):
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def npm_check():
+    """npm outdated and npm audit for every package.json a project holds, next
+    to the RustSec check. Quiet when there is none, and only findings or a
+    could-not-check line when there is one. A slow or failing npm is one line:
+    it never holds the session, and npm is never run for a folder that has no
+    lock file to audit."""
+    folders = package_dirs()
+    if not folders:
+        return 0
+    deadline = time.monotonic() + NPM_BUDGET
+    lines, missing = [], False
+    for folder in folders:
+        where = "." if folder == "." else folder[2:] if folder.startswith("./") else folder
+        if time.monotonic() >= deadline:
+            lines.append(f"npm: {where}: could not check (slow: the npm check ran out of time)")
+            continue
+        try:
+            code, text = npm_call(folder, ["outdated", "--json"],
+                                  min(NPM_TIMEOUT, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            lines.append(f"npm: {where}: could not check outdated (slow)")
+        except FileNotFoundError:
+            missing = True
+            break
+        except OSError as err:
+            lines.append(f"npm: {where}: could not check outdated ({one_line(err)})")
+        else:
+            if code not in (0, 1):
+                lines.append(f"npm: {where}: could not check outdated (npm said {code})")
+            else:
+                try:
+                    data = json.loads(text or "{}")
+                except ValueError:
+                    data = None
+                if not isinstance(data, dict):
+                    lines.append(f"npm: {where}: could not check outdated (npm's answer was not JSON)")
+                elif data:
+                    names = sorted(data)
+                    shown = ", ".join(
+                        f"{n} {str((data[n] or {}).get('current') or '?')} →"
+                        f" {str((data[n] or {}).get('latest') or '?')}" for n in names[:3])
+                    more = f" and {len(names) - 3} more" if len(names) > 3 else ""
+                    lines.append(f"npm: {where}: {len(names)} outdated ({shown}{more})")
+        lock = Path(folder) / "package-lock.json"
+        if not lock.is_file() and not (Path(folder) / "npm-shrinkwrap.json").is_file():
+            continue
+        if time.monotonic() >= deadline:
+            lines.append(f"npm: {where}: could not check audit (slow: the npm check ran out of time)")
+            continue
+        try:
+            code, text = npm_call(folder, ["audit", "--json"],
+                                  min(NPM_TIMEOUT, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            lines.append(f"npm: {where}: could not check audit (slow)")
+        except FileNotFoundError:
+            missing = True
+            break
+        except OSError as err:
+            lines.append(f"npm: {where}: could not check audit ({one_line(err)})")
+        else:
+            try:
+                data = json.loads(text or "{}")
+            except ValueError:
+                data = None
+            meta = data.get("metadata", {}).get("vulnerabilities") if isinstance(data, dict) else None
+            if not isinstance(meta, dict):
+                why = f"npm said {code}" if code not in (0, 1) else "npm's answer was not JSON"
+                lines.append(f"npm: {where}: could not check audit ({why})")
+            elif _npm_count(meta.get("total")) > 0:
+                parts = [f"{_npm_count(meta[k])} {k}"
+                         for k in ("critical", "high", "moderate", "low", "info")
+                         if _npm_count(meta.get(k))]
+                lines.append(f"npm: {where}: {_npm_count(meta.get('total'))} vulnerabilities"
+                             f" ({', '.join(parts)}) -> npm audit")
+    if missing:
+        lines.append("npm: could not check (npm is not installed)")
+    if not lines:
+        return 0
+    say(f"=== NPM PACKAGES ({len(folders)}) ===")
+    for line in lines[:12]:
+        say(line)
+    if len(lines) > 12:
+        say(f"  ... and {len(lines) - 12} more: npm outdated; npm audit")
+    return 0
+
+
 def advisories_gate(args):
     """A ship's question for these Cargo.lock files: is every advisory in them
     one the triage file covers? One line per advisory and lock, its state first;
@@ -2079,6 +2267,8 @@ def main():
         return crate_sources(sys.argv[2:])
     if len(sys.argv) > 2 and sys.argv[1] == "--advisories" and sys.argv[2] == "gate":
         return advisories_gate(sys.argv[3:])
+    if len(sys.argv) > 1 and sys.argv[1] == "--npm":
+        return npm_check()
     if len(sys.argv) > 3 and sys.argv[1] == "--advisories" and sys.argv[2] in ("doctor", "session"):
         return advisories(sys.argv[2], sys.argv[3:])
     if not LIST.is_file():

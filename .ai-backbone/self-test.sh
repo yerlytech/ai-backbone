@@ -1780,7 +1780,7 @@ fl() { ( cd "$tmp/hostile" && cp "$tmp/flutter.toml" docs/upstream.toml && "$py"
 check "flutter:stable reads Flutter's own list, one row per version" "says '^  flutter +3\\.44\\.0 +2026-05-18 +3\\.47\\.5 +2 newer' fl"
 check "a version built more than once is dated by its first day" "says '^  rebuilt +3\\.13\\.3 +2023-09-08 +3\\.47\\.5 +3 newer' fl"
 check "on the beta channel a beta is the release"          "says '^  beta +3\\.48\\.0-0\\.4\\.pre +2026-09-03 +3\\.48\\.0-0\\.5\\.pre +1 newer' fl"
-check "a channel that is not there is said, with the ones that are" "says '^  typo: .*stabel.* beta, stable' fl && says '^  kind: unknown source .* flutter:stable, hf:owner/name or ghcommit:owner/repo' fl"
+check "a channel that is not there is said, with the ones that are" "says '^  typo: .*stabel.* beta, stable' fl && says '^  kind: unknown source .* flutter:stable, hf:owner/name, ghcommit:owner/repo, brew:name, pointer:url' fl"
 check "the template names Flutter's own source"           "grep -q 'flutter:stable' '$root/.ai-backbone/templates/upstream.toml'"
 # pin_is_real asked whether the file held the pin anywhere in its text, so a file
 # that had moved on to 1.38.20 still "held" 1.38.2 and MOVED was never said. And
@@ -2073,6 +2073,177 @@ elif mode == "npm-scope":
         fail("asked " + seen.get("url", ""))
     if not rows or rows[0]["version"] != "1.0.62":
         fail(repr(rows))
+elif mode.startswith("pointer"):
+    def pointer(body):
+        seen = {}
+
+        def fake(url):
+            seen["url"] = url
+            return body
+
+        u.fetch_text = fake
+        return seen
+
+    def versions(seen, body):
+        rows = u.SOURCES["pointer"]("https://x.ai/cli/stable")
+        if seen.get("url") != "https://x.ai/cli/stable":
+            fail("asked " + seen.get("url", ""))
+        if [r["version"] for r in rows] != ["1.0.62"]:
+            fail(body + " -> " + repr(rows))
+
+    if mode == "pointer-text":
+        versions(pointer("1.0.62\n"), "plain text")
+    elif mode == "pointer-prose":
+        versions(pointer("Grok CLI, stable channel\nversion 1.0.62\n"), "prose")
+    elif mode == "pointer-json":
+        versions(pointer('{"stable_version": "1.0.62"}'), "json")
+    elif mode == "pointer-empty":
+        pointer("<html>no release here</html>")
+        try:
+            u.SOURCES["pointer"]("https://x.ai/cli/stable")
+        except u.Unreachable as err:
+            if "returned no version" not in str(err):
+                fail(str(err))
+        else:
+            fail("a pointer with no version was read as an answer")
+    elif mode == "pointer-fresh":
+        # The channel says 1.0.62; npm's 1.0.66 is the alpha channel and is
+        # never asked. This is grok's row as it is written.
+        (one / "docs" / "upstream.toml").write_text(
+            '[[watch]]\nname = "grok"\nsource = "pointer:https://x.ai/cli/stable"\npin = "1.0.62"\n',
+            encoding="utf-8")
+
+        def no_json(url, headers=None):
+            fail("a registry was asked: " + url)
+
+        u.fetch_json = no_json
+        pointer("1.0.62\n")
+        rc, out = run(one, "--freshness")
+        if rc != 0 or "Behind: nothing" not in out or "1.0.66" in out:
+            fail(f"rc={rc}\n{out}")
+    else:
+        fail("unknown mode " + mode)
+elif mode == "channel-fresh":
+    # The stable channel is 2.1.304 and latest is 2.1.306; the row follows the
+    # channel `claude doctor` names, so stable is current and latest is not asked.
+    stable = "https://downloads.claude.ai/claude-code-releases/stable"
+    (one / "docs" / "upstream.toml").write_text(
+        f'[[watch]]\nname = "claude-code"\nsource = "pointer:{stable}"\npin = "2.1.304"\n',
+        encoding="utf-8")
+    asked = []
+
+    def fake_text(url):
+        asked.append(url)
+        return {"https://downloads.claude.ai/claude-code-releases/stable": "2.1.304\n",
+                "https://downloads.claude.ai/claude-code-releases/latest": "2.1.306\n"}.get(url, "")
+
+    u.fetch_text = fake_text
+    rc, out = run(one, "--freshness")
+    if rc != 0 or "Behind: nothing" not in out or "2.1.306" in out:
+        fail(f"rc={rc}\n{out}")
+    if asked != [stable]:
+        fail("asked " + repr(asked))
+elif mode == "brew":
+    seen = {}
+
+    def fake(url, headers=None):
+        seen["url"] = url
+        return {"versions": {"stable": "2.1.2", "head": None}}
+
+    u.fetch_json = fake
+    rows = u.SOURCES["brew"]("opencode")
+    if seen.get("url") != "https://formulae.brew.sh/api/formula/opencode.json":
+        fail("asked " + seen.get("url", ""))
+    if [r["version"] for r in rows] != ["2.1.2"]:
+        fail(repr(rows))
+
+    def empty(url, headers=None):
+        return {"versions": {"stable": ""}}
+
+    u.fetch_json = empty
+    try:
+        u.SOURCES["brew"]("opencode")
+    except u.Unreachable as err:
+        if "no stable version" not in str(err):
+            fail(str(err))
+    else:
+        fail("a formula with no stable version was read as an answer")
+elif mode.startswith("npm-"):
+    tree = Path(base) / (mode + "-tree")
+    bindir = Path(base) / (mode + "-bin")
+    bindir.mkdir(parents=True, exist_ok=True)
+    log = Path(base) / (mode + ".log")
+    script = bindir / "npm"
+    script.write_text(
+        '#!/bin/sh\n'
+        'printf \'%s %s\\n\' "$PWD" "$1" >> "$FAKE_NPM_LOG"\n'
+        'case "$1" in\n'
+        '  outdated) [ -n "${FAKE_NPM_SLEEP:-}" ] && /bin/sleep "$FAKE_NPM_SLEEP"; printf \'%s\' "$FAKE_NPM_OUTDATED"; exit "${FAKE_NPM_OUTDATED_RC:-1}";;\n'
+        '  audit) [ -n "${FAKE_NPM_SLEEP:-}" ] && /bin/sleep "$FAKE_NPM_SLEEP"; printf \'%s\' "$FAKE_NPM_AUDIT"; exit "${FAKE_NPM_AUDIT_RC:-1}";;\n'
+        'esac\n'
+        'exit 0\n', encoding="utf-8")
+    script.chmod(0o755)
+    os.environ["FAKE_NPM_LOG"] = str(log)
+    if mode == "npm-none":
+        tree.mkdir(parents=True, exist_ok=True)
+    else:
+        (tree / ".git").mkdir(parents=True, exist_ok=True)
+        (tree / "package.json").write_text("{}", encoding="utf-8")
+        (tree / "web").mkdir(parents=True, exist_ok=True)
+        (tree / "web" / "package.json").write_text("{}", encoding="utf-8")
+        (tree / "web" / "package-lock.json").write_text("{}", encoding="utf-8")
+        (tree / "node_modules" / "dep").mkdir(parents=True, exist_ok=True)
+        (tree / "node_modules" / "dep" / "package.json").write_text("{}", encoding="utf-8")
+    if mode == "npm-missing":
+        os.environ["PATH"] = str(tree / "no-bin")
+    else:
+        os.environ["PATH"] = str(bindir)
+    os.environ["FAKE_NPM_OUTDATED"] = (
+        '{"vite":{"current":"5.0.0","latest":"5.4.0"},'
+        '"react":{"current":"18.0.0","latest":"18.3.1"}}')
+    os.environ["FAKE_NPM_AUDIT"] = (
+        '{"metadata":{"vulnerabilities":{"info":0,"low":0,"moderate":1,"high":2,'
+        '"critical":0,"total":3}}}')
+    os.environ.pop("FAKE_NPM_SLEEP", None)
+    os.environ.pop("FAKE_NPM_OUTDATED_RC", None)
+    if mode == "npm-slow":
+        os.environ["FAKE_NPM_SLEEP"] = "5"
+        os.environ["AI_BACKBONE_NPM_TIMEOUT"] = "0.3"
+        u.NPM_TIMEOUT = 0.3
+    if mode == "npm-fail":
+        os.environ["FAKE_NPM_OUTDATED_RC"] = "2"
+        os.environ["FAKE_NPM_OUTDATED"] = ""
+    started = time.monotonic()
+    rc, out = run(tree, "--npm")
+    took = time.monotonic() - started
+    calls = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+    if mode == "npm-none":
+        if rc != 0 or out != "" or calls:
+            fail(f"rc={rc} calls={calls}\n{out}")
+    elif mode == "npm-report":
+        if rc != 0 or "=== NPM PACKAGES (2) ===" not in out:
+            fail(f"rc={rc}\n{out}")
+        if "2 outdated (react 18.0.0 → 18.3.1, vite 5.0.0 → 5.4.0)" not in out:
+            fail(out)
+        if "3 vulnerabilities (2 high, 1 moderate) -> npm audit" not in out:
+            fail(out)
+        if any("node_modules" in c for c in calls):
+            fail("node_modules was read: " + repr(calls))
+        if not any(c.endswith(" audit") and "/web" in c for c in calls):
+            fail("audit was not asked of the folder with a lock file: " + repr(calls))
+        if sum(1 for c in calls if c.endswith(" audit")) != 1:
+            fail("audit was asked of a folder with no lock file: " + repr(calls))
+    elif mode == "npm-slow":
+        if rc != 0 or "could not check outdated (slow)" not in out or took > 3:
+            fail(f"rc={rc} took={took:.1f}\n{out}")
+    elif mode == "npm-fail":
+        if rc != 0 or "could not check outdated (npm said 2)" not in out:
+            fail(f"rc={rc}\n{out}")
+    elif mode == "npm-missing":
+        if rc != 0 or "could not check (npm is not installed)" not in out:
+            fail(f"rc={rc}\n{out}")
+    else:
+        fail("unknown mode " + mode)
 else:
     fail("unknown mode " + mode)
 PY
@@ -2094,12 +2265,30 @@ check "a pin the file does not hold is the job when nothing is behind" "fresh035
 check "an idea's newer release is to read, never behind"              "fresh035 fresh-idea"
 check "the table lists an idea apart, and not as newer"             "fresh035 idea-table"
 check "a scoped npm package is asked with the slash encoded"        "fresh035 npm-scope"
+check "a channel pointer says the one version the channel holds"    "fresh035 pointer-text"
+check "a pointer that writes its version in prose is read the same"  "fresh035 pointer-prose"
+check "a pointer that answers JSON is read too"                     "fresh035 pointer-json"
+check "a pointer with no version is unreachable, never current"      "fresh035 pointer-empty"
+check "a stable channel is not compared with a registry's alpha"     "fresh035 pointer-fresh"
+check "a worker CLI is compared with the channel it was installed on" "fresh035 channel-fresh"
+check "a Homebrew formula says the stable version brew would install" "fresh035 brew"
+check "npm outdated and audit are read for every package.json, node_modules skipped" "fresh035 npm-report"
+check "no package.json means no npm call and no line"                "fresh035 npm-none"
+check "a slow npm is one line, and the session goes on"              "fresh035 npm-slow"
+check "a failing npm is a could-not-check line"                      "fresh035 npm-fail"
+check "npm missing is said, never a failed session"                  "fresh035 npm-missing"
+check "session-start reads npm next to the RustSec check" \
+  "grep -q 'upstream.py --npm' '$root/.ai-backbone/core.just' && [ \"\$(awk '/upstream.py --advisories session/{a=NR} /upstream.py --npm/{n=NR} END{print (n>a && a>0) ? \"next\" : \"not-next\"}' '$root/.ai-backbone/core.just')\" = next ]"
+check "the backbone reads grok from its stable channel, not from npm" \
+  "grep -qx 'source = \"pointer:https://x.ai/cli/stable\"' '$root/docs/upstream.toml' && ! grep -qx 'source = \"npm:@xai-official/grok\"' '$root/docs/upstream.toml'"
+check "and reads claude-code at the stable channel its doctor prints, not npm's newest" \
+  "grep -qx 'source = \"pointer:https://downloads.claude.ai/claude-code-releases/stable\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"2.1.304\"' '$root/docs/upstream.toml' && ! grep -qx 'source = \"npm:@anthropic-ai/claude-code\"' '$root/docs/upstream.toml' && grep -q 'claude doctor' '$root/docs/upstream.toml'"
 check "the backbone's tool pins name a version for just, prek, graphify, uv, gitleaks and the actions" \
   "(for n in just prek graphify uv gitleaks; do awk -v n=\"\$n\" '/^\\[\\[watch\\]\\]/{w=0} \$0==\"name = \\\"\"n\"\\\"\"{w=1} w&&/^pin = \"[^\"]+\"\$/{f=1} END{exit !f}' '$root/docs/upstream.toml' || exit 1; done) && grep -qx 'pin = \"v7\"' '$root/docs/upstream.toml'"
 check "the backbone watches grok, claude-code, zed and the two ideas" \
-  "grep -qx 'source = \"npm:@xai-official/grok\"' '$root/docs/upstream.toml' && grep -qx 'source = \"npm:@anthropic-ai/claude-code\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:zed-industries/zed\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:OrchestratorInc/agent-orchestrator\"' '$root/docs/upstream.toml' && grep -qx 'source = \"ghcommit:jarrodwatts/claude-delegator\"' '$root/docs/upstream.toml' && grep -qx 'look_for = \"a board of every running job across projects\"' '$root/docs/upstream.toml' && grep -qx 'look_for = \"an ask-only mode\"' '$root/docs/upstream.toml'"
-check "the backbone watches opencode the way it watches grok" \
-  "grep -qx 'name = \"opencode\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:anomalyco/opencode\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"v2.1.2\"' '$root/docs/upstream.toml'"
+  "grep -qx 'source = \"pointer:https://x.ai/cli/stable\"' '$root/docs/upstream.toml' && grep -qx 'source = \"pointer:https://downloads.claude.ai/claude-code-releases/stable\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:zed-industries/zed\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:OrchestratorInc/agent-orchestrator\"' '$root/docs/upstream.toml' && grep -qx 'source = \"ghcommit:jarrodwatts/claude-delegator\"' '$root/docs/upstream.toml' && grep -qx 'look_for = \"a board of every running job across projects\"' '$root/docs/upstream.toml' && grep -qx 'look_for = \"an ask-only mode\"' '$root/docs/upstream.toml'"
+check "the backbone watches opencode on the Homebrew formula it installs from" \
+  "grep -qx 'name = \"opencode\"' '$root/docs/upstream.toml' && grep -qx 'source = \"brew:opencode\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"2.1.2\"' '$root/docs/upstream.toml' && ! grep -qx 'source = \"github:anomalyco/opencode\"' '$root/docs/upstream.toml'"
 check "the two ideas are pinned at what was read on 2026-10-20" \
   "grep -qx 'pin = \"v0.14.3\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"8e2ea57c9b8e6f0790b1596d98e35632ca48a59c\"' '$root/docs/upstream.toml'"
 check "the template says what an idea row is" "grep -q 'kind' '$root/.ai-backbone/templates/upstream.toml' && grep -q 'look_for' '$root/.ai-backbone/templates/upstream.toml'"
