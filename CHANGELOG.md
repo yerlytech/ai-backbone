@@ -159,6 +159,20 @@ appends one `gate:` line to `docs/routine-log.md`, naming its FAIL names, as
 a red Linux does. A project with no `windows.yml` is not asked. Nothing to
 do until `just template-update`.
 
+**The gate says when it could not read a run's jobs.** On 2026-10-22 GitHub
+spent an hour processing Actions results: `gh run view --json jobs` answered
+nothing for runs whose Linux and macOS suites were green, and the gate wrote
+`cloud not promoted — the suite was due for this push and the run has no green
+suite job for Linux and macOS`. The sentence was true of what gh returned and
+false of the run, and the next session went looking for a test that had in
+fact run. `gate.sh carry` now asks first whether the run's jobs could be read
+at all; when they could not, the line says so and names the run
+(`the run's jobs could not be read (run <id>); the next push is judged
+instead`). The suite-not-green line now names the run too and says the result
+may not have been processed yet, instead of claiming the job never ran. Not
+carried either way: the next push is judged. Nothing to do until
+`just template-update`.
+
 ## 3.45.1 — 2026-10-20
 
 **A delegate job ends when the worker does.** The worker ran with the

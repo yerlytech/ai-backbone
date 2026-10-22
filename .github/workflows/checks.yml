@@ -68,11 +68,15 @@ jobs:
       fail-fast: false
       matrix:
         # Twice the measured suite; the job's cap is the backstop behind the
-        # suite step's own. Measured again 2026-10-13 (run 38400602011, 727
-        # checks): Linux 3 min 6 s, macOS 7 min 13 s. The caps of 2026-09-24
-        # (twice 2 min 20 s and 3 min 14 s, then about 520 checks) stopped the
-        # next run on macOS and Windows with every check that ran green
-        # (spec 028).
+        # suite step's own. Measured again 2026-10-22 (runs 39760103459 and
+        # 39791657331, 993 checks): Linux 5 min 49 s, macOS 9 min 12 s, and
+        # 13 min 23 s on the slowest green one. The caps of 2026-10-13 (twice
+        # 3 min 6 s and 7 min 13 s, then 727 checks) cut the macOS job of
+        # 2026-10-22 06:51 (run 39736599458) at 844 checks of 993, after its
+        # fifteen minutes: a third more checks and a slower runner do not fit
+        # in the cap the 727-check suite set. The caps of 2026-09-24 (twice
+        # 2 min 20 s and 3 min 14 s, then about 520 checks) stopped the next
+        # run on macOS and Windows with every check that ran green (spec 028).
         # Windows decided from spec 020 (the maintainer's word, 2026-09-24)
         # until spec 037. Report-only before spec 020: at ten minutes about
         # 220 checks were red, and gate.sh read only these two. From spec 020
@@ -80,8 +84,8 @@ jobs:
         # about forty on 2026-10-21. That suite now reports from windows.yml
         # (caps 48 and 44). These two decide the carry.
         include:
-          - { os: ubuntu-latest,  cap: 9,  suite_cap: 7,  report_only: false }
-          - { os: macos-latest,   cap: 17, suite_cap: 15, report_only: false }
+          - { os: ubuntu-latest,  cap: 15, suite_cap: 12, report_only: false }
+          - { os: macos-latest,   cap: 29, suite_cap: 26, report_only: false }
     # The name gate.sh reads the verdict by: without it the matrix's other
     # values are appended ("suite (ubuntu-latest, 30, false)"; measured).
     name: suite (${{ matrix.os }})

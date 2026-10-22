@@ -1223,6 +1223,11 @@ synced; s=$(pushed "git checkout origin/main -- .github/workflows && echo '# x' 
 check "and so is one that changes gate.sh"              "says 'changes .github/workflows or gate.sh' judge $s success '$GREEN' && [ \$(hubmain) != $s ]"
 synced; s=$(pushed "git checkout origin/main -- .ai-backbone/gate.sh && echo w >> README.md" "feat: code")
 check "a green run whose suite never ran is refused: a look weakened on cloud passes no code" "says 'suite was due' judge $s success '1${TAB}look${TAB}success' && [ \$(hubmain) != $s ]"
+# gh answers nothing while GitHub is still processing a run's results (2026-10-22:
+# an hour of delayed Actions results, and the gate wrote "no green suite job" for
+# a run whose two suites were green). The line must say what was read, not what
+# the run was.
+check "a run whose jobs could not be read says so, not that the suite never ran" "says 'jobs could not be read' judge $s success '' && [ \$(hubmain) != $s ] && says '^- [0-9-]+ gate: cloud not promoted — the suite was due for this push and the run.s jobs could not be read \(run 77\); the next push is judged instead\$' cloudlog"
 ( cd "$gt" && git clone -q hub.git other && cd other && echo '- [ ] 2026-01-03, p: a note' >> docs/backlog.md && git add -A && git commit -qm "docs: backlog note from p" && git push -q origin main ) >/dev/null 2>&1
 check "main that moved is not fast-forwarded, and the line says what joins them" "says 'main moved' judge $s success '$GREEN' && [ \$(hubmain) != $s ] && says 'the next run merges origin/main into cloud' cloudlog"
 check "attend: a commit main has moved past is refused, and says to merge" "says 'merge origin/main into cloud' attend $s '$GREEN' && [ \$(hubmain) != $s ]"
