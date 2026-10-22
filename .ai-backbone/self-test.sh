@@ -2099,6 +2099,26 @@ elif mode.startswith("pointer"):
             fail(f"rc={rc}\n{out}")
     else:
         fail("unknown mode " + mode)
+elif mode == "channel-fresh":
+    # The stable channel is 2.1.304 and latest is 2.1.306; the row follows the
+    # channel `claude doctor` names, so stable is current and latest is not asked.
+    stable = "https://downloads.claude.ai/claude-code-releases/stable"
+    (one / "docs" / "upstream.toml").write_text(
+        f'[[watch]]\nname = "claude-code"\nsource = "pointer:{stable}"\npin = "2.1.304"\n',
+        encoding="utf-8")
+    asked = []
+
+    def fake_text(url):
+        asked.append(url)
+        return {"https://downloads.claude.ai/claude-code-releases/stable": "2.1.304\n",
+                "https://downloads.claude.ai/claude-code-releases/latest": "2.1.306\n"}.get(url, "")
+
+    u.fetch_text = fake_text
+    rc, out = run(one, "--freshness")
+    if rc != 0 or "Behind: nothing" not in out or "2.1.306" in out:
+        fail(f"rc={rc}\n{out}")
+    if asked != [stable]:
+        fail("asked " + repr(asked))
 else:
     fail("unknown mode " + mode)
 PY
@@ -2125,12 +2145,15 @@ check "a pointer that writes its version in prose is read the same"  "fresh035 p
 check "a pointer that answers JSON is read too"                     "fresh035 pointer-json"
 check "a pointer with no version is unreachable, never current"      "fresh035 pointer-empty"
 check "a stable channel is not compared with a registry's alpha"     "fresh035 pointer-fresh"
+check "a worker CLI is compared with the channel it was installed on" "fresh035 channel-fresh"
 check "the backbone reads grok from its stable channel, not from npm" \
   "grep -qx 'source = \"pointer:https://x.ai/cli/stable\"' '$root/docs/upstream.toml' && ! grep -qx 'source = \"npm:@xai-official/grok\"' '$root/docs/upstream.toml'"
+check "and reads claude-code at the stable channel its doctor prints, not npm's newest" \
+  "grep -qx 'source = \"pointer:https://downloads.claude.ai/claude-code-releases/stable\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"2.1.304\"' '$root/docs/upstream.toml' && ! grep -qx 'source = \"npm:@anthropic-ai/claude-code\"' '$root/docs/upstream.toml' && grep -q 'claude doctor' '$root/docs/upstream.toml'"
 check "the backbone's tool pins name a version for just, prek, graphify, uv, gitleaks and the actions" \
   "(for n in just prek graphify uv gitleaks; do awk -v n=\"\$n\" '/^\\[\\[watch\\]\\]/{w=0} \$0==\"name = \\\"\"n\"\\\"\"{w=1} w&&/^pin = \"[^\"]+\"\$/{f=1} END{exit !f}' '$root/docs/upstream.toml' || exit 1; done) && grep -qx 'pin = \"v7\"' '$root/docs/upstream.toml'"
 check "the backbone watches grok, claude-code, zed and the two ideas" \
-  "grep -qx 'source = \"pointer:https://x.ai/cli/stable\"' '$root/docs/upstream.toml' && grep -qx 'source = \"npm:@anthropic-ai/claude-code\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:zed-industries/zed\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:OrchestratorInc/agent-orchestrator\"' '$root/docs/upstream.toml' && grep -qx 'source = \"ghcommit:jarrodwatts/claude-delegator\"' '$root/docs/upstream.toml' && grep -qx 'look_for = \"a board of every running job across projects\"' '$root/docs/upstream.toml' && grep -qx 'look_for = \"an ask-only mode\"' '$root/docs/upstream.toml'"
+  "grep -qx 'source = \"pointer:https://x.ai/cli/stable\"' '$root/docs/upstream.toml' && grep -qx 'source = \"pointer:https://downloads.claude.ai/claude-code-releases/stable\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:zed-industries/zed\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:OrchestratorInc/agent-orchestrator\"' '$root/docs/upstream.toml' && grep -qx 'source = \"ghcommit:jarrodwatts/claude-delegator\"' '$root/docs/upstream.toml' && grep -qx 'look_for = \"a board of every running job across projects\"' '$root/docs/upstream.toml' && grep -qx 'look_for = \"an ask-only mode\"' '$root/docs/upstream.toml'"
 check "the backbone watches opencode the way it watches grok" \
   "grep -qx 'name = \"opencode\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:anomalyco/opencode\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"v2.1.2\"' '$root/docs/upstream.toml'"
 check "the two ideas are pinned at what was read on 2026-10-20" \

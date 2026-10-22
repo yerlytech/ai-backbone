@@ -15,6 +15,15 @@ below are the record of every version.
 
 ## [Unreleased]
 
+**A worker CLI is compared with the channel it was installed on.** claude-code's
+row reads its stable channel's own version pointer,
+`https://downloads.claude.ai/claude-code-releases/stable`, and its pin is the
+version `claude doctor` printed as running (2.1.304). npm's newest was 2.1.306
+on the faster channel, so the freshness block called a native stable install
+behind while it was current. The row's `check` says to point it at the channel
+`claude doctor` names; an install on `latest` points at `…/latest`. Nothing to
+do until `just template-update`.
+
 **A worker CLI is followed on the channel it was installed on, not on a
 registry's newest.** A watch row may read a release channel's own version
 pointer, `pointer:https://…`: one version, plain text or a small JSON, at the
