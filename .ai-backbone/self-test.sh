@@ -2814,6 +2814,10 @@ inbox="$pn/beta-co/brain/notes-from-projects.md"
 check "project-note leaves a dated line with the sender's name in the other project's brain/" "pnote beta-co \"the name is 'Kırmızı Balık'
 and a second line\" && grep -qx -- \"- \\[ \\] $(date +%Y-%m-%d), from alpha: the name is 'Kırmızı Balık' and a second line\" '$inbox'"
 check "it finds a project by the name in its AGENTS.md too, and keeps a record in the sender's brain/" "pnote 'Beta Co' 'second' && [ \$(grep -c '^- \\[ \\]' '$inbox') -eq 2 ] && grep -q ', to Beta Co: second\$' '$pn/alpha/brain/notes-to-projects.md'"
+# A project made directly beside the umbrella folder, one level higher than the
+# backbone's parent (n-88393e): found too.
+( cd "$root" && just new-project "$tmp/direct" tr ) >/dev/null 2>&1
+check "a project one folder above the umbrella folder is found too" "pnote direct 'made beside the umbrella folder' && grep -q ', from alpha: made beside the umbrella folder\$' '$tmp/direct/brain/notes-from-projects.md'"
 check "it runs nothing a note asks it to" "pnote beta-co '\$(touch $tmp/PWNED-pn) \`touch $tmp/PWNED-pn\`' && [ ! -e '$tmp/PWNED-pn' ]"
 check "and commits nothing, in either project" "[ -z \"\$(git -C '$pn/alpha' status --porcelain)\" ] && [ -z \"\$(git -C '$pn/beta-co' status --porcelain)\" ]"
 check "the other project's session-start shows its open notes, oldest first, and how to close one" "o=\$(cd '$pn/beta-co' && just session-start 2>&1); grep -q '^=== NOTES FROM OTHER PROJECTS (3 open, oldest first) ===' <<<\"\$o\" && [[ \"\$(awk '/^=== NOTES FROM OTHER/ { getline; print; exit }' <<<\"\$o\")\" == *'Kırmızı Balık'* ]] && grep -q 'change its - \\[ \\] to - \\[x\\]' <<<\"\$o\""

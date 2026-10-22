@@ -15,6 +15,13 @@ below are the record of every version.
 
 ## [Unreleased]
 
+**`just project-note` reaches a project beside the umbrella folder (n-88393e).**
+It looked one and two folders below the backbone's parent, so a project that
+`just new-project` made directly on the Desktop, beside the umbrella folder,
+could not be reached. It now looks one folder higher too, and names a project
+there by its own folder in the "which one did you mean" list. Nothing to do
+until `just template-update`.
+
 **An old skill copy is adopted, not frozen (n-939129).** `.claude/skills/.ai-backbone-owned`
 records only the copies `just sync-rules` wrote since 3.41.3, so a copy an
 earlier version generated and committed was kept as "not a recorded generated

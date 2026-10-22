@@ -4062,19 +4062,30 @@ project-note project text:
     lower() { perl -CSA -e '$_ = lc $ARGV[0]; s/\x{307}//g; print' "$1"; }
     here=$(pwd -P); me=$(name_of "$here")
     # Where the projects are: next to the backbone, one and two folders down,
-    # the way .ai-backbone/projects.sh looks; with no backbone nearby, next to
-    # this project.
+    # the way .ai-backbone/projects.sh looks, and one folder higher too, where
+    # a project made directly beside the umbrella folder sits (n-88393e); with
+    # no backbone nearby, next to this project.
     bb=$(just _backbone 2>/dev/null || true)
     if [ -n "$bb" ]; then base=$(dirname "$bb"); else base=$(cd .. && pwd -P); fi
+    up=$(dirname "$base"); [ "$up" != "$base" ] || up=""
+    # The folder under a base names a project for sure: work/alpha, or alpha
+    # beside the umbrella folder.
+    rel_of() {
+      case "$1" in "$base"/*) printf '%s' "${1#"$base"/}"; return ;; esac
+      case "$1" in "$up"/*) [ -n "$up" ] && { printf '%s' "${1#"$up"/}"; return; } ;; esac
+      printf '%s' "$1"
+    }
     found=(); exact=(); names=""
-    for d in "$base"/*/ "$base"/*/*/; do
+    set -- "$base"/*/ "$base"/*/*/
+    [ -z "$up" ] || set -- "$@" "$up"/*/
+    for d in "$@"; do
       d="${d%/}"; [ -f "$d/.ai-backbone/core.just" ] || continue
       d=$(cd "$d" && pwd -P); [ -n "$bb" ] && [ "$d" = "$bb" ] && continue
       [ -f "$d/.ai-backbone/manifest.txt" ] && [ -f "$d/.ai-backbone/routine.md" ] && continue
       n=$(name_of "$d"); names="$names${names:+, }$n"
-      # The folder under the base (work/alpha) names one project for sure;
-      # a bare name or the project's own name may name two.
-      if [ "${d#"$base"/}" = "${want%/}" ]; then exact+=("$d"); fi
+      # A folder under a base names one project for sure; a bare name or the
+      # project's own name may name two.
+      if [ "$(rel_of "$d")" = "${want%/}" ]; then exact+=("$d"); fi
       if [ "$(lower "$(basename "$d")")" = "$(lower "$want")" ] || [ "$(lower "$n")" = "$(lower "$want")" ]; then found+=("$d"); fi
     done
     if [ "${#exact[@]}" -eq 1 ]; then found=("${exact[0]}"); fi
@@ -4085,11 +4096,11 @@ project-note project text:
       found=("$bb")
     fi
     if [ "${#found[@]}" -eq 0 ]; then
-      echo "No project named $want next to this one (looked in $base). Projects there: ${names:-none}${bb:+; the backbone: ai-backbone}."; exit 1
+      echo "No project named $want next to this one (looked in $base${up:+, and one folder higher in $up}). Projects there: ${names:-none}${bb:+; the backbone: ai-backbone}."; exit 1
     fi
     if [ "${#found[@]}" -gt 1 ]; then
-      echo "More than one project answers to $want. Name one by its folder under $base:"
-      for d in "${found[@]}"; do echo "  just project-note ${d#"$base"/} \"...\""; done; exit 1
+      echo "More than one project answers to $want. Name one by its folder:"
+      for d in "${found[@]}"; do echo "  just project-note $(rel_of "$d") \"...\""; done; exit 1
     fi
     to="${found[0]}"
     if [ "$to" = "$here" ]; then
