@@ -49,9 +49,9 @@ do until `just template-update`.
 **An opencode worker climbs a model ladder (spec 038).** `WORKER=opencode`
 runs `opencode run --standalone --auto --format json` on a `delegate/` branch.
 The config goes through `OPENCODE_CONFIG`, a file outside the project, with
-autoupdate off. The deny list is the one grok gets, plus the shell wrappers
-`sh`, `bash`, `zsh`, `eval`, `xargs` and `env`, and no web fetch or path
-outside the project. `WORKER_LADDER` defaults to
+autoupdate off. The deny list is the one grok gets, the shell wrappers `sh`,
+`bash`, `zsh`, `eval`, `xargs` and `env` included, and no web fetch, and no
+path outside the project. `WORKER_LADDER` defaults to
 `opencode-go/deepseek-v4.1-flash`, then `opencode-go/glm-5.3`, then
 `opencode-go/kimi-k3`: the first try uses the first, each fix round the next,
 and past the last the job refuses. `WORKER_MODEL` still pins one model. The
