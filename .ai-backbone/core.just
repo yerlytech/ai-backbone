@@ -1914,7 +1914,8 @@ delegate task="":
     if [ "$timed_out" -eq 1 ]; then exit 124; fi
     exit "$rc"
 
-# Whether a job of this project is running, its last report, and the open delegate branches.
+# Whether a job of this project is running, its last report, the cost of the
+# last opencode run when the log has one, and the open delegate branches.
 [group('session')]
 [no-exit-message]
 delegate-status:
@@ -1941,7 +1942,18 @@ delegate-status:
         if [ -z "$latest" ] || [ "$f" -nt "$latest" ]; then latest=$f; fi
       done
     fi
-    if [ -n "$latest" ]; then tail -n 15 "$latest"; else echo none; fi
+    if [ -n "$latest" ]; then
+      tail -n 15 "$latest"
+      # The last cost line is the run's own sum (spec 038). A grok or claude
+      # log has none, and then this line is left off.
+      cost_line=""
+      while IFS= read -r line; do
+        case "$line" in
+          'cost: $'*) cost_line=$line ;;
+        esac
+      done < "$latest"
+      if [ -n "$cost_line" ]; then echo "last run: $cost_line"; fi
+    else echo none; fi
     echo
     echo "open branches:"
     # No heredoc: just 1.59.0 fails to parse `$(… --format)` on its own line

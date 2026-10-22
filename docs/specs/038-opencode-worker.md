@@ -83,10 +83,10 @@ tokens of start-up context, and that trimming them per agent cut it to 12 to
 - [x] The report ends with `cost: $<sum> on <model>, <n> steps`, summed from the
       run's `--format json` events; the raw events stay in the log outside the
       repo.
-- [ ] `just delegate-status` shows the model and the cost of the last run.
+- [x] `just delegate-status` shows the model and the cost of the last run.
 - [x] An unknown `WORKER` still refuses, now listing claude, grok, opencode.
-- [ ] The freshness block watches opencode as it watches grok.
-- [ ] The delegate skill, docs/01-getting-started.md and the CHANGELOG say all
+- [x] The freshness block watches opencode as it watches grok.
+- [x] The delegate skill, docs/01-getting-started.md and the CHANGELOG say all
       of this; the self-test covers the ladder, the cost line and the refusal.
 
 ## Tasks
@@ -103,5 +103,5 @@ tokens of start-up context, and that trimming them per agent cut it to 12 to
       list is a fence, not the guard.
 - [x] `delegate_opencode` in `core.just`, the config, the ladder, the cost line;
       self-test with a fake opencode.
-- [ ] `delegate-status`, the freshness watch, the skill, the getting-started
+- [x] `delegate-status`, the freshness watch, the skill, the getting-started
       page, the CHANGELOG.

@@ -2074,6 +2074,8 @@ check "the backbone's tool pins name a version for just, prek, graphify, uv, git
   "(for n in just prek graphify uv gitleaks; do awk -v n=\"\$n\" '/^\\[\\[watch\\]\\]/{w=0} \$0==\"name = \\\"\"n\"\\\"\"{w=1} w&&/^pin = \"[^\"]+\"\$/{f=1} END{exit !f}' '$root/docs/upstream.toml' || exit 1; done) && grep -qx 'pin = \"v7\"' '$root/docs/upstream.toml'"
 check "the backbone watches grok, claude-code, zed and the two ideas" \
   "grep -qx 'source = \"npm:@xai-official/grok\"' '$root/docs/upstream.toml' && grep -qx 'source = \"npm:@anthropic-ai/claude-code\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:zed-industries/zed\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:OrchestratorInc/agent-orchestrator\"' '$root/docs/upstream.toml' && grep -qx 'source = \"ghcommit:jarrodwatts/claude-delegator\"' '$root/docs/upstream.toml' && grep -qx 'look_for = \"a board of every running job across projects\"' '$root/docs/upstream.toml' && grep -qx 'look_for = \"an ask-only mode\"' '$root/docs/upstream.toml'"
+check "the backbone watches opencode the way it watches grok" \
+  "grep -qx 'name = \"opencode\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:anomalyco/opencode\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"v2.1.2\"' '$root/docs/upstream.toml'"
 check "the two ideas are pinned at what was read on 2026-10-20" \
   "grep -qx 'pin = \"v0.14.3\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"8e2ea57c9b8e6f0790b1596d98e35632ca48a59c\"' '$root/docs/upstream.toml'"
 check "the template says what an idea row is" "grep -q 'kind' '$root/.ai-backbone/templates/upstream.toml' && grep -q 'look_for' '$root/.ai-backbone/templates/upstream.toml'"
@@ -4133,7 +4135,7 @@ d_new report
 d_run ok grok "" delegate "add a line"
 dst=$(env -u WORKER HOME="$dhome" just -f "$root/Justfile" -d "$dproj" delegate-status 2>&1 || true)
 check "with no job running, status shows the last report and the open delegate branch" \
-  "grep -qx 'job: none' <<<\"\$dst\" && grep -q 'line-20' <<<\"\$dst\" && ! grep -q 'line-01' <<<\"\$dst\" && grep -q 'delegate/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-add-a-line' <<<\"\$dst\""
+  "grep -qx 'job: none' <<<\"\$dst\" && grep -q 'line-20' <<<\"\$dst\" && ! grep -q 'line-01' <<<\"\$dst\" && grep -q 'delegate/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-add-a-line' <<<\"\$dst\" && ! grep -q '^last run:' <<<\"\$dst\""
 d_new accept
 d_run ok grok "" delegate "add a line"
 d_run ok "" "" delegate-accept
@@ -4548,6 +4550,11 @@ d_out=$(env -u WORKER -u WORKER_BIN -u WORKER_MODEL -u WORKER_LADDER -u OPENCODE
 check "an opencode that lives only at ~/.opencode/bin/opencode is the binary the adapter runs" \
   "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$tmp/delegate-binlog\")\" = \"\$dhome/.opencode/bin/opencode\" ] && [ \"\$(cat \"\$dprompt.model\")\" = 'opencode-go/deepseek-v4.1-flash' ]"
 rm -f "$dhome/.opencode/bin/opencode"
+d_new ocstatus
+d_run ok opencode "" delegate "add a line"
+dst=$(env -u WORKER HOME="$dhome" just -f "$root/Justfile" -d "$dproj" delegate-status 2>&1 || true)
+check "delegate-status shows the model and the cost of the last opencode run" \
+  "grep -qx 'job: none' <<<\"\$dst\" && grep -qx 'last run: cost: \$0.03 on opencode-go/deepseek-v4.1-flash, 2 steps' <<<\"\$dst\""
 
 sec_times="$sec_times$((SECONDS-sec_start)) $sec_name"$'\n'
 echo
