@@ -3902,6 +3902,76 @@ esac
 EOF
 cp "$dbin/grok" "$dbin/claude"
 chmod +x "$dbin/grok" "$dbin/claude"
+# opencode's argv is `run --standalone --auto --format json -m <model> <prompt>`,
+# not grok's -p flags. A copy of the grok fake would exit 2 on `run`.
+cat > "$dbin/opencode" << 'OCEOF'
+#!/usr/bin/env bash
+# Stands in for `opencode run`. Records the argv and OPENCODE_CONFIG the
+# adapter passed, and prints --format json events. No model is called.
+if [ -n "${FAKE_WORKER_BINLOG:-}" ]; then printf '%s\n' "$0" > "$FAKE_WORKER_BINLOG"; fi
+if [ -n "${FAKE_WORKER_PROMPT:-}" ]; then printf '%s\n' "$@" > "$FAKE_WORKER_PROMPT.argv"; fi
+if [ "${1:-}" != run ]; then echo "unexpected: ${1:-}" >&2; exit 2; fi
+shift
+standalone=""
+auto=""
+fmt=""
+model=""
+prompt=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --standalone) standalone=1; shift ;;
+    --auto) auto=1; shift ;;
+    --format) fmt=$2; shift 2 ;;
+    -m) model=$2; shift 2 ;;
+    --) shift; break ;;
+    -*) echo "unexpected: $1" >&2; exit 2 ;;
+    *)
+      if [ -n "$prompt" ]; then echo "unexpected: $1" >&2; exit 2; fi
+      prompt=$1; shift ;;
+  esac
+done
+if [ $# -gt 0 ]; then echo "unexpected: $1" >&2; exit 2; fi
+if [ -z "$standalone" ] || [ -z "$auto" ] || [ -z "$fmt" ] || [ -z "$model" ] || [ -z "$prompt" ]; then
+  echo "unexpected: incomplete run" >&2; exit 2
+fi
+if [ -n "${FAKE_WORKER_PROMPT:-}" ]; then
+  printf '%s\n' "$prompt" > "$FAKE_WORKER_PROMPT"
+  printf '%s\n' "$fmt" > "$FAKE_WORKER_PROMPT.fmt"
+  printf '%s\n' "$model" > "$FAKE_WORKER_PROMPT.model"
+  printf '%s\n' "$standalone" > "$FAKE_WORKER_PROMPT.standalone"
+  printf '%s\n' "$auto" > "$FAKE_WORKER_PROMPT.auto"
+  printf '%s\n' "${OPENCODE_CONFIG:-}" > "$FAKE_WORKER_PROMPT.configpath"
+  if [ -n "${OPENCODE_CONFIG:-}" ] && [ -f "$OPENCODE_CONFIG" ]; then
+    cp "$OPENCODE_CONFIG" "$FAKE_WORKER_PROMPT.config"
+  else
+    : > "$FAKE_WORKER_PROMPT.config"
+  fi
+  printf '%s\n' "${OPENCODE_CONFIG_PROJECT_DISABLE:-}" > "$FAKE_WORKER_PROMPT.projectdisable"
+  printf '%s\n' "$model" >> "$FAKE_WORKER_PROMPT.models"
+fi
+mode=${FAKE_WORKER_MODE:-ok}
+case "$mode" in
+  ok|fix)
+    # A text event carries a cost the sum must ignore. Two step_finish
+    # events are 0.01 and 0.02.
+    printf '%s\n' '{"type":"text","part":{"cost":9}}'
+    printf '%s\n' '{"type":"step_finish","timestamp":1,"sessionID":"s","part":{"type":"step-finish","cost":0.01,"tokens":{"input":1,"output":1}}}'
+    printf '%s\n' '{"type":"step_finish","timestamp":2,"sessionID":"s","part":{"type":"step-finish","cost":0.02,"tokens":{"input":1,"output":1}}}'
+    if [ "$mode" = ok ]; then
+      printf 'done\n' > worker-did.txt
+      git add worker-did.txt
+      git commit -qm "chore: worker did the task" --no-verify
+    else
+      printf 'fixed\n' >> worker-did.txt
+      git add worker-did.txt
+      git commit -qm "chore: worker fixed the task" --no-verify
+    fi
+    echo report
+    ;;
+  *) echo "unknown mode $mode" >&2; exit 2 ;;
+esac
+OCEOF
+chmod +x "$dbin/opencode"
 d_new() {
   dproj="$tmp/delegate-$1"
   rm -rf "$dproj"
@@ -3913,13 +3983,17 @@ d_new() {
   printf 'seed\n' > "$dproj/README.md"
   git -C "$dproj" add README.md
   git -C "$dproj" commit -qm "chore: init"
-  rm -f "$dgo" "$dprompt" "$dprompt.fmt" "$dprompt.model"
+  rm -f "$dgo" "$dprompt" "$dprompt.fmt" "$dprompt.model" \
+    "$dprompt.standalone" "$dprompt.auto" "$dprompt.configpath" \
+    "$dprompt.config" "$dprompt.projectdisable" "$dprompt.models" \
+    "$dprompt.argv"
 }
 # d_run MODE WORKER WORKER_MODEL -- just args. An empty WORKER is unset.
 d_run() {
   local mode="$1" worker="$2" model="$3"; shift 3
   # shellcheck disable=SC2086
   d_out=$(env -u WORKER -u WORKER_MODEL -u DELEGATE_TIMEOUT -u DELEGATE_IDLE -u WORKER_BIN -u DELEGATE_BASE -u DELEGATE_YES -u FAKE_WORKER_TARGET \
+    -u WORKER_LADDER -u OPENCODE_CONFIG -u OPENCODE_CONFIG_PROJECT_DISABLE \
     HOME="$dhome" PATH="$dbin:$PATH" \
     FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE="$mode" FAKE_WORKER_GO="$dgo" \
     ${worker:+WORKER=$worker} ${model:+WORKER_MODEL=$model} \
@@ -3927,6 +4001,7 @@ d_run() {
     ${DELEGATE_BASE:+DELEGATE_BASE=$DELEGATE_BASE} \
     ${DELEGATE_YES:+DELEGATE_YES=$DELEGATE_YES} \
     ${FAKE_WORKER_TARGET:+FAKE_WORKER_TARGET=$FAKE_WORKER_TARGET} \
+    ${WORKER_LADDER+WORKER_LADDER="$WORKER_LADDER"} \
     just -f "$root/Justfile" -d "$dproj" "$@" 2>&1) && d_rc=0 || d_rc=$?
 }
 d_one() {
@@ -3942,7 +4017,7 @@ check "with WORKER unset, delegate says so in one line and makes no branch" "[ \
 d_run ok off "" delegate "add a line"
 check "with WORKER=off, delegate says so and makes no branch" "[ \$d_rc -ne 0 ] && grep -q 'delegation is off (WORKER=off)' <<<\"\$d_out\" && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ]"
 d_run ok glm "" delegate "add a line"
-check "an unknown worker is refused with the list this recipe knows" "[ \$d_rc -ne 0 ] && d_one && grep -q \"unknown worker 'glm'\" <<<\"\$d_out\" && grep -q 'claude' <<<\"\$d_out\" && grep -q 'grok' <<<\"\$d_out\""
+check "an unknown worker is refused with the list this recipe knows" "[ \$d_rc -ne 0 ] && d_one && grep -qx \"refuses: unknown worker 'glm' (known: claude, grok, opencode)\" <<<\"\$d_out\""
 d_plain="$(dirname "$(command -v just)"):$(dirname "$(command -v git)"):/usr/bin:/bin"
 d_out=$(env -u WORKER -u WORKER_BIN HOME="$dhome" PATH="$d_plain" \
   WORKER=grok just -f "$root/Justfile" -d "$dproj" delegate "add a line" 2>&1) && d_rc=0 || d_rc=$?
@@ -4028,7 +4103,7 @@ for f in "$dhome/.cache/ai-backbone/delegate/delegate-clean"/*.log; do
   dlog=$f
 done
 check "a clean run makes delegate/<date>-<slug>, commits, and prints the report, the stat, a clean tree and the exit" \
-  "[ \$d_rc -eq 0 ] && case \"\$dbr\" in delegate/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-add-a-line) ;; *) false ;; esac && grep -qx 'tree: clean' <<<\"\$d_out\" && grep -qx 'exit status: 0' <<<\"\$d_out\" && grep -q 'worker-did.txt' <<<\"\$d_out\" && grep -q 'line-20' <<<\"\$d_out\" && grep -q 'line-06' <<<\"\$d_out\" && ! grep -q 'line-01' <<<\"\$d_out\" && grep -q \"commits on \$dbr\" <<<\"\$d_out\" && ! grep -q '^BREACH:' <<<\"\$d_out\" && [ -n \"\$dlog\" ] && grep -q 'line-01' \"\$dlog\" && [ -z \"\$(find \"\$dproj\" -name '*.log' -type f)\" ] && [ -z \"\$(git -C \"\$dproj\" status --porcelain)\" ]"
+  "[ \$d_rc -eq 0 ] && case \"\$dbr\" in delegate/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-add-a-line) ;; *) false ;; esac && grep -qx 'tree: clean' <<<\"\$d_out\" && grep -qx 'exit status: 0' <<<\"\$d_out\" && grep -q 'worker-did.txt' <<<\"\$d_out\" && grep -q 'line-20' <<<\"\$d_out\" && grep -q 'line-06' <<<\"\$d_out\" && ! grep -q 'line-01' <<<\"\$d_out\" && grep -q \"commits on \$dbr\" <<<\"\$d_out\" && ! grep -q '^BREACH:' <<<\"\$d_out\" && [ -n \"\$dlog\" ] && grep -q 'line-01' \"\$dlog\" && [ -z \"\$(find \"\$dproj\" -name '*.log' -type f)\" ] && [ -z \"\$(git -C \"\$dproj\" status --porcelain)\" ] && ! grep -q '^cost:' <<<\"\$d_out\""
 check "the worker's prompt is the preamble, then the task, and grok is called headless" \
   "grep -q 'Read AGENTS.md' \"\$dprompt\" && grep -q \"You are on branch \$dbr; stay on it.\" \"\$dprompt\" && grep -q 'just save' \"\$dprompt\" && grep -q 'just publish' \"\$dprompt\" && grep -q 'git push' \"\$dprompt\" && grep -q 'just ship' \"\$dprompt\" && grep -q 'just deploy' \"\$dprompt\" && grep -q 'server or GitHub' \"\$dprompt\" && grep -q 'merge, rebase, or delete a branch' \"\$dprompt\" && grep -q 'at most 15 lines' \"\$dprompt\" && [ \"\$(tail -n 1 \"\$dprompt\")\" = 'add a line' ] && [ \"\$(cat \"\$dprompt.fmt\")\" = plain ] && [ -z \"\$(cat \"\$dprompt.model\")\" ] && [ \"\$(cat \"\$dprompt.perm\")\" = auto ] && grep -qx 'Bash(git push:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(just ship:\*)' \"\$dprompt.deny\""
 git -C "$dproj" checkout -q main
@@ -4308,6 +4383,171 @@ d_out=$(env -u WORKER -u DELEGATE_YES HOME="$dhome" just -f "$root/Justfile" -d 
 if git -C "$dproj" show-ref --verify --quiet "refs/heads/$nbr"; then kept_branch=yes; else kept_branch=no; fi
 check "without --yes, a closed stdin still asks once and keeps the branch" \
   "[ \$d_rc -ne 0 ] && grep -q \"Delete \$nbr\" <<<\"\$d_out\" && grep -q \"kept \$nbr\" <<<\"\$d_out\" && [ \"\$kept_branch\" = yes ]"
+
+# spec 038. The fake prints events; it never calls a model. The dollar sum is
+# 0.01 + 0.02 from the two step_finish events. The text event's cost of 9 is
+# not part of the sum.
+oc_argv_is() {
+  local want="$1" line n=0
+  while IFS= read -r line; do
+    n=$((n+1))
+    case "$n" in
+      1) [ "$line" = run ] || return 1 ;;
+      2) [ "$line" = --standalone ] || return 1 ;;
+      3) [ "$line" = --auto ] || return 1 ;;
+      4) [ "$line" = --format ] || return 1 ;;
+      5) [ "$line" = json ] || return 1 ;;
+      6) [ "$line" = -m ] || return 1 ;;
+      7) [ "$line" = "$want" ] || return 1 ;;
+      *) return 0 ;;
+    esac
+  done < "$dprompt.argv"
+  return 1
+}
+oc_config_ok() {
+  local cfg="$dprompt.config" path p
+  path=$(cat "$dprompt.configpath")
+  [ -n "$path" ] || return 1
+  [ -f "$path" ] || return 1
+  case "$path" in
+    "$dhome/.cache/ai-backbone/delegate/"*) ;;
+    *) return 1 ;;
+  esac
+  case "$path" in
+    "$dproj"/*) return 1 ;;
+  esac
+  cmp -s "$path" "$cfg" || return 1
+  grep -qF '"autoupdate": false' "$cfg" || return 1
+  grep -qF '"update": "disable"' "$cfg" || return 1
+  grep -qF '"*": "deny"' "$cfg" || return 1
+  grep -qF '"read": "allow"' "$cfg" || return 1
+  grep -qF '"edit": "allow"' "$cfg" || return 1
+  grep -qF '"write": "allow"' "$cfg" || return 1
+  grep -qF '"webfetch": "deny"' "$cfg" || return 1
+  grep -qF '"websearch": "deny"' "$cfg" || return 1
+  grep -qF '"external_directory": "deny"' "$cfg" || return 1
+  grep -qF '"*": "allow"' "$cfg" || return 1
+  for p in \
+    "git push *" "git merge *" "git rebase *" "git checkout *" "git switch *" \
+    "git reset *" "git branch -d *" "git branch -D *" "git tag *" \
+    "just publish *" "just ship *" "just deploy *" "just release *" "just undo *" \
+    "gh *" "curl *" "ssh *" "rm *" \
+    "sh *" "bash *" "zsh *" "eval *" "xargs *" "env *"
+  do
+    grep -qF "\"$p\": \"deny\"" "$cfg" || return 1
+  done
+  awk '
+    $0 ~ /"\*": "deny"/ { d = NR }
+    d && $0 ~ /"read": "allow"/ && NR > d { star_ok = 1 }
+    /"shell"/ { s = 1 }
+    s && $0 ~ /"\*": "allow"/ { a = NR; s = 0 }
+    a && $0 ~ /"sh \*": "deny"/ && NR > a { sh_ok = 1 }
+    END { exit !(star_ok && sh_ok) }
+  ' "$cfg"
+}
+oc_events_ok() {
+  local want="$1" f n
+  dlog=""
+  for f in "$dhome/.cache/ai-backbone/delegate/$(basename "$dproj")"/*.log; do
+    [ -f "$f" ] || continue
+    dlog=$f
+  done
+  [ -n "$dlog" ] || return 1
+  case "$dlog" in
+    "$dhome/.cache/ai-backbone/delegate/"*) ;;
+    *) return 1 ;;
+  esac
+  [ -z "$(find "$dproj" -name '*.log' -type f)" ] || return 1
+  grep -qF '"cost":9' "$dlog" || return 1
+  grep -qF '"cost":0.01' "$dlog" || return 1
+  grep -qF '"cost":0.02' "$dlog" || return 1
+  n=$(grep -c '"type":"step_finish"' "$dlog" || true)
+  [ "$n" = 2 ] || return 1
+  grep -qxF "$want" <<< "$d_out" || return 1
+  [ "$(tail -n 1 "$dlog")" = "$want" ]
+}
+d_new ocfirst
+d_run ok opencode "" delegate "add a line"
+dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+rung=$(git -C "$dproj" config --get "branch.${dbr}.delegateRung" 2>/dev/null || true)
+check "opencode's first try runs the first ladder model, with the preamble, and the report ends on the summed cost" \
+  "[ \$d_rc -eq 0 ] && oc_argv_is 'opencode-go/deepseek-v4.1-flash' && [ \"\$(cat \"\$dprompt.model\")\" = 'opencode-go/deepseek-v4.1-flash' ] && [ \"\$(cat \"\$dprompt.fmt\")\" = json ] && [ \"\$(cat \"\$dprompt.standalone\")\" = 1 ] && [ \"\$(cat \"\$dprompt.auto\")\" = 1 ] && grep -q 'Read AGENTS.md' \"\$dprompt\" && grep -q \"You are on branch \$dbr; stay on it.\" \"\$dprompt\" && grep -q 'just save' \"\$dprompt\" && grep -q 'just publish' \"\$dprompt\" && grep -q 'at most 15 lines' \"\$dprompt\" && [ \"\$(tail -n 1 \"\$dprompt\")\" = 'add a line' ] && [ \"\$rung\" = 1 ] && oc_events_ok 'cost: \$0.03 on opencode-go/deepseek-v4.1-flash, 2 steps'"
+check "the config the fake receives denies the grok list and the shell wrappers, turns autoupdate off, and blocks web fetch and outside paths" \
+  "oc_config_ok && [ \"\$(cat \"\$dprompt.projectdisable\")\" = 1 ]"
+d_run fix opencode "" delegate "fix the line"
+rung=$(git -C "$dproj" config --get "branch.${dbr}.delegateRung" 2>/dev/null || true)
+check "a fix round climbs to the second model of the ladder" \
+  "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$dprompt.model\")\" = 'opencode-go/glm-5.3' ] && [ \"\$rung\" = 2 ] && [ \"\$(git -C \"\$dproj\" symbolic-ref --short HEAD)\" = \"\$dbr\" ] && oc_events_ok 'cost: \$0.03 on opencode-go/glm-5.3, 2 steps'"
+d_run fix opencode "" delegate "fix again"
+rung=$(git -C "$dproj" config --get "branch.${dbr}.delegateRung" 2>/dev/null || true)
+check "the next fix round climbs to the last model of the ladder" \
+  "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$dprompt.model\")\" = 'opencode-go/kimi-k3' ] && [ \"\$rung\" = 3 ] && oc_events_ok 'cost: \$0.03 on opencode-go/kimi-k3, 2 steps'"
+calls=$(wc -l < "$dprompt.models" | tr -d ' ')
+model_before=$(cat "$dprompt.model")
+d_run fix opencode "" delegate "one more"
+calls_after=$(wc -l < "$dprompt.models" | tr -d ' ')
+model_after=$(cat "$dprompt.model")
+rung=$(git -C "$dproj" config --get "branch.${dbr}.delegateRung" 2>/dev/null || true)
+check "past the last model, delegate refuses in one line and does not run the worker" \
+  "[ \$d_rc -ne 0 ] && d_one && grep -qx 'refuses: past the last model of the ladder; two failed tries go to the maintainer' <<<\"\$d_out\" && [ \"\$calls_after\" = \"\$calls\" ] && [ \"\$model_after\" = \"\$model_before\" ] && [ \"\$rung\" = 3 ]"
+d_new ocstale
+stale="delegate/$(LC_ALL=C date +%Y-%m-%d)-add-a-line"
+git -C "$dproj" config "branch.${stale}.delegateRung" 3
+d_run ok opencode "" delegate "add a line"
+dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+rung=$(git -C "$dproj" config --get "branch.${dbr}.delegateRung" 2>/dev/null || true)
+check "a new branch starts at the first model even when a dropped branch left a rung" \
+  "[ \$d_rc -eq 0 ] && [ \"\$dbr\" = \"\$stale\" ] && [ \"\$(cat \"\$dprompt.model\")\" = 'opencode-go/deepseek-v4.1-flash' ] && [ \"\$rung\" = 1 ]"
+d_new ocpin
+d_run ok opencode "opencode-go/pinned" delegate "add a line"
+dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+rung=$(git -C "$dproj" config --get "branch.${dbr}.delegateRung" 2>/dev/null || true)
+check "WORKER_MODEL pins the opencode model and does not climb" \
+  "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$dprompt.model\")\" = 'opencode-go/pinned' ] && [ -z \"\$rung\" ] && oc_events_ok 'cost: \$0.03 on opencode-go/pinned, 2 steps'"
+d_run fix opencode "opencode-go/pinned" delegate "fix the line"
+rung=$(git -C "$dproj" config --get "branch.${dbr}.delegateRung" 2>/dev/null || true)
+check "a fix round with WORKER_MODEL stays on that model" \
+  "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$dprompt.model\")\" = 'opencode-go/pinned' ] && [ -z \"\$rung\" ]"
+d_new occustom
+WORKER_LADDER='opencode-go/one, opencode-go/two' d_run ok opencode "" delegate "add a line"
+check "WORKER_LADDER's first model is the first try, and a space after a comma is ignored" \
+  "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$dprompt.model\")\" = 'opencode-go/one' ]"
+WORKER_LADDER='opencode-go/one, opencode-go/two' d_run fix opencode "" delegate "fix the line"
+check "WORKER_LADDER's next model is the fix round" \
+  "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$dprompt.model\")\" = 'opencode-go/two' ]"
+calls=$(wc -l < "$dprompt.models" | tr -d ' ')
+WORKER_LADDER='opencode-go/one, opencode-go/two' d_run fix opencode "" delegate "past it"
+calls_after=$(wc -l < "$dprompt.models" | tr -d ' ')
+check "past a short ladder, delegate refuses and does not run the worker" \
+  "[ \$d_rc -ne 0 ] && d_one && grep -qx 'refuses: past the last model of the ladder; two failed tries go to the maintainer' <<<\"\$d_out\" && [ \"\$calls_after\" = \"\$calls\" ]"
+d_new ocempty
+WORKER_LADDER= d_run ok opencode "" delegate "add a line"
+check "an empty WORKER_LADDER is refused in one line and makes no branch" \
+  "[ \$d_rc -ne 0 ] && d_one && grep -qx 'refuses: WORKER_LADDER has no model' <<<\"\$d_out\" && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ]"
+WORKER_LADDER=' , ' d_run ok opencode "" delegate "add a line"
+check "a WORKER_LADDER of only commas is refused and makes no branch" \
+  "[ \$d_rc -ne 0 ] && d_one && grep -qx 'refuses: WORKER_LADDER has no model' <<<\"\$d_out\" && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ]"
+d_new ocgrok
+WORKER_LADDER='opencode-go/one,opencode-go/two' d_run ok grok "" delegate "add a line"
+check "grok ignores WORKER_LADDER and prints no cost line" \
+  "[ \$d_rc -eq 0 ] && [ -z \"\$(cat \"\$dprompt.model\")\" ] && [ \"\$(cat \"\$dprompt.fmt\")\" = plain ] && ! grep -q '^cost:' <<<\"\$d_out\""
+d_new ocbin
+mkdir -p "$dhome/.opencode/bin" "$tmp/delegate-plain"
+cp "$dbin/opencode" "$dhome/.opencode/bin/opencode"
+chmod +x "$dhome/.opencode/bin/opencode"
+ln -sf "$(command -v just)" "$tmp/delegate-plain/just"
+ln -sf "$(command -v git)" "$tmp/delegate-plain/git"
+ln -sf "$(command -v perl)" "$tmp/delegate-plain/perl"
+rm -f "$tmp/delegate-binlog"
+# Homebrew's bin holds the real opencode next to just. This path does not,
+# or the fallback would never run and a live model would.
+d_out=$(env -u WORKER -u WORKER_BIN -u WORKER_MODEL -u WORKER_LADDER -u OPENCODE_CONFIG -u OPENCODE_CONFIG_PROJECT_DISABLE \
+  HOME="$dhome" PATH="$tmp/delegate-plain:/usr/bin:/bin" \
+  FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE=ok FAKE_WORKER_BINLOG="$tmp/delegate-binlog" \
+  WORKER=opencode just -f "$root/Justfile" -d "$dproj" delegate "use opencode" 2>&1) && d_rc=0 || d_rc=$?
+check "an opencode that lives only at ~/.opencode/bin/opencode is the binary the adapter runs" \
+  "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$tmp/delegate-binlog\")\" = \"\$dhome/.opencode/bin/opencode\" ] && [ \"\$(cat \"\$dprompt.model\")\" = 'opencode-go/deepseek-v4.1-flash' ]"
+rm -f "$dhome/.opencode/bin/opencode"
 
 sec_times="$sec_times$((SECONDS-sec_start)) $sec_name"$'\n'
 echo

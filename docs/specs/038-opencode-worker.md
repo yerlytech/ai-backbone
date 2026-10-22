@@ -64,27 +64,27 @@ tokens of start-up context, and that trimming them per agent cut it to 12 to
 
 ## Acceptance
 
-- [ ] `WORKER=opencode just delegate "<task>"` runs `opencode run --standalone --auto
+- [x] `WORKER=opencode just delegate "<task>"` runs `opencode run --standalone --auto
       --format json -m <first model of the ladder>` in the project folder on a
       `delegate/` branch, with the same preamble the other workers get.
-- [ ] The deny list is the same list `grok` gets (push, merge, rebase,
+- [x] The deny list is the same list `grok` gets (push, merge, rebase,
       checkout, switch, reset, branch deletion, tag, publish, ship, deploy,
       release, undo, gh, curl, ssh, rm), the shell wrappers above, plus web
       fetch and paths outside the project. A test with a fake opencode proves the config the run is given;
       a test note in `docs/` records the live check (a denied `rm` leaves the
       file, an allowed `git status` runs).
-- [ ] The config is given to the run through `OPENCODE_CONFIG`, a file outside the
+- [x] The config is given to the run through `OPENCODE_CONFIG`, a file outside the
       project tree (measured: read with `--standalone`). autoupdate is off in it.
-- [ ] `WORKER_LADDER` (comma-separated `opencode-go/<id>`) defaults to
+- [x] `WORKER_LADDER` (comma-separated `opencode-go/<id>`) defaults to
       `opencode-go/deepseek-v4.1-flash,opencode-go/glm-5.3,opencode-go/kimi-k3`.
       The first `just delegate` of a branch uses the first; each fix round on
       the same branch the next; past the last it refuses and says two failed
       tries go to the maintainer. `WORKER_MODEL` still pins one model.
-- [ ] The report ends with `cost: $<sum> on <model>, <n> steps`, summed from the
+- [x] The report ends with `cost: $<sum> on <model>, <n> steps`, summed from the
       run's `--format json` events; the raw events stay in the log outside the
       repo.
 - [ ] `just delegate-status` shows the model and the cost of the last run.
-- [ ] An unknown `WORKER` still refuses, now listing claude, grok, opencode.
+- [x] An unknown `WORKER` still refuses, now listing claude, grok, opencode.
 - [ ] The freshness block watches opencode as it watches grok.
 - [ ] The delegate skill, docs/01-getting-started.md and the CHANGELOG say all
       of this; the self-test covers the ladder, the cost line and the refusal.
@@ -101,7 +101,7 @@ tokens of start-up context, and that trimming them per agent cut it to 12 to
       guard stays what it is for every worker: the breach check after the run
       (a push, a moved default branch or base, a changed branch list). The deny
       list is a fence, not the guard.
-- [ ] `delegate_opencode` in `core.just`, the config, the ladder, the cost line;
+- [x] `delegate_opencode` in `core.just`, the config, the ladder, the cost line;
       self-test with a fake opencode.
 - [ ] `delegate-status`, the freshness watch, the skill, the getting-started
       page, the CHANGELOG.
