@@ -1651,6 +1651,10 @@ delegate task="":
     # tools a job needs are allowed outright; a deny beats an allow, inside a
     # chain too (measured). Not
     # bypassPermissions: Claude Code's auto mode refuses to launch it.
+    # A shell wrapper steps around a command-shaped deny rule, as it did for
+    # opencode (spec 038), so sh, bash, zsh, eval, xargs and env are denied
+    # here too. The line is added; whether grok 1.0.62 is stepped around the
+    # same way is not measured yet (n-fc65ca, 2026-10-22).
     delegate_grok() {
       exec "$worker_bin" -p "$1" --output-format plain --permission-mode auto \
         --background-wait-timeout "$background_wait" \
@@ -1661,7 +1665,9 @@ delegate task="":
         --deny 'Bash(git branch -d:*)' --deny 'Bash(git branch -D:*)' --deny 'Bash(git tag:*)' \
         --deny 'Bash(just publish:*)' --deny 'Bash(just ship:*)' --deny 'Bash(just deploy:*)' \
         --deny 'Bash(just release:*)' --deny 'Bash(just undo:*)' --deny 'Bash(gh:*)' \
-        --deny 'Bash(curl:*)' --deny 'Bash(ssh:*)' --deny 'Bash(rm:*)'
+        --deny 'Bash(curl:*)' --deny 'Bash(ssh:*)' --deny 'Bash(rm:*)' \
+        --deny 'Bash(sh:*)' --deny 'Bash(bash:*)' --deny 'Bash(zsh:*)' \
+        --deny 'Bash(eval:*)' --deny 'Bash(xargs:*)' --deny 'Bash(env:*)'
     }
     delegate_claude() {
       if [ -n "${WORKER_MODEL:-}" ]; then exec "$worker_bin" -p "$1" --model "$WORKER_MODEL"

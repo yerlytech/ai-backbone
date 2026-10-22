@@ -15,6 +15,12 @@ below are the record of every version.
 
 ## [Unreleased]
 
+**Grok's deny list closes the shell wrappers.** `delegate_grok` denies `sh`,
+`bash`, `zsh`, `eval`, `xargs` and `env`, as the opencode config does
+(spec 038), so `sh -c 'rm x'` is not a way around `Bash(rm:*)`. The line is
+added 2026-10-22 and not measured on grok yet. Nothing to do until
+`just template-update`.
+
 **A worker starts no sub-agent and no parallel task.** The preamble says one
 thing at a time. A headless grok that starts one hits `permission required`
 and ends the run with exit 0 and no commit (grok 1.0.62, measured 2026-10-22).

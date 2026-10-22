@@ -41,7 +41,9 @@ The first try of a branch uses the first model; each fix round uses the next.
 on `PATH` is used, and otherwise `~/.grok/bin/grok`, Claude's
 `~/.claude/local/claude` then `~/.local/bin/claude`, or
 `~/.opencode/bin/opencode`. `grok` is called as
-`<bin> -p … --output-format plain`. `opencode` is called as
+`<bin> -p … --output-format plain`, in auto mode, and its deny list names the
+shell wrappers `sh`, `bash`, `zsh`, `eval`, `xargs` and `env` too: that line is
+added and not measured on grok yet. `opencode` is called as
 `opencode run --standalone --auto --format json -m <model>`, with
 `OPENCODE_CONFIG` pointing at a file outside the project. That file turns
 autoupdate off and gives the worker only shell, read, edit and write. It
