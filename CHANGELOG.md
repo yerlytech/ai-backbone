@@ -28,14 +28,14 @@ only the folder the language layer names, so a Rust workspace that lives in
 — 42 GB in one. `just trim-build` and the 15 percent free sweep now go through
 every folder under the project that holds `CACHEDIR.TAG`, the named one first,
 never one inside another, and `.git`, `.archive` and `.references` are not
-searched. A sibling project on an older core still has the folder its layer
-names used by the sweep. Nothing to do until `just template-update`.
+searched. A sibling project on an older core is still swept through the folder
+its layer names. Nothing to do until `just template-update`.
 
 **`just project-note` reaches a project beside the umbrella folder (n-88393e).**
 It looked one and two folders below the backbone's parent, so a project that
-`just new-project` made directly on the Desktop, beside the umbrella folder,
-could not be reached. It now looks one folder higher too, and names a project
-there by its own folder in the "which one did you mean" list. Nothing to do
+`just new-project` made directly beside the umbrella folder, one level higher,
+could not be reached. It now looks there too, and names a project found that
+way by its own folder in the "which one did you mean" list. Nothing to do
 until `just template-update`.
 
 **An old skill copy is adopted, not frozen (n-939129).** `.claude/skills/.ai-backbone-owned`
