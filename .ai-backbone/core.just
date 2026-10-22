@@ -1564,6 +1564,12 @@ delegate task="":
     # check above still accepts "0.05" there (t+0 is 0.05). Measured on
     # macOS awk 20200816.
     timeout_secs=$(LC_ALL=C awk -v t="$timeout_min" 'BEGIN { printf "%.3f", t * 60 }')
+    # grok -p stops a background task it started 600 s after the turn ends
+    # (n-8a7ff2, measured 2026-10-22). The job's own timeout is the ceiling,
+    # so a long command started in the background is not lost first. The
+    # flag is hidden from `grok --help` and takes whole seconds (grok 1.0.62,
+    # measured 2026-10-22).
+    background_wait=$(LC_ALL=C awk -v t="$timeout_min" 'BEGIN { printf "%d", t * 60 }')
     # The same fold as `_slug`. Inlined: a nested `just` looks for a Justfile
     # from this folder, and a run pointed at another directory has none.
     # A fix round already has its branch, so the task needs no slug.
@@ -1650,8 +1656,13 @@ delegate task="":
     # tools a job needs are allowed outright; a deny beats an allow, inside a
     # chain too (measured). Not
     # bypassPermissions: Claude Code's auto mode refuses to launch it.
+    # A shell wrapper steps around a command-shaped deny rule, as it did for
+    # opencode (spec 038), so sh, bash, zsh, eval, xargs and env are denied
+    # here too. The line is added; whether grok 1.0.62 is stepped around the
+    # same way is not measured yet (n-fc65ca, 2026-10-22).
     delegate_grok() {
       exec "$worker_bin" -p "$1" --output-format plain --permission-mode auto \
+        --background-wait-timeout "$background_wait" \
         --allow 'Bash(just:*)' --allow 'Bash(git:*)' --allow 'Bash(cargo:*)' --allow 'Bash(npm:*)' \
         --allow 'Bash(npx:*)' --allow 'Bash(flutter:*)' --allow 'Bash(dart:*)' --allow 'Bash(uv:*)' \
         --deny 'Bash(git push:*)' --deny 'Bash(git merge:*)' --deny 'Bash(git rebase:*)' \
@@ -1659,7 +1670,9 @@ delegate task="":
         --deny 'Bash(git branch -d:*)' --deny 'Bash(git branch -D:*)' --deny 'Bash(git tag:*)' \
         --deny 'Bash(just publish:*)' --deny 'Bash(just ship:*)' --deny 'Bash(just deploy:*)' \
         --deny 'Bash(just release:*)' --deny 'Bash(just undo:*)' --deny 'Bash(gh:*)' \
-        --deny 'Bash(curl:*)' --deny 'Bash(ssh:*)' --deny 'Bash(rm:*)'
+        --deny 'Bash(curl:*)' --deny 'Bash(ssh:*)' --deny 'Bash(rm:*)' \
+        --deny 'Bash(sh:*)' --deny 'Bash(bash:*)' --deny 'Bash(zsh:*)' \
+        --deny 'Bash(eval:*)' --deny 'Bash(xargs:*)' --deny 'Bash(env:*)'
     }
     delegate_claude() {
       if [ -n "${WORKER_MODEL:-}" ]; then exec "$worker_bin" -p "$1" --model "$WORKER_MODEL"
@@ -1723,6 +1736,8 @@ delegate task="":
     preamble=$(printf '%s\n' \
       "You are the worker for this repository. A manager reviews your work. Read AGENTS.md first and follow it. You are on branch ${branch}; stay on it." \
       "Commit with just save. Run the project's tests before each commit." \
+      "Run long commands in the foreground. A background task is stopped when the turn ends." \
+      "Never start a sub-agent or a parallel task: one thing at a time." \
       "Never run just publish, git push, just ship, or just deploy. Never call a server or GitHub. Never merge, rebase, or delete a branch." \
       "When you finish, the report is the last thing you print: at most 15 lines, and nothing after it.")
     # One line: a blank line inside a quoted string is a just parse error
@@ -1775,6 +1790,18 @@ delegate task="":
     fi
     before_protect=$(git rev-parse "refs/heads/$protect" 2>/dev/null || echo missing)
     before_branches=$(git for-each-ref refs/heads --format='%(refname)')
+    # A branch checked out in another worktree of this repository belongs to a
+    # parallel lane, not to this run (n-1cbec4). A branch is checked out in at
+    # most one worktree, so every checked-out branch but this run's own is
+    # another worktree's. Read before and after: a lane branch that appears
+    # (worktree add) or disappears (worktree remove, delegate-drop) during the
+    # run is not a breach. A branch the run creates and leaves unchecked is
+    # still one.
+    foreign_branches() {
+      git worktree list --porcelain 2>/dev/null | awk -v own="refs/heads/$branch" '
+        $1 == "branch" && $2 != own { print $2 }' || true
+    }
+    before_foreign=$(foreign_branches)
     # Job control puts the worker in its own process group, so the stop
     # reaches the CLI and the children it started. The "Terminated" line that
     # job control prints is not the report. The redirected wait drops the
@@ -1843,6 +1870,7 @@ delegate task="":
     set -e
     after_protect=$(git rev-parse "refs/heads/$protect" 2>/dev/null || echo missing)
     after_branches=$(git for-each-ref refs/heads --format='%(refname)')
+    after_foreign=$(foreign_branches)
     # Remote-tracking refs, and every ref of a local-path origin. A tip is
     # this job's commit when the branch contains it and nothing before the
     # run did. An object that exists only on the other repo cannot be on
@@ -1874,7 +1902,30 @@ delegate task="":
       else echo "BREACH: default branch $protect moved"; fi
       breach=1
     fi
-    if [ "$after_branches" != "$before_branches" ]; then echo "BREACH: branch list changed"; breach=1; fi
+    if [ "$after_branches" != "$before_branches" ]; then
+      # Only a branch in exactly one of the two lists changed. A lane or
+      # delegate branch another worktree created or dropped during the run is
+      # named too, in case its worktree was gone before a snapshot.
+      changed_file="$dir/${id}.branches"
+      printf '%s\n%s\n' "$before_branches" "$after_branches" | sed '/^$/d' | sort | uniq -u > "$changed_file"
+      foreign=$(printf '%s\n%s\n' "$before_foreign" "$after_foreign" | sed '/^$/d')
+      branch_change=0
+      while IFS= read -r ref; do
+        [ -n "$ref" ] || continue
+        case "$ref" in
+          refs/heads/lane/*) continue ;;
+          refs/heads/delegate/*)
+            # A removal is another run's drop; an addition is a breach unless
+            # its worktree has it checked out (the foreign list, below).
+            if printf '%s\n' "$before_branches" | grep -qxF "$ref"; then continue; fi
+            ;;
+        esac
+        if printf '%s\n' "$foreign" | grep -qxF "$ref"; then continue; fi
+        branch_change=1
+      done < "$changed_file"
+      rm -f "$changed_file"
+      if [ "$branch_change" -eq 1 ]; then echo "BREACH: branch list changed"; breach=1; fi
+    fi
     # opencode's --format json events stay in the log, outside the repo. The
     # report ends with the sum of part.cost on step_finish only (spec 038,
     # opencode 2.1.2). A cost on any other event is not this run's spend.

@@ -3989,6 +3989,7 @@ while [ $# -gt 0 ]; do
     --output-format) fmt=$2; shift 2 ;;
     --model) model=$2; shift 2 ;;
     --permission-mode) perm=$2; shift 2 ;;
+    --background-wait-timeout) bgwait=$2; shift 2 ;;
     --deny) deny="$deny$2
 "; shift 2 ;;
     --rules|--allow) shift 2 ;;
@@ -4000,6 +4001,7 @@ if [ -n "${FAKE_WORKER_PROMPT:-}" ]; then
   printf '%s\n' "$fmt" > "$FAKE_WORKER_PROMPT.fmt"
   printf '%s\n' "$model" > "$FAKE_WORKER_PROMPT.model"
   printf '%s\n' "$perm" > "$FAKE_WORKER_PROMPT.perm"
+  printf '%s\n' "$bgwait" > "$FAKE_WORKER_PROMPT.bgwait"
   printf '%s' "$deny" > "$FAKE_WORKER_PROMPT.deny"
 fi
 if [ -n "${FAKE_WORKER_BINLOG:-}" ]; then printf '%s\n' "$0" > "$FAKE_WORKER_BINLOG"; fi
@@ -4083,6 +4085,18 @@ case "$mode" in
     ;;
   branch)
     git branch from-the-worker
+    echo report
+    ;;
+  sibling)
+    # A parallel lane: another worktree of this repository creates its own
+    # branch while this run is going.
+    git worktree add -q -b lane/parallel "$FAKE_WORKER_SIDE"
+    echo report
+    ;;
+  siblingdrop)
+    # Another worktree drops its own branch while this run is going.
+    git worktree remove --force "$FAKE_WORKER_SIDE"
+    git branch -D lane/old >/dev/null
     echo report
     ;;
   fix)
@@ -4209,7 +4223,7 @@ d_new() {
   rm -f "$dgo" "$dprompt" "$dprompt.fmt" "$dprompt.model" \
     "$dprompt.standalone" "$dprompt.auto" "$dprompt.configpath" \
     "$dprompt.config" "$dprompt.projectdisable" "$dprompt.models" \
-    "$dprompt.argv"
+    "$dprompt.argv" "$dprompt.perm" "$dprompt.bgwait"
 }
 # d_run MODE WORKER WORKER_MODEL -- just args. An empty WORKER is unset.
 d_run() {
@@ -4328,10 +4342,17 @@ done
 check "a clean run makes delegate/<date>-<slug>, commits, and prints the report, the stat, a clean tree and the exit" \
   "[ \$d_rc -eq 0 ] && case \"\$dbr\" in delegate/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-add-a-line) ;; *) false ;; esac && grep -qx 'tree: clean' <<<\"\$d_out\" && grep -qx 'exit status: 0' <<<\"\$d_out\" && grep -q 'worker-did.txt' <<<\"\$d_out\" && grep -q 'line-20' <<<\"\$d_out\" && grep -q 'line-06' <<<\"\$d_out\" && ! grep -q 'line-01' <<<\"\$d_out\" && grep -q \"commits on \$dbr\" <<<\"\$d_out\" && ! grep -q '^BREACH:' <<<\"\$d_out\" && [ -n \"\$dlog\" ] && grep -q 'line-01' \"\$dlog\" && [ -z \"\$(find \"\$dproj\" -name '*.log' -type f)\" ] && [ -z \"\$(git -C \"\$dproj\" status --porcelain)\" ] && ! grep -q '^cost:' <<<\"\$d_out\""
 check "the worker's prompt is the preamble, then the task, and grok is called headless" \
-  "grep -q 'Read AGENTS.md' \"\$dprompt\" && grep -q \"You are on branch \$dbr; stay on it.\" \"\$dprompt\" && grep -q 'just save' \"\$dprompt\" && grep -q 'just publish' \"\$dprompt\" && grep -q 'git push' \"\$dprompt\" && grep -q 'just ship' \"\$dprompt\" && grep -q 'just deploy' \"\$dprompt\" && grep -q 'server or GitHub' \"\$dprompt\" && grep -q 'merge, rebase, or delete a branch' \"\$dprompt\" && grep -q 'at most 15 lines' \"\$dprompt\" && [ \"\$(tail -n 1 \"\$dprompt\")\" = 'add a line' ] && [ \"\$(cat \"\$dprompt.fmt\")\" = plain ] && [ -z \"\$(cat \"\$dprompt.model\")\" ] && [ \"\$(cat \"\$dprompt.perm\")\" = auto ] && grep -qx 'Bash(git push:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(just ship:\*)' \"\$dprompt.deny\""
+  "grep -q 'Read AGENTS.md' \"\$dprompt\" && grep -q \"You are on branch \$dbr; stay on it.\" \"\$dprompt\" && grep -q 'just save' \"\$dprompt\" && grep -q 'just publish' \"\$dprompt\" && grep -q 'git push' \"\$dprompt\" && grep -q 'just ship' \"\$dprompt\" && grep -q 'just deploy' \"\$dprompt\" && grep -q 'server or GitHub' \"\$dprompt\" && grep -q 'merge, rebase, or delete a branch' \"\$dprompt\" && grep -q 'Never start a sub-agent or a parallel task' \"\$dprompt\" && grep -q 'at most 15 lines' \"\$dprompt\" && [ \"\$(tail -n 1 \"\$dprompt\")\" = 'add a line' ] && [ \"\$(cat \"\$dprompt.fmt\")\" = plain ] && [ -z \"\$(cat \"\$dprompt.model\")\" ] && [ \"\$(cat \"\$dprompt.perm\")\" = auto ] && grep -qx 'Bash(git push:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(just ship:\*)' \"\$dprompt.deny\""
+check "grok's deny list also names the shell wrappers that step around rm (added, not measured on grok)" \
+  "grep -qx 'Bash(sh:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(bash:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(zsh:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(eval:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(xargs:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(env:\*)' \"\$dprompt.deny\""
 git -C "$dproj" checkout -q main
 d_run ok grok "" delegate "add a line"
 check "the same task on the same day is refused, and the first branch stays" "[ \$d_rc -ne 0 ] && grep -q 'already exists' <<<\"\$d_out\" && git -C \"\$dproj\" show-ref --verify --quiet \"refs/heads/\$dbr\""
+d_new bgwait
+d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=ok FAKE_WORKER_PROMPT="$dprompt" \
+  WORKER=grok DELEGATE_TIMEOUT=2 just -f "$root/Justfile" -d "$dproj" delegate "wait in the background" 2>&1) && d_rc=0 || d_rc=$?
+check "grok's background tasks are allowed the job's timeout, and the preamble says to stay in the foreground" \
+  "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$dprompt.bgwait\")\" = 120 ] && grep -q 'Run long commands in the foreground' \"\$dprompt\""
 d_new model
 d_run ok claude cheap delegate "use claude"
 check "the claude adapter calls claude -p with WORKER_MODEL" "[ \$d_rc -eq 0 ] && grep -q 'Read AGENTS.md' \"\$dprompt\" && [ -z \"\$(cat \"\$dprompt.fmt\")\" ] && [ \"\$(cat \"\$dprompt.model\")\" = cheap ]"
@@ -4490,6 +4511,26 @@ d_run branch grok "" delegate "add a branch"
 first=${d_out%%$'\n'*}
 check "a worker that adds a branch is a breach, said first" \
   "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: branch list changed' ] && grep -q '^report$' <<<\"\$d_out\" && git -C \"\$dproj\" show-ref --verify --quiet refs/heads/from-the-worker"
+# A parallel lane is another worktree of the same repository. Its branch is
+# checked out there, before or after this run, so it is not this run's change
+# (n-1cbec4). Two worktrees, one created and one dropped during the job.
+d_new siblingadd
+side="$tmp/delegate-sibling-add"
+rm -rf "$side"
+d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=sibling FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_SIDE="$side" \
+  WORKER=grok just -f "$root/Justfile" -d "$dproj" delegate "run beside a lane" 2>&1) && d_rc=0 || d_rc=$?
+check "a lane branch another worktree creates during the run is not a breach" \
+  "[ \$d_rc -eq 0 ] && ! grep -q '^BREACH:' <<<\"\$d_out\" && git -C \"\$dproj\" show-ref --verify --quiet refs/heads/lane/parallel && [ -f \"\$side/README.md\" ]"
+git -C "$dproj" worktree remove --force "$side" 2>/dev/null || true
+git -C "$dproj" branch -D lane/parallel >/dev/null 2>&1 || true
+d_new siblingdrop
+side="$tmp/delegate-sibling-drop"
+rm -rf "$side"
+git -C "$dproj" worktree add -q -b lane/old "$side"
+d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=siblingdrop FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_SIDE="$side" \
+  WORKER=grok just -f "$root/Justfile" -d "$dproj" delegate "run beside a lane that leaves" 2>&1) && d_rc=0 || d_rc=$?
+check "a lane branch another worktree drops during the run is not a breach" \
+  "[ \$d_rc -eq 0 ] && ! grep -q '^BREACH:' <<<\"\$d_out\" && ! git -C \"\$dproj\" show-ref --verify --quiet refs/heads/lane/old"
 d_new fixround
 d_run ok grok "" delegate "add a line"
 dbr=$(git -C "$dproj" symbolic-ref --short HEAD)

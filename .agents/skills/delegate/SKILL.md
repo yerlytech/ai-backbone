@@ -26,6 +26,14 @@ With `WORKER` set to `grok`, `claude` or `opencode`, this session is the manager
    job yourself instead. For opencode, that is past the last model of the ladder.
 6. A spec still goes to the maintainer for a yes. A draft of one may be delegated.
 
+## Queue
+
+Related small jobs are one task text: one round, one report. Independent jobs
+in one project go back to back: hand the next one when the report comes, and
+do not make the owner wait for it. Run jobs in parallel only across projects,
+or in separate worktrees of one repository started with `DELEGATE_BASE`; one
+delegate job per project folder (spec 034).
+
 `just delegate-status` says whether a job of this project is running, and shows
 the last report, the model and cost of the last opencode run when the log has
 one, and the open `delegate/*` branches. `DELEGATE_TIMEOUT` is
@@ -41,7 +49,9 @@ The first try of a branch uses the first model; each fix round uses the next.
 on `PATH` is used, and otherwise `~/.grok/bin/grok`, Claude's
 `~/.claude/local/claude` then `~/.local/bin/claude`, or
 `~/.opencode/bin/opencode`. `grok` is called as
-`<bin> -p … --output-format plain`. `opencode` is called as
+`<bin> -p … --output-format plain`, in auto mode, and its deny list names the
+shell wrappers `sh`, `bash`, `zsh`, `eval`, `xargs` and `env` too: that line is
+added and not measured on grok yet. `opencode` is called as
 `opencode run --standalone --auto --format json -m <model>`, with
 `OPENCODE_CONFIG` pointing at a file outside the project. That file turns
 autoupdate off and gives the worker only shell, read, edit and write. It
@@ -53,7 +63,11 @@ the project.
 A run that pushed, moved the default branch (or the base, when one is set), or
 changed the branch list prints `BREACH:` first and exits non-zero. A fetch
 that moves a remote ref, or someone else pushing a commit this branch does
-not contain, is not a breach. Do not accept a branch that breached.
+not contain, is not a breach. A branch another worktree of the same
+repository has checked out is not this run's change: a parallel lane that
+creates or drops its own branch during the run is not a breach. A branch the
+worker creates and leaves unchecked still is. Do not accept a branch that
+breached.
 
 The harness this session runs in may stop a command after two hours (Claude
 Code's limit for a background command, measured on claude-code 2.1.296), and

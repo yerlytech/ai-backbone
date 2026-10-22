@@ -82,12 +82,44 @@ alpha channel and the freshness block said grok was behind. A pointer has no
 dates and no notes, so `just upstream` says the version and the row's `check`
 names what to read. Nothing to do until `just template-update`.
 
+
+**The delegate queue rule is written down.** Related small jobs are one task
+text and one report. Independent jobs in one project go back to back, the next
+handed over when the report comes. Parallel jobs only across projects, or in
+separate worktrees of one repository started with `DELEGATE_BASE`; one
+delegate job per project folder (spec 034). Nothing to do until
+`just template-update`.
+
+**A parallel lane is not a branch-list breach.** The job still compares the
+branch list, but a branch checked out in another worktree of the same
+repository is not this run's change, and neither is a `lane/` or `delegate/`
+branch another worktree drops. A branch the worker creates and leaves
+unchecked is still a breach. The self-test runs two worktrees. Nothing to do
+until `just template-update`.
+
+**Grok's deny list closes the shell wrappers.** `delegate_grok` denies `sh`,
+`bash`, `zsh`, `eval`, `xargs` and `env`, as the opencode config does
+(spec 038), so `sh -c 'rm x'` is not a way around `Bash(rm:*)`. The line is
+added 2026-10-22 and not measured on grok yet. Nothing to do until
+`just template-update`.
+
+**A worker starts no sub-agent and no parallel task.** The preamble says one
+thing at a time. A headless grok that starts one hits `permission required`
+and ends the run with exit 0 and no commit (grok 1.0.62, measured 2026-10-22).
+Nothing to do until `just template-update`.
+
+**A grok worker's long command is not lost to the 600 s background stop.**
+`delegate_grok` passes `--background-wait-timeout` in seconds, up to the job's
+`DELEGATE_TIMEOUT` (grok 1.0.62; the flag is hidden from `grok --help`), and
+the worker preamble says to run long commands in the foreground. Nothing to
+do until `just template-update`.
+
 **An opencode worker climbs a model ladder (spec 038).** `WORKER=opencode`
 runs `opencode run --standalone --auto --format json` on a `delegate/` branch.
 The config goes through `OPENCODE_CONFIG`, a file outside the project, with
-autoupdate off. The deny list is the one grok gets, plus the shell wrappers
-`sh`, `bash`, `zsh`, `eval`, `xargs` and `env`, and no web fetch or path
-outside the project. `WORKER_LADDER` defaults to
+autoupdate off. The deny list is the one grok gets, the shell wrappers `sh`,
+`bash`, `zsh`, `eval`, `xargs` and `env` included, and no web fetch, and no
+path outside the project. `WORKER_LADDER` defaults to
 `opencode-go/deepseek-v4.1-flash`, then `opencode-go/glm-5.3`, then
 `opencode-go/kimi-k3`: the first try uses the first, each fix round the next,
 and past the last the job refuses. `WORKER_MODEL` still pins one model. The
