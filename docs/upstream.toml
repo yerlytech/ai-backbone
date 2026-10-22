@@ -17,8 +17,9 @@
 # `claude doctor` prints `Auto-update channel: stable`, and that channel's own
 # version pointer is what its updater reads. Not a registry's newest: npm's
 # newest grok was the alpha channel while stable was 1.0.62, and npm's newest
-# Claude Code runs ahead of stable (2026-10-21). opencode and Zed publish
-# GitHub releases.
+# Claude Code runs ahead of stable (2026-10-21). opencode is installed with
+# Homebrew, so its formula says what `brew upgrade` would install; its GitHub
+# release pages stopped before 2.x. Zed publishes GitHub releases.
 #
 # Pins dated 2026-10-20. just 1.59.0, prek 0.5.6, graphify 0.9.92 and uv 0.13.3
 # are the newest releases. gitleaks v8.30.1 and actions/checkout v7 are what
@@ -30,9 +31,9 @@
 # counted every release before that as to read. claude-delegator publishes no
 # release (the releases list was empty that day), so it is pinned by the newest
 # commit on its default branch, read the same day. The commit itself is dated
-# 2026-10-12. A later commit is to read. opencode v2.1.2 is what `opencode
-# --version` printed on 2026-10-22. The Homebrew formula builds that same GitHub
-# tag. No registry was asked.
+# 2026-10-12. A later commit is to read. opencode 2.1.2 is what `opencode
+# --version` printed, and the Homebrew formula builds that same version on
+# 2026-10-22: its GitHub tags stopped at v1.19.3. No registry was asked.
 
 [[watch]]
 name = "just"
@@ -95,8 +96,8 @@ check = "`claude doctor` says the installed version and `Auto-update channel`; p
 
 [[watch]]
 name = "opencode"
-source = "github:anomalyco/opencode"
-pin = "v2.1.2"
+source = "brew:opencode"
+pin = "2.1.2"
 why = "the worker CLI a delegated job is handed to, when WORKER is opencode"
 check = "what a headless run accepts, and whether the binary still answers `opencode --version`"
 

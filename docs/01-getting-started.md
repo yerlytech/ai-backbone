@@ -468,13 +468,13 @@ read on this machine — the source folder, its changelog, the docs — so it is
 read, not guessed.
 
 The watch list takes a source from GitHub, crates.io, npm or pub.dev
-(`github:owner/repo`, `crates:name`, `npm:name`, `pub:name`), or a release
-channel's own version pointer (`pointer:https://…`), so a Rust server, a web
-front end and a Flutter game are watched the same way. A worker CLI is followed
-on the channel it was installed on, not on a registry's newest: npm's newest
-grok was its alpha channel while stable was older. `claude doctor` prints the
-channel Claude Code updates on (`stable` or `latest`); point its row at that
-channel.
+(`github:owner/repo`, `crates:name`, `npm:name`, `pub:name`), a release
+channel's own version pointer (`pointer:https://…`), or a Homebrew formula
+(`brew:name`, what `brew upgrade` would install), so a Rust server, a web front
+end and a Flutter game are watched the same way. A worker CLI is followed on the
+channel it was installed on, not on a registry's newest: npm's newest grok was
+its alpha channel while stable was older. `claude doctor` prints the channel
+Claude Code updates on (`stable` or `latest`); point its row at that channel.
 
 ## What is in the hidden folders
 

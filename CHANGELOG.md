@@ -15,6 +15,13 @@ below are the record of every version.
 
 ## [Unreleased]
 
+**opencode is watched where it is installed from.** Its row reads the Homebrew
+formula, `brew:opencode` — what `brew upgrade` would install — instead of
+GitHub releases, whose last tag was v1.19.3 while the formula built 2.1.2 and
+the freshness block could not check it. The delegated opencode run already gets
+autoupdate off from its own config (spec 038), so a headless run never changes
+version mid-task. Nothing to do until `just template-update`.
+
 **A worker CLI is compared with the channel it was installed on.** claude-code's
 row reads its stable channel's own version pointer,
 `https://downloads.claude.ai/claude-code-releases/stable`, and its pin is the

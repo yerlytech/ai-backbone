@@ -1756,7 +1756,7 @@ fl() { ( cd "$tmp/hostile" && cp "$tmp/flutter.toml" docs/upstream.toml && "$py"
 check "flutter:stable reads Flutter's own list, one row per version" "says '^  flutter +3\\.44\\.0 +2026-05-18 +3\\.47\\.5 +2 newer' fl"
 check "a version built more than once is dated by its first day" "says '^  rebuilt +3\\.13\\.3 +2023-09-08 +3\\.47\\.5 +3 newer' fl"
 check "on the beta channel a beta is the release"          "says '^  beta +3\\.48\\.0-0\\.4\\.pre +2026-09-03 +3\\.48\\.0-0\\.5\\.pre +1 newer' fl"
-check "a channel that is not there is said, with the ones that are" "says '^  typo: .*stabel.* beta, stable' fl && says '^  kind: unknown source .* flutter:stable, hf:owner/name, ghcommit:owner/repo or pointer:https://' fl"
+check "a channel that is not there is said, with the ones that are" "says '^  typo: .*stabel.* beta, stable' fl && says '^  kind: unknown source .* flutter:stable, hf:owner/name, ghcommit:owner/repo, brew:name, pointer:url' fl"
 check "the template names Flutter's own source"           "grep -q 'flutter:stable' '$root/.ai-backbone/templates/upstream.toml'"
 # pin_is_real asked whether the file held the pin anywhere in its text, so a file
 # that had moved on to 1.38.20 still "held" 1.38.2 and MOVED was never said. And
@@ -2119,6 +2119,31 @@ elif mode == "channel-fresh":
         fail(f"rc={rc}\n{out}")
     if asked != [stable]:
         fail("asked " + repr(asked))
+elif mode == "brew":
+    seen = {}
+
+    def fake(url, headers=None):
+        seen["url"] = url
+        return {"versions": {"stable": "2.1.2", "head": None}}
+
+    u.fetch_json = fake
+    rows = u.SOURCES["brew"]("opencode")
+    if seen.get("url") != "https://formulae.brew.sh/api/formula/opencode.json":
+        fail("asked " + seen.get("url", ""))
+    if [r["version"] for r in rows] != ["2.1.2"]:
+        fail(repr(rows))
+
+    def empty(url, headers=None):
+        return {"versions": {"stable": ""}}
+
+    u.fetch_json = empty
+    try:
+        u.SOURCES["brew"]("opencode")
+    except u.Unreachable as err:
+        if "no stable version" not in str(err):
+            fail(str(err))
+    else:
+        fail("a formula with no stable version was read as an answer")
 else:
     fail("unknown mode " + mode)
 PY
@@ -2146,6 +2171,7 @@ check "a pointer that answers JSON is read too"                     "fresh035 po
 check "a pointer with no version is unreachable, never current"      "fresh035 pointer-empty"
 check "a stable channel is not compared with a registry's alpha"     "fresh035 pointer-fresh"
 check "a worker CLI is compared with the channel it was installed on" "fresh035 channel-fresh"
+check "a Homebrew formula says the stable version brew would install" "fresh035 brew"
 check "the backbone reads grok from its stable channel, not from npm" \
   "grep -qx 'source = \"pointer:https://x.ai/cli/stable\"' '$root/docs/upstream.toml' && ! grep -qx 'source = \"npm:@xai-official/grok\"' '$root/docs/upstream.toml'"
 check "and reads claude-code at the stable channel its doctor prints, not npm's newest" \
@@ -2154,8 +2180,8 @@ check "the backbone's tool pins name a version for just, prek, graphify, uv, git
   "(for n in just prek graphify uv gitleaks; do awk -v n=\"\$n\" '/^\\[\\[watch\\]\\]/{w=0} \$0==\"name = \\\"\"n\"\\\"\"{w=1} w&&/^pin = \"[^\"]+\"\$/{f=1} END{exit !f}' '$root/docs/upstream.toml' || exit 1; done) && grep -qx 'pin = \"v7\"' '$root/docs/upstream.toml'"
 check "the backbone watches grok, claude-code, zed and the two ideas" \
   "grep -qx 'source = \"pointer:https://x.ai/cli/stable\"' '$root/docs/upstream.toml' && grep -qx 'source = \"pointer:https://downloads.claude.ai/claude-code-releases/stable\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:zed-industries/zed\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:OrchestratorInc/agent-orchestrator\"' '$root/docs/upstream.toml' && grep -qx 'source = \"ghcommit:jarrodwatts/claude-delegator\"' '$root/docs/upstream.toml' && grep -qx 'look_for = \"a board of every running job across projects\"' '$root/docs/upstream.toml' && grep -qx 'look_for = \"an ask-only mode\"' '$root/docs/upstream.toml'"
-check "the backbone watches opencode the way it watches grok" \
-  "grep -qx 'name = \"opencode\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:anomalyco/opencode\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"v2.1.2\"' '$root/docs/upstream.toml'"
+check "the backbone watches opencode on the Homebrew formula it installs from" \
+  "grep -qx 'name = \"opencode\"' '$root/docs/upstream.toml' && grep -qx 'source = \"brew:opencode\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"2.1.2\"' '$root/docs/upstream.toml' && ! grep -qx 'source = \"github:anomalyco/opencode\"' '$root/docs/upstream.toml'"
 check "the two ideas are pinned at what was read on 2026-10-20" \
   "grep -qx 'pin = \"v0.14.3\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"8e2ea57c9b8e6f0790b1596d98e35632ca48a59c\"' '$root/docs/upstream.toml'"
 check "the template says what an idea row is" "grep -q 'kind' '$root/.ai-backbone/templates/upstream.toml' && grep -q 'look_for' '$root/.ai-backbone/templates/upstream.toml'"

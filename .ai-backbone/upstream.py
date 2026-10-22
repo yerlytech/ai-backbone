@@ -279,6 +279,23 @@ def from_npm(name):
     ]
 
 
+def from_brew(name):
+    """Homebrew's formula API: the stable version `brew upgrade` would install.
+    A formula publishes one stable version, not a history, so the list holds one
+    row and `just upstream` has no notes for it. This is the source for a tool
+    installed with brew whose own release pages are not what the formula builds:
+    opencode's GitHub tags stopped at v1.19.3 while the formula built 2.1.2
+    (2026-10-22)."""
+    quoted = urllib.parse.quote(name, safe="@")
+    data = fetch_json(f"https://formulae.brew.sh/api/formula/{quoted}.json")
+    version = str((data.get("versions") or {}).get("stable") or "").strip()
+    if not version:
+        raise Unreachable(f"formulae.brew.sh lists no stable version for {name}")
+    return [{"version": version, "at": "", "title": version, "notes": "",
+             "url": f"https://formulae.brew.sh/formula/{name}",
+             "prerelease": "-" in version.split("+", 1)[0]}]
+
+
 def from_pub(name):
     """pub.dev, for Dart and Flutter. It lists oldest first, so this turns it
     round. A hyphen makes a prerelease; a `+1` is a build of a stable version.
@@ -836,7 +853,7 @@ def pin_is_real(entry):
 
 SOURCES = {"github": from_github, "crates": from_crates, "npm": from_npm, "pub": from_pub,
            "pypi": from_pypi, "flutter": from_flutter, "hf": from_hf, "ghcommit": from_ghcommit,
-           "pointer": from_pointer}
+           "pointer": from_pointer, "brew": from_brew}
 
 
 def look(entry):
@@ -846,7 +863,7 @@ def look(entry):
     kind, _, rest = source.partition(":")
     if kind not in SOURCES or not rest:
         raise ValueError(f"unknown source `{source}` — use github:owner/repo, crates:, npm:, pub:,"
-                         " pypi:, flutter:stable, hf:owner/name, ghcommit:owner/repo or pointer:https://…")
+                         " pypi:, flutter:stable, hf:owner/name, ghcommit:owner/repo, brew:name, pointer:url")
     if OFFLINE:
         raise Unreachable("offline: AI_BACKBONE_OFFLINE is set")
     if kind in COMMIT_KINDS:

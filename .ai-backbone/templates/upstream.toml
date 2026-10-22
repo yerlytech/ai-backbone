@@ -25,7 +25,10 @@
 #               pointer:https://… (a release channel's own version pointer: the
 #               address the tool's own updater reads, one version, plain text
 #               or a small JSON. A worker CLI is followed on the channel it was
-#               installed on, not on a registry's newest, which may be alpha)
+#               installed on, not on a registry's newest, which may be alpha) ·
+#               brew:name (a Homebrew formula's stable version, what `brew
+#               upgrade` would install; for a tool installed with brew whose own
+#               release pages are not what the formula builds)
 #   pin         the version this project uses today, written the way the source
 #               writes it when it tags more than one thing: rust-v0.155.0 where
 #               the tags say rust-v…, python/x/v1.0 for a sub-package
