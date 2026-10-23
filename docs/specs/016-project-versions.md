@@ -12,6 +12,10 @@ backbone's. It follows https://semver.org, is written in the project's own
 `CHANGELOG.md` after https://keepachangelog.com, and is a git tag `vX.Y.Z` that
 reaches GitHub with the backup, the way the backbone's own versions do.
 
+> Superseded in part by spec 039: versions are CalVer `YY.M.PATCH`, which is
+> also valid Semantic Versioning. The draft-then-tag flow and the rest of this
+> spec still hold.
+
 A version is cut **at a meaningful point**: when a spec is done, and when a fix
 goes out on its own between specs. The agent cuts it with `just release`; the
 person types nothing. The kind of step is read from the commits since the last

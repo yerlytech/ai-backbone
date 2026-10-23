@@ -316,7 +316,7 @@ check "AGENTS.md keeps the maintainer's name out of a third party's hands" "grep
 # a skill and never the seed AGENTS.md. The kinds are read from the save recipe:
 # a kind added there and not in the skill is a red check, not a stale sentence.
 std=.agents/skills/session/SKILL.md
-check "the session skill names three public standards by their address" "grep -q 'https://semver.org' $std && grep -q 'https://keepachangelog.com' $std && grep -q 'https://www.conventionalcommits.org' $std && grep -q 'first version is 0\\.1\\.0' $std"
+check "the session skill names three public standards by their address" "grep -q 'https://calver.org' $std && grep -q 'https://keepachangelog.com' $std && grep -q 'https://www.conventionalcommits.org' $std && grep -q 'YY\\.M\\.PATCH' $std"
 kinds_named() {
   local k n=0
   for k in $(grep -m1 -oE '\^\(feat[a-z|]*\)' "$root/.ai-backbone/core.just" | tr -d '^()' | tr '|' ' '); do

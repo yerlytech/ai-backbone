@@ -185,7 +185,7 @@ just adr my-choice   # write down a design decision in docs/adr/, and what it wa
 just update-map      # refresh the code map
 just uses <word>     # every line of the project that names a word, for where the code map draws no calls
 just stale           # every line of the docs that names a path no longer here, or an old name in docs/renames.toml
-just release         # the project's next version, when a spec is done: the notes in CHANGELOG.md first, then a vX.Y.Z tag (your agent runs it, twice)
+just release         # the project's next CalVer version, when a spec is done: the notes in CHANGELOG.md first, then a vYY.M.PATCH tag (your agent runs it, twice)
 just snapshot        # zip the whole thing, just in case
 just archive <path>  # retire a file or folder into .archive/, kept but not read
 just ref-add <url> "why"   # keep a read-only copy of another repo to learn from

@@ -41,10 +41,10 @@ Anything bigger than a small fix gets a spec first. One file, one page, English.
    `just session-start` names a done spec's `[~]` acceptance lines as waiting
    for the owner.
 7. When every line holds, set `status: done` and save. Then `just release`:
-   a spec done is the moment the project gets its next version, read from the
-   commits since the last one (a spec's work is a `feat`, so the next minor
-   while the project is below 1.0.0). 1.0.0 is cut only on the maintainer's
-   word, with `just release major`. If the idea is dropped, set
+   a spec done is the moment the project gets its next version, the CalVer
+   `YY.M.PATCH` of the day (spec 039). A fix on its own between specs is
+   `just release` too; `patch`, `minor` and `major` are accepted and all mean
+   the same next CalVer version. If the idea is dropped, set
    `status: abandoned` and say why in one line. Never delete a spec.
 
 ## Night specs
