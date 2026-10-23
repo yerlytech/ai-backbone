@@ -3061,40 +3061,42 @@ pc() { echo "$2" >> "f-$1.txt"; git add -A; git commit -qm "$2" --no-verify; }
 has_tag() { git rev-parse -q --verify "refs/tags/$1" >/dev/null; }
 entry() { awk -v v="$1" 'index($0, "## [" v "]") == 1 { on = 1; next } on && /^## / { exit } on' CHANGELOG.md | sed '/./,$!d'; }
 unrel() { awk '/^## \[Unreleased\]/ { on = 1; next } on && /^## / { exit } on' CHANGELOG.md | sed '/./,$!d'; }
+# The CalVer version this month's nth release takes (spec 039).
+cal() { printf '%s.%s.%s' "$(date +%y)" "$(date +%m | sed 's/^0//')" "$1"; }
 # A release is two runs since spec 022: the first drafts the notes into
 # [Unreleased] and stops, the second releases what they say.
 rel() { just release "$@" >/dev/null 2>&1; just release "$@"; }
 pc a "feat: a first thing — with a long tail nobody reads in a changelog"
-check "no version yet: doctor says the first will be 0.1.0" "says 'no version of its own yet: the first just release makes it 0.1.0' repo_doctor"
+check "no version yet: doctor says the first is this month's CalVer" "says 'first just release makes it $(date +%y)\\.[0-9]+\\.[0-9]+, when a spec is done' repo_doctor"
 out=$(just release 2>&1)
-check "the first run shows the drafted notes and stops: nothing tagged, nothing saved" "! has_tag v0.1.0 && grep -q '^Not released yet: the notes for v0.1.0' <<<\"\$out\" && grep -q '^  - a first thing\$' <<<\"\$out\" && [ \"\$(unrel)\" = \"\$(printf '### Added\\n- a first thing')\" ] && [ \"\$(git log -1 --format=%s)\" = 'feat: a first thing — with a long tail nobody reads in a changelog' ]"
+check "the first run shows the drafted notes and stops: nothing tagged, nothing saved" "! has_tag v$(cal 0) && grep -q '^Not released yet: the notes for v$(cal 0)' <<<\"\$out\" && grep -q '^  - a first thing\$' <<<\"\$out\" && [ \"\$(unrel)\" = \"\$(printf '### Added\\n- a first thing')\" ] && [ \"\$(git log -1 --format=%s)\" = 'feat: a first thing — with a long tail nobody reads in a changelog' ]"
 out=$(just release 2>&1)
-check "the first release is 0.1.0, whatever the commits say" "has_tag v0.1.0 && grep -q '^Released v0.1.0' <<<\"\$out\""
-check "an annotated tag, on a release commit" "[ \"\$(git cat-file -t v0.1.0)\" = tag ] && [ \"\$(git log -1 --format=%s)\" = 'chore(release): v0.1.0' ] && [ \"\$(git rev-parse v0.1.0^{commit})\" = \"\$(git rev-parse HEAD)\" ]"
-check "CHANGELOG.md is made, the entry drafted from the commits, each cut at its dash" "grep -qx '## \\[0.1.0\\] - $(date +%Y-%m-%d)' CHANGELOG.md && [ \"\$(entry 0.1.0)\" = \"\$(printf '### Added\\n- a first thing')\" ] && grep -qx '## \\[Unreleased\\]' CHANGELOG.md && grep -q 'keepachangelog.com' CHANGELOG.md"
-check "doctor says the version" "says 'version v0.1.0, at this save' repo_doctor"
+check "the first release is this month's YY.M.0" "has_tag v$(cal 0) && grep -q '^Released v$(cal 0)' <<<\"\$out\""
+check "an annotated tag, on a release commit" "[ \"\$(git cat-file -t v$(cal 0))\" = tag ] && [ \"\$(git log -1 --format=%s)\" = 'chore(release): v$(cal 0)' ] && [ \"\$(git rev-parse v$(cal 0)^{commit})\" = \"\$(git rev-parse HEAD)\" ]"
+check "CHANGELOG.md is made, the entry drafted from the commits, each cut at its dash" "grep -qx '## \\[$(cal 0)\\] - $(date +%Y-%m-%d)' CHANGELOG.md && [ \"\$(entry $(cal 0))\" = \"\$(printf '### Added\\n- a first thing')\" ] && grep -qx '## \\[Unreleased\\]' CHANGELOG.md && grep -q 'keepachangelog.com' CHANGELOG.md && grep -q 'CalVer YY.M.PATCH (https://calver.org), which is also valid' CHANGELOG.md"
+check "doctor says the version" "says 'version v$(cal 0), at this save' repo_doctor"
 out=$(just release 2>&1)
-check "nothing since the last version: it says so and changes nothing" "grep -q 'Nothing to release: no save since v0.1.0' <<<\"\$out\" && [ \$(git tag | wc -l | tr -d ' ') = 1 ]"
+check "nothing since the last version: it says so and changes nothing" "grep -q 'Nothing to release: no save since v$(cal 0)' <<<\"\$out\" && [ \$(git tag | wc -l | tr -d ' ') = 1 ]"
 pc b "fix: a small thing"
-check "doctor counts the saves since"                   "says 'version v0.1.0, 1 save\\(s\\) since' repo_doctor"
+check "doctor counts the saves since"                   "says 'version v$(cal 0), 1 save\\(s\\) since' repo_doctor"
 rel >/dev/null 2>&1
-check "fixes alone make the next patch"                 "has_tag v0.1.1"
+check "same month twice: the next release is the next patch" "has_tag v$(cal 1)"
 pc c "feat: another thing"; pc d "fix: and a fix"; pc d2 "chore: nothing a user notices"
 rel >/dev/null 2>&1
-check "a feat makes the next minor, and the entry groups what was added and fixed" "has_tag v0.2.0 && [ \"\$(entry 0.2.0)\" = \"\$(printf '### Added\\n- another thing\\n\\n### Fixed\\n- and a fix')\" ]"
+check "a feat still drafts its entry under Added, and the version is the next patch" "has_tag v$(cal 2) && [ \"\$(entry $(cal 2))\" = \"\$(printf '### Added\\n- another thing\\n\\n### Fixed\\n- and a fix')\" ]"
 pc e "feat(api)!: a breaking change"
 rel >/dev/null 2>&1
-check "below 1.0.0 a breaking change is a minor step, never 1.0.0" "has_tag v0.3.0 && ! has_tag v1.0.0"
-check "and a scoped, breaking commit is drafted as one, its scope read" "[ \"\$(entry 0.3.0)\" = \"\$(printf '### Added\\n- **Breaking:** a breaking change')\" ]"
+check "a breaking change no longer moves the version: it is the next patch" "has_tag v$(cal 3) && ! has_tag v$(cal 4)"
+check "and a scoped, breaking commit is drafted as one, its scope read" "[ \"\$(entry $(cal 3))\" = \"\$(printf '### Added\\n- **Breaking:** a breaking change')\" ]"
 pc f "fix: needed"; printf 'x\n' >> README.md
 out=$(just release 2>&1); rc=$?
-check "unsaved work: refused, and nothing changes"      "[ $rc -ne 0 ] && grep -q 'there is work not saved yet' <<<\"\$out\" && ! has_tag v0.3.1"
+check "unsaved work: refused, and nothing changes"      "[ $rc -ne 0 ] && grep -q 'there is work not saved yet' <<<\"\$out\" && ! has_tag v$(cal 4)"
 git checkout -q -- README.md
-rel major >/dev/null 2>&1
-check "1.0.0 only on the word: just release major"     "has_tag v1.0.0 && ! has_tag v0.3.1"
+out=$(rel major 2>&1)
+check "major means the next CalVer too, and says so"     "has_tag v$(cal 4) && grep -q 'patch, minor and major all mean the next CalVer version now: $(cal 4)' <<<\"\$out\""
 git commit -q --allow-empty -m "fix: breaking in the body" -m "BREAKING CHANGE: the old way is gone" --no-verify
 rel >/dev/null 2>&1
-check "from 1.0.0 on, a breaking change is the next major" "has_tag v2.0.0"
+check "a breaking change in the body is still only the next patch" "has_tag v$(cal 5)"
 # What a person wrote under Unreleased is the entry, and an empty one is left.
 # A commit their words do not carry is offered under its heading first, and a
 # line they deleted after it was offered is not offered again (spec 022).
@@ -3102,19 +3104,19 @@ pc g "fix: one more"; pc g2 "feat: a new screen"
 perl -0pi -e 's/## \[Unreleased\]\n/## [Unreleased]\n\n### Fixed\n- Written by a person, for the people who use it.\n/' CHANGELOG.md
 git add -A; git commit -qm "docs: the unreleased notes" --no-verify
 out=$(just release 2>&1)
-check "partial notes: the commits they miss are offered, each under its heading, and nothing is tagged" "! has_tag v2.1.0 && grep -q 'Not released yet' <<<\"\$out\" && grep -q '^Of these, added from the commits: 2' <<<\"\$out\" && [ \"\$(unrel)\" = \"\$(printf '### Fixed\\n- Written by a person, for the people who use it.\\n- one more\\n\\n### Added\\n- a new screen')\" ]"
+check "partial notes: the commits they miss are offered, each under its heading, and nothing is tagged" "! has_tag v$(cal 6) && grep -q 'Not released yet' <<<\"\$out\" && grep -q '^Of these, added from the commits: 2' <<<\"\$out\" && [ \"\$(unrel)\" = \"\$(printf '### Fixed\\n- Written by a person, for the people who use it.\\n- one more\\n\\n### Added\\n- a new screen')\" ]"
 perl -ni -e 'print unless /^- one more$/' CHANGELOG.md
 git add -A; git commit -qm "docs: not that one" --no-verify
 out=$(just release 2>&1)
-check "an Unreleased section's text becomes the version's entry, and an empty one is left" "grep -q '^Released v2.1.0' <<<\"\$out\" && [ \"\$(entry 2.1.0)\" = \"\$(printf '### Fixed\\n- Written by a person, for the people who use it.\\n\\n### Added\\n- a new screen')\" ] && [ -z \"\$(unrel | tr -d ' \\n')\" ]"
+check "an Unreleased section's text becomes the version's entry, and an empty one is left" "grep -q '^Released v$(cal 6)' <<<\"\$out\" && [ \"\$(entry $(cal 6))\" = \"\$(printf '### Fixed\\n- Written by a person, for the people who use it.\\n\\n### Added\\n- a new screen')\" ] && [ -z \"\$(unrel | tr -d ' \\n')\" ]"
 pc g3 "fix: named already"
 perl -0pi -e 's/## \[Unreleased\]\n/## [Unreleased]\n\n### Fixed\n- named already, and more\n/' CHANGELOG.md
 git add -A; git commit -qm "docs: n" --no-verify
-check "notes that carry every commit go at once" "says '^Released v2.1.1' just release"
+check "notes that carry every commit go at once" "says '^Released v$(cal 7)' just release"
 pc g4 "fix: share button"
 perl -0pi -e 's/## \[Unreleased\]\n/## [Unreleased]\n\n### Fixed\n- Share button, on every screen\n/' CHANGELOG.md
 git add -A; git commit -qm "docs: n" --no-verify
-check "and a line the notes carry with a capital letter counts as carried" "says '^Released v2.1.2' just release"
+check "and a line the notes carry with a capital letter counts as carried" "says '^Released v$(cal 8)' just release"
 # The checks refuse the release commit: nothing is half-released, and the
 # notes the person read are kept as they left them.
 pc h "fix: refused"
@@ -3123,7 +3125,7 @@ cp .git/hooks/pre-commit "$tmp/pv-hook" 2>/dev/null || : > "$tmp/pv-hook"
 printf '#!/bin/sh\necho "a check said no"\nexit 1\n' > .git/hooks/pre-commit; chmod +x .git/hooks/pre-commit
 before=$(cksum < CHANGELOG.md)
 out=$(just release 2>&1); rc=$?
-check "a release the checks refuse leaves no tag and no half-written changelog" "[ $rc -ne 0 ] && grep -q 'the checks refused the release commit' <<<\"\$out\" && ! has_tag v2.1.3 && [ \"\$(cksum < CHANGELOG.md)\" = \"\$before\" ] && [ \"\$(git status --porcelain)\" = ' M CHANGELOG.md' ]"
+check "a release the checks refuse leaves no tag and no half-written changelog" "[ $rc -ne 0 ] && grep -q 'the checks refused the release commit' <<<\"\$out\" && ! has_tag v$(cal 9) && [ \"\$(cksum < CHANGELOG.md)\" = \"\$before\" ] && [ \"\$(git status --porcelain)\" = ' M CHANGELOG.md' ]"
 if [ -s "$tmp/pv-hook" ]; then cp "$tmp/pv-hook" .git/hooks/pre-commit; else rm -f .git/hooks/pre-commit; fi
 just release >/dev/null 2>&1
 # The tags reach GitHub with the backup, and only when the backup does.
@@ -3131,7 +3133,7 @@ git init -q --bare "$tmp/pv-hub.git" && git remote add origin "$tmp/pv-hub.git" 
 git config ai-backbone.publish-on-save true
 pc i "feat: goes to GitHub"
 out=$(rel 2>&1)
-check "with publish-on-save on, the release and its tag reach GitHub" "grep -q -- '-> GitHub, with v2.2.0' <<<\"\$out\" && git --git-dir='$tmp/pv-hub.git' rev-parse -q --verify refs/tags/v2.2.0 >/dev/null"
+check "with publish-on-save on, the release and its tag reach GitHub" "grep -q -- '-> GitHub, with v$(cal 10)' <<<\"\$out\" && git --git-dir='$tmp/pv-hub.git' rev-parse -q --verify refs/tags/v$(cal 10) >/dev/null"
 git tag -a marker-1 -m marker
 echo carried >> f-carry.txt
 just save "fix: a save carries a tag along" >/dev/null 2>&1
@@ -3147,7 +3149,7 @@ git checkout -q "$pv_back" && git branch -q -D delegate/2026-01-01-pv
 git config ai-backbone.publish-on-save false
 pc j "fix: stays here"
 rel >/dev/null 2>&1
-check "with it off, the release stays on this machine" "has_tag v2.2.1 && ! git --git-dir='$tmp/pv-hub.git' rev-parse -q --verify refs/tags/v2.2.1 >/dev/null"
+check "with it off, the release stays on this machine" "has_tag v$(cal 11) && ! git --git-dir='$tmp/pv-hub.git' rev-parse -q --verify refs/tags/v$(cal 11) >/dev/null"
 # The Rust layer writes the version where cargo reads it. A stand-in cargo:
 # the release commit's lint would otherwise build.
 mkdir -p "$tmp/pv-bin" && printf '#!/bin/sh\nexit 0\n' > "$tmp/pv-bin/cargo" && chmod +x "$tmp/pv-bin/cargo"
@@ -3155,41 +3157,41 @@ cp "$root/.ai-backbone/examples/stack-rust.just" stack.just
 printf '[workspace]\nmembers = []\n\n[workspace.package]\nversion = "0.1.0"\nedition = "2024"\n\n[package]\nname = "pv"\nversion.workspace = true\n' > Cargo.toml
 git add -A; git commit -qm "feat: a Rust workspace" --no-verify
 PATH="$tmp/pv-bin:$PATH" rel >/dev/null 2>&1
-check "the Rust layer writes the version into [workspace.package]" "has_tag v2.3.0 && grep -qx 'version = \"2.3.0\"' Cargo.toml && grep -qx 'version.workspace = true' Cargo.toml && git show v2.3.0:Cargo.toml > '$tmp/pv-c' && grep -qx 'version = \"2.3.0\"' '$tmp/pv-c'"
+check "the Rust layer writes the version into [workspace.package]" "has_tag v$(cal 12) && grep -qx 'version = \"$(cal 12)\"' Cargo.toml && grep -qx 'version.workspace = true' Cargo.toml && git show v$(cal 12):Cargo.toml > '$tmp/pv-c' && grep -qx 'version = \"$(cal 12)\"' '$tmp/pv-c'"
 printf '[package]\nname = "pv"\nversion = "0.1.0"\nedition = "2024"\n' > Cargo.toml
 git add -A; git commit -qm "fix: one crate" --no-verify
 PATH="$tmp/pv-bin:$PATH" rel >/dev/null 2>&1
-check "and into [package] when there is no workspace version"  "has_tag v2.3.1 && grep -qx 'version = \"2.3.1\"' Cargo.toml"
+check "and into [package] when there is no workspace version"  "has_tag v$(cal 13) && grep -qx 'version = \"$(cal 13)\"' Cargo.toml"
 check "the backbone's own versions are not this recipe's"      "says 'cut by hand' just -f '$root/Justfile' -d '$root' release"
 # The notes a person reads are the notes released (spec 022).
 rl() { PATH="$tmp/pv-bin:$PATH" just release "$@"; }
 pc k "fix: thrown away"
 rl >/dev/null 2>&1; git checkout -q -- CHANGELOG.md
 out=$(rl 2>&1)
-check "a draft thrown away unread is offered once more" "! has_tag v2.3.2 && grep -q '^Not released yet' <<<\"\$out\" && [ \"\$(unrel)\" = \"\$(printf '### Fixed\\n- thrown away')\" ]"
+check "a draft thrown away unread is offered once more" "! has_tag v$(cal 14) && grep -q '^Not released yet' <<<\"\$out\" && [ \"\$(unrel)\" = \"\$(printf '### Fixed\\n- thrown away')\" ]"
 rl >/dev/null 2>&1
 pc l "fix: cache"; pc l2 "feat!: share menu"
 perl -0pi -e 's/## \[Unreleased\]\n/## [Unreleased]\n\n### Fixed\n- fixes a shared cache layer\n\n### Added\n- share menu\n/' CHANGELOG.md
 git add -A; git commit -qm "docs: n" --no-verify
 out=$(rl 2>&1)
-check "a short subject inside a longer line, and a breaking one the notes do not call breaking, are offered" "has_tag v2.3.2 && ! has_tag v3.0.0 && grep -q '^Of these, added from the commits: 2' <<<\"\$out\" && grep -qx '  - cache' <<<\"\$out\" && grep -qx '  - \*\*Breaking:\*\* share menu' <<<\"\$out\""
+check "a short subject inside a longer line, and a breaking one the notes do not call breaking, are offered" "has_tag v$(cal 14) && ! has_tag v$(cal 15) && grep -q '^Of these, added from the commits: 2' <<<\"\$out\" && grep -qx '  - cache' <<<\"\$out\" && grep -qx '  - \*\*Breaking:\*\* share menu' <<<\"\$out\""
 rl >/dev/null 2>&1
 perl -ni -e 'print unless /^## \[Unreleased\]/' CHANGELOG.md
 git add -A; git commit -qm "docs: no heading" --no-verify
 pc m "fix: no heading"
 rl >/dev/null 2>&1
-check "a changelog with no [Unreleased] gets one, above the versions, once" "has_tag v3.0.0 && ! has_tag v3.0.1 && [ \$(grep -ci '^## \\[unreleased\\]' CHANGELOG.md) -eq 1 ] && [ \"\$(grep -m1 '^## ' CHANGELOG.md)\" = '## [Unreleased]' ] && [ \"\$(unrel)\" = \"\$(printf '### Fixed\\n- no heading')\" ]"
+check "a changelog with no [Unreleased] gets one, above the versions, once" "has_tag v$(cal 15) && ! has_tag v$(cal 16) && [ \$(grep -ci '^## \\[unreleased\\]' CHANGELOG.md) -eq 1 ] && [ \"\$(grep -m1 '^## ' CHANGELOG.md)\" = '## [Unreleased]' ] && [ \"\$(unrel)\" = \"\$(printf '### Fixed\\n- no heading')\" ]"
 rl >/dev/null 2>&1
 pc n "fix: small letters"
 perl -0pi -e 's/## \[Unreleased\]\n/## [unreleased]\n\n### Fixed\n- small letters\n/' CHANGELOG.md
 git add -A; git commit -qm "docs: small letters" --no-verify
 out=$(rl 2>&1)
-check "an [unreleased] in small letters is the same section" "grep -q '^Released v3.0.2' <<<\"\$out\" && [ \$(grep -ci '^## \\[unreleased\\]' CHANGELOG.md) -eq 1 ] && [ \"\$(entry 3.0.2)\" = \"\$(printf '### Fixed\\n- small letters')\" ]"
+check "an [unreleased] in small letters is the same section" "grep -q '^Released v$(cal 17)' <<<\"\$out\" && [ \$(grep -ci '^## \\[unreleased\\]' CHANGELOG.md) -eq 1 ] && [ \"\$(entry $(cal 17))\" = \"\$(printf '### Fixed\\n- small letters')\" ]"
 pc o "fix: windows endings"
 perl -0pi -e 's/## \[Unreleased\]\n/## [Unreleased]\n\n### Fixed\n- windows endings\n/; s/\n/\r\n/g' CHANGELOG.md
 git add -A; git commit -qm "docs: n" --no-verify
 out=$(rl 2>&1)
-check "a changelog saved with CRLF is read as written, and written back with LF" "grep -q '^Released v3.0.3' <<<\"\$out\" && [ \"\$(entry 3.0.3)\" = \"\$(printf '### Fixed\\n- windows endings')\" ] && [ -z \"\$(tr -cd '\\r' < CHANGELOG.md)\" ]"
+check "a changelog saved with CRLF is read as written, and written back with LF" "grep -q '^Released v$(cal 18)' <<<\"\$out\" && [ \"\$(entry $(cal 18))\" = \"\$(printf '### Fixed\\n- windows endings')\" ] && [ -z \"\$(tr -cd '\\r' < CHANGELOG.md)\" ]"
 # A subject with letters outside ASCII was drafted as mojibake: perl wrote out
 # as UTF-8 the bytes it had read without decoding them (spec 026).
 pc p "fix: 'Amiral Battı' opens again"
@@ -3204,7 +3206,7 @@ printf '%s\n' '[positional-arguments]' '_set-version version:' '    #!/usr/bin/e
 git add -A && git commit -qm "feat: a versioned thing" --no-verify
 just release >/dev/null 2>&1
 out=$(just release 2>&1)
-check "the release commit carries the version the layer set, under an annotated tag" "grep -q '^Released v0.1.0' <<<\"\$out\" && [ \"\$(cat VERSION)\" = 0.1.0 ] && [ \"\$(git show HEAD:VERSION)\" = 0.1.0 ] && [ \"\$(git cat-file -t v0.1.0)\" = tag ] && grep -q '^## \\[0.1.0\\]' CHANGELOG.md"
+check "the release commit carries the version the layer set, under an annotated tag" "grep -q '^Released v$(cal 0)' <<<\"\$out\" && [ \"\$(cat VERSION)\" = $(cal 0) ] && [ \"\$(git show HEAD:VERSION)\" = $(cal 0) ] && [ \"\$(git cat-file -t v$(cal 0))\" = tag ] && grep -q '^## \\[$(cal 0)\\]' CHANGELOG.md"
 # Spec 037: just release refuses while the commit's Windows run is red,
 # running or none, and says which. A project with no windows.yml is not asked
 # (every release above). The stand-in gh is the same shape as the gate's.
@@ -3237,17 +3239,45 @@ git add -A && git commit -qm "feat: needs windows" --no-verify
 just release >/dev/null 2>&1
 wrel() { PATH="$wgh:$PATH" FAKE_WINDOWS="${1:-}" FAKE_WIN_JOBS="${2:-}" FAKE_WIN_LOG="${3:-}" just release; }
 wr_has() { git rev-parse -q --verify "refs/tags/$1" >/dev/null; }
-check "release refuses when the windows run is none" "! wrel && says 'Not released: Windows is none' wrel && ! wr_has v0.1.0"
-check "release refuses when the windows run is running" "! wrel $'88\tin_progress\t' && says 'Not released: Windows is running' wrel $'88\tin_progress\t' && ! wr_has v0.1.0"
+check "release refuses when the windows run is none" "! wrel && says 'Not released: Windows is none' wrel && ! wr_has v$(cal 0)"
+check "release refuses when the windows run is running" "! wrel $'88\tin_progress\t' && says 'Not released: Windows is running' wrel $'88\tin_progress\t' && ! wr_has v$(cal 0)"
 WJOBS=$'4\tsuite (windows-latest)\tfailure'
 WLOG=""
 for n in one two three four five six; do
   WLOG="${WLOG:+$WLOG|}suite (windows-latest)"$'\t'"step"$'\t'"t   FAIL  $n"
 done
 out=$(wrel $'88\tcompleted\tfailure' "$WJOBS" "$WLOG" 2>&1); rc=$?
-check "release refuses a red windows run and names at most five FAIL names" "[ $rc -ne 0 ] && grep -q 'Not released: Windows is red: suite (windows-latest) failure FAIL: one;two;three;four;five;' <<<\"\$out\" && ! grep -q 'six' <<<\"\$out\" && ! wr_has v0.1.0"
+check "release refuses a red windows run and names at most five FAIL names" "[ $rc -ne 0 ] && grep -q 'Not released: Windows is red: suite (windows-latest) failure FAIL: one;two;three;four;five;' <<<\"\$out\" && ! grep -q 'six' <<<\"\$out\" && ! wr_has v$(cal 0)"
 out=$(wrel $'88\tcompleted\tsuccess' 2>&1)
-check "release tags when the windows run is green" "grep -q '^Released v0.1.0' <<<\"\$out\" && wr_has v0.1.0"
+check "release tags when the windows run is green" "grep -q '^Released v$(cal 0)' <<<\"\$out\" && wr_has v$(cal 0)"
+# A last tag from another month, and an old SemVer tag, both start this month
+# at YY.M.0; a tag already there refuses the release (spec 039).
+mo="$tmp/mo"
+( cd "$root" && just new-project "$mo" ) >/dev/null 2>&1
+cd "$mo" || exit 1
+printf 'x\n' > a.txt; git add -A && git commit -qm "feat: a thing" --no-verify
+mo_now=$((10#$(date +%m))); mo_yy=$(date +%y)
+if [ "$mo_now" -eq 1 ]; then mo_py=$((10#$mo_yy - 1)); mo_pm=12; else mo_py=$mo_yy; mo_pm=$((mo_now - 1)); fi
+git tag "v$mo_py.$mo_pm.7"
+printf 'y\n' >> a.txt; git add -A && git commit -qm "fix: after the old month" --no-verify
+rel >/dev/null 2>&1
+check "a last tag from another month starts this month at .0" "has_tag v$(cal 0) && ! has_tag v$mo_py.$mo_pm.8"
+sv="$tmp/semver"
+( cd "$root" && just new-project "$sv" ) >/dev/null 2>&1
+cd "$sv" || exit 1
+printf 'x\n' > a.txt; git add -A && git commit -qm "feat: a thing" --no-verify
+git tag v0.4.2
+printf 'y\n' >> a.txt; git add -A && git commit -qm "fix: after the old number" --no-verify
+rel >/dev/null 2>&1
+check "a project whose last tag is v0.4.2 cuts this month's YY.M.0, not 0.4.3" "has_tag v$(cal 0) && ! has_tag v0.4.3"
+dup="$tmp/dup"
+( cd "$root" && just new-project "$dup" ) >/dev/null 2>&1
+cd "$dup" || exit 1
+printf 'x\n' > a.txt; git add -A && git commit -qm "feat: a thing" --no-verify
+git tag v99.12.7; git tag "v$(cal 0)"
+printf 'y\n' >> a.txt; git add -A && git commit -qm "fix: after the tags" --no-verify
+out=$(just release 2>&1); rc=$?
+check "a tag that is already there refuses the release" "[ $rc -ne 0 ] && grep -q 'the tag v$(cal 0) is there already' <<<\"\$out\""
 cd "$tmp" || exit 1
 
 section "the backlog of 2026-10-06 (spec 026)"

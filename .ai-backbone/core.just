@@ -592,8 +592,8 @@ doctor:
     if [ -f stack.just ] && [ ! -f docs/upstream.toml ]; then
       echo "  warn  a language layer and no watch list: nothing says when what this project is built on moves -> just upstream-init"
     fi
-    # The project's own version (spec 016), not the backbone's: the highest
-    # vX.Y.Z tag, and how many saves have come since.
+    # The project's own version (spec 016, CalVer since spec 039), not the
+    # backbone's: the highest vY.M.P tag, and how many saves have come since.
     if [ -z "$(just _is-backbone)" ] && git rev-parse -q --verify HEAD >/dev/null 2>&1; then
       pv=$(git tag --list 'v[0-9]*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -t. -k1.2,1n -k2,2n -k3,3n | tail -n 1 || true)
       if [ -n "$pv" ]; then
@@ -601,7 +601,8 @@ doctor:
         if [ "$since" -eq 0 ]; then echo "  ok    version $pv, at this save"
         else echo "  ok    version $pv, $since save(s) since. The next is cut when a spec is done: just release"; fi
       else
-        echo "  --    no version of its own yet: the first just release makes it 0.1.0, when a spec is done"
+        cal="$(date +%y).$((10#$(date +%m))).0"
+        echo "  --    no version of its own yet: the first just release makes it $cal, when a spec is done, and the versions follow CalVer YY.M.PATCH (spec 039)"
       fi
     fi
     # Spec 031: comments short in code, the story in the spec; the share falls by attrition.
@@ -2576,19 +2577,18 @@ publish:
       [ "$on" = false ] || echo "The checks start now. In a minute: just ci"
     fi
 
-# Cut a version of this project: just release — or patch, minor, major (spec 016)
+# Cut a version of this project: just release (spec 016, CalVer since spec 039)
 #
-# A project has a version of its own, not only the backbone's: semver.org, in
-# its CHANGELOG.md after keepachangelog.com, as a tag vX.Y.Z that goes to GitHub
-# with the backup. It is cut at a meaningful point — when a spec is done, and
-# when a fix goes out on its own between specs — by the agent; the person types
-# nothing. The step is read from the commits since the last version, which say
-# their kind already (the commit hook sees to that): a feat makes the next
-# minor, anything else the next patch, a breaking change (`feat!:`, or
-# BREAKING CHANGE: in the body) the next major from 1.0.0 on and the next minor
-# below it. 1.0.0 is the first version other people rely on, and it is cut only
-# on the maintainer's word: `just release major`. Nothing computes its way there.
-# Two runs: the first drafts the notes and stops, the second tags (spec 022).
+# A project has a version of its own, not only the backbone's: CalVer
+# YY.M.PATCH (https://calver.org), which is also valid Semantic Versioning, in
+# its CHANGELOG.md after keepachangelog.com, as a tag vYY.M.PATCH that goes to
+# GitHub with the backup. It is cut at a meaningful point — when a spec is done,
+# and when a fix goes out on its own between specs — by the agent; the person
+# types nothing. The next version is this month's YY.M.0 when the last tag is
+# from another month or is an old SemVer number, otherwise the last patch plus
+# one. patch, minor and major are still accepted, and all mean that same next
+# CalVer version. Two runs: the first drafts the notes and stops, the second
+# tags (spec 022).
 [group('safety')]
 [positional-arguments]
 release step="":
@@ -2599,7 +2599,7 @@ release step="":
       echo "The backbone's own versions are cut by hand: line 1 of core.just, CHANGELOG.md, a tag. This is for projects."; exit 1
     fi
     step="${1:-}"
-    case "$step" in ""|patch|minor|major) ;; *) echo "just release takes patch, minor or major, or nothing, and then the commits say which."; exit 1 ;; esac
+    case "$step" in ""|patch|minor|major) ;; *) echo "just release takes patch, minor or major, or nothing; they all mean the next CalVer version."; exit 1 ;; esac
     # A version names a saved state, and nothing else. The one file that may
     # differ is CHANGELOG.md: the notes a first `just release` drafted there and
     # the person read, and may have changed, before this one (spec 022).
@@ -2616,33 +2616,18 @@ release step="":
     git log --no-merges --format='%s%x1f%b%x1e' $range > "$log"
     count=$(tr -cd '\036' < "$log" | wc -c | tr -d ' ')
     if [ -n "$last" ] && [ "$count" -eq 0 ]; then echo "Nothing to release: no save since $last."; exit 0; fi
-    # What the commits say. `kind(scope)!: ` at the front; a `!` or a
-    # BREAKING CHANGE line in the body is a breaking change.
-    read -r feat breaking <<<"$(awk 'BEGIN { RS = "\036"; FS = "\037" }
-      NF { s = $1; sub(/^[ \t\n]+/, "", s)
-           if (s ~ /^feat(\([^)]*\))?!?: /) f++
-           if (s ~ /^[a-z]+(\([^)]*\))?!: / || $2 ~ /(^|\n)BREAKING[ -]CHANGE: /) b++ }
-      END { print f + 0, b + 0 }' "$log")"
-    if [ -z "$last" ]; then
-      # The first version. 0.1.0 whatever the commits say, unless the
-      # maintainer has said this first one is the one people rely on.
-      if [ "$step" = major ]; then next=1.0.0; else next=0.1.0; fi
-    else
-      IFS=. read -r X Y Z <<<"${last#v}"
-      if [ -z "$step" ]; then
-        if [ "$breaking" -gt 0 ]; then if [ "$X" -ge 1 ]; then step=major; else step=minor; fi
-        elif [ "$feat" -gt 0 ]; then step=minor
-        else step=patch; fi
-      fi
-      case "$step" in
-        major) next="$((X + 1)).0.0" ;;
-        minor) next="$X.$((Y + 1)).0" ;;
-        patch) next="$X.$Y.$((Z + 1))" ;;
-      esac
-    fi
+    # CalVer YY.M.PATCH (spec 039): this month's .0 when the last tag is from
+    # another month or is an old SemVer number, otherwise the last patch plus
+    # one. Two-digit year, month without a leading zero.
+    today=$(date +%Y-%m-%d)
+    yy=$(date +%y); mm=$(date +%m); mm=${mm#0}
+    case "${last#v}" in
+      "$yy.$mm."*) IFS=. read -r _ _ p <<<"${last#v}"; next="$yy.$mm.$((p + 1))" ;;
+      *) next="$yy.$mm.0" ;;
+    esac
     tag="v$next"
     if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then echo "Not released: the tag $tag is there already."; exit 1; fi
-    today=$(date +%Y-%m-%d)
+    if [ -n "$step" ]; then echo "patch, minor and major all mean the next CalVer version now: $next"; fi
     # The entry. Never notes the person has not seen (spec 022). What the
     # commits say is drafted for whoever uses the thing: what was added, fixed
     # and changed, one line each, a subject cut at its first " — ", a breaking
@@ -2657,6 +2642,7 @@ release step="":
       printf '%s\n' '# Changelog' '' \
         'What each version of this project changed, newest first. The format follows' \
         '[Keep a Changelog](https://keepachangelog.com), and the versions follow' \
+        'CalVer YY.M.PATCH (https://calver.org), which is also valid' \
         '[Semantic Versioning](https://semver.org).' '' '## [Unreleased]' > CHANGELOG.md
     fi
     body=$(mktemp); draft=$(mktemp); cl=$(mktemp); pre=$(mktemp); missing=$(mktemp)
