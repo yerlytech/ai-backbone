@@ -1281,6 +1281,12 @@ check "and template-update takes it to the mark exactly" "smon just template-upd
 mark 1.0.0
 check "offline, no mark is read: behind the newest"     "says '^Backbone: 1\.0\.0 -> 1\.0\.2, ' smon env AI_BACKBONE_OFFLINE=1 just template-check"
 check "just stable writes the mark from the version's tag, and refuses one that never reached main" "( cd '$sm/bb' && git fetch -q origin && git checkout -q -B main origin/main ) >/dev/null 2>&1; says 'STABLE now says 1\.0\.1' env -u AI_BACKBONE_OFFLINE JUST_JUSTFILE='$root/Justfile' JUST_WORKING_DIRECTORY='$sm/bb' just stable 1.0.1 && [ \"\$(cat '$sm/bb/STABLE')\" = \"1.0.1 \$(git -C '$sm/bb' rev-parse v1.0.1)\" ] && says 'No tag v9\.9\.9' env -u AI_BACKBONE_OFFLINE JUST_JUSTFILE='$root/Justfile' JUST_WORKING_DIRECTORY='$sm/bb' just stable 9.9.9 && grep -q 'Never write .STABLE.' '$root/.ai-backbone/routine.md'"
+# CalVer numbers are read by the same numeric comparisons (spec 039): a mark
+# takes 26.10.0, and 26.10.0 is newer than the last SemVer 3.46.0.
+( cd "$sm/seed" && V=26.10.0 setv && git commit -qam "feat: 26.10.0" --no-verify && git tag v26.10.0 && git push -q origin main --tags ) >/dev/null 2>&1
+check "just stable takes a CalVer number" "says 'STABLE now says 26\\.10\\.0' env -u AI_BACKBONE_OFFLINE JUST_JUSTFILE='$root/Justfile' JUST_WORKING_DIRECTORY='$sm/bb' just stable 26.10.0 && [ \"\$(cut -d' ' -f1 '$sm/bb/STABLE')\" = 26.10.0 ]"
+check "CalVer 26.10.0 reads as newer than the last SemVer 3.46.0" "just _newer 26.10.0 3.46.0 && ! just _newer 3.46.0 26.10.0 && just _newer 27.1.0 26.10.9"
+check "the backbone's own version is CalVer, and reads newer than 3.46.0" "bv=\$(sed -n '1s/.*version //p' '$root/.ai-backbone/core.just') && case \"\$bv\" in 2[0-9].[0-9]*.[0-9]*) ;; *) exit 1 ;; esac && just _newer \"\$bv\" 3.46.0"
 # spec 013, session-tools: what session-start says and what it remembers, the pin
 # tools-update moves, and the Go hooks-install fetches when prek cannot. In a
 # throwaway project of its own, so the checks around this block find the first

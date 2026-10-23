@@ -184,8 +184,9 @@ read it: on a backlog line you leave open, in the CHANGELOG, in a new
    set `status: approved` yourself, build, close it as `done`. It fits only if
    it keeps the backbone radically simple: no new dependency, no new duty for
    the person, nothing they must learn.
-8. Bump the version at the top of `.ai-backbone/core.just` (patch for a fix,
-   minor for a new recipe or file) and add a CHANGELOG entry that says what
+8. Bump the version at the top of `.ai-backbone/core.just` in CalVer
+   `YY.M.PATCH`: this month's `.0` when the last version is from another
+   month, otherwise the last patch plus one. Add a CHANGELOG entry that says what
    and why in two or three lines, naming no project (the backbone knows no
    project). A lesson from a project keeps the lesson and drops the project:
    no quote from its documents, no decision or spec number, no line number,

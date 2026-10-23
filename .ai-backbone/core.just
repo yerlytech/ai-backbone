@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 3.46.0
+# .ai-backbone/core.just — the backbone's recipes, version 26.10.0
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -10,10 +10,9 @@
 # Needs just 1.29.0 or newer (the [positional-arguments] attribute). setup.sh
 # says so before an older just stops at "unknown attribute".
 #
-# Versions follow SemVer: MAJOR.MINOR.PATCH. Patch = fix, nothing to do.
-# Minor = new recipe or file, nothing breaks. Major = something moved or a
-# rule needs a manual step; the CHANGELOG entry says which.
-#
+# Versions follow CalVer YY.M.PATCH (https://calver.org), which is also valid
+# Semantic Versioning: two-digit year, month without a leading zero, patch from
+# 0. A new month starts at .0; a second release in the month is the next patch.
 # .ai-backbone/manifest.txt lists every file the backbone owns.
 
 # Python on Windows writes to a pipe in the console's code page (cp1252) and

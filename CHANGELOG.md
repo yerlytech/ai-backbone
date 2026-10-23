@@ -3,17 +3,38 @@
 What each backbone version changed, and why. Newest first.
 `just template-check` tells a project which version it has and which is available.
 
-Versions follow [SemVer](https://semver.org): `MAJOR.MINOR.PATCH`. Patch: a fix,
-nothing to do. Minor: new recipes or files, nothing breaks. Major: something
-moved or a rule needs a manual step, and the entry says which. The git history
-was squashed into one commit twice, at 3.0.0 and at 3.27.2 on 2026-09-24,
-when the repository went public, and from 3.31.3 on it is one commit again:
-the names of the projects built on it left it (spec 024), and the squash that
-follows that version on the maintainer's machine takes the tags before it
-with the history. A newcomer reads a repository, not a diary. The entries
-below are the record of every version.
+Versions follow CalVer `YY.M.PATCH` (https://calver.org), which is also valid
+Semantic Versioning: a two-digit year, the month without a leading zero, and a
+patch from 0. October 2026 is `26.10.0`, then `26.10.1`; January 2027 is
+`27.1.0`. A CalVer version is always higher than any `3.x` version before it.
+The git history was squashed into one commit twice, at 3.0.0 and at 3.27.2 on
+2026-09-24, when the repository went public, and from 3.31.3 on it is one
+commit again: the names of the projects built on it left it (spec 024), and the
+squash that follows that version on the maintainer's machine takes the tags
+before it with the history. A newcomer reads a repository, not a diary. The
+entries below are the record of every version.
 
 ## [Unreleased]
+
+## 26.10.0 — 2026-10-24
+
+**Versions follow CalVer `YY.M.PATCH`, for every project and for the backbone
+(spec 039).** `just release` cuts this month's `YY.M.0` when the last tag is
+from another month or is an old SemVer number, and the last patch plus one
+when it is the same month. A project whose last tag is `v0.4.2` continues at
+`26.10.0`, not `0.4.3`. Tags are `vYY.M.PATCH`; new `CHANGELOG.md` files say
+the versions follow CalVer (https://calver.org), also valid Semantic
+Versioning. The old rule that `1.0.0` waited for the maintainer's word is gone.
+`patch`, `minor` and `major` are still accepted, and all mean the same next
+CalVer version; the release prints one line saying so. The draft-then-tag two
+runs stay (spec 022).
+
+**The backbone's own version is `26.10.0`.** Line 1 of `core.just` is what
+`template-update`, the freshness block, `just stable` and a project's "behind"
+check read. They compare numerically, so `26.10.0` reads as newer than
+`3.46.0`; the self-test now covers that. Projects' `Cargo.toml`,
+`package.json` and `pubspec.yaml` versions are not touched by the backbone.
+Nothing to do until `just template-update`.
 
 ## 3.46.0 — 2026-10-22
 
