@@ -19,6 +19,9 @@ meter anchors and the transcripts only fill the minutes since.
     budget.py --json            the same as one JSON object
     budget.py hook add|remove|check [.claude/settings.json]
                                 the subagent-cap hook in a project's settings
+    budget.py allow [.claude/settings.json]
+                                the four delegate allow rules, when WORKER is
+                                grok, claude or opencode; a rule already there stays
 
 Three rules make the sum right, each measured on Claude Code 2.1.273: one API
 message is written as one line per content block, each repeating the message id
@@ -403,6 +406,15 @@ def line(lang, now, cache, gauge, week_start, week_end, agents_today):
 # ─── the hook in a project's settings ────────────────────────────────────────
 HOOK_COMMAND = 'bash "$CLAUDE_PROJECT_DIR"/.ai-backbone/agent-cap.sh'
 HOOK_GROUP = {"matcher": "Agent|Workflow", "hooks": [{"type": "command", "command": HOOK_COMMAND}]}
+# Claude Code allow rules for the four delegate commands (n-cdb28d). Added only
+# when WORKER is one of these; a rule already in the file is never removed.
+DELEGATE_WORKERS = ("grok", "claude", "opencode")
+DELEGATE_ALLOWS = (
+    "Bash(just delegate:*)",
+    "Bash(just delegate-status:*)",
+    "Bash(just delegate-accept:*)",
+    "Bash(just delegate-drop:*)",
+)
 
 
 def _mine(group):
@@ -425,10 +437,74 @@ def _save_settings(path, data):
     os.replace(tmp, path)
 
 
+def allow_delegate(path, quiet=False):
+    """Add the four Bash allow rules delegation needs. WORKER unset, off, or
+    anything else: change nothing. A rule already in the file stays, and a rule
+    is never added twice. quiet=True prints nothing, so hook add can call this
+    without changing the one word it already prints."""
+    if os.environ.get("WORKER", "") not in DELEGATE_WORKERS:
+        if not quiet:
+            say("off")
+        return 0
+    try:
+        data = _load_settings(path)
+    except (OSError, ValueError):
+        if not quiet:
+            say("not-json")
+        return 1
+    if not isinstance(data, dict):
+        if not quiet:
+            say("not-object")
+        return 1
+    perms = data.get("permissions")
+    if perms is None:
+        perms = {}
+    if not isinstance(perms, dict):
+        if not quiet:
+            say("not-object")
+        return 1
+    allow = perms.get("allow")
+    if allow is None:
+        allow = []
+    if not isinstance(allow, list):
+        if not quiet:
+            say("not-list")
+        return 1
+    missing = [rule for rule in DELEGATE_ALLOWS if rule not in allow]
+    if not missing:
+        if not quiet:
+            say("already there")
+        return 0
+    allow.extend(missing)
+    perms["allow"] = allow
+    data["permissions"] = perms
+    _save_settings(path, data)
+    if not quiet:
+        say("added")
+    return 0
+
+
+def _add_hook(data, path):
+    groups = data.setdefault("hooks", {}).setdefault("PreToolUse", [])
+    mine = [g for g in groups if _mine(g)]
+    if mine:
+        if len(mine) == 1 and mine[0].get("matcher") == HOOK_GROUP["matcher"]:
+            say("already there"); return 0
+        # An older copy, or two: one group, with the wider matcher. Two of them
+        # counted every call twice and halved the cap (measured in review).
+        mine[0]["matcher"] = HOOK_GROUP["matcher"]
+        data["hooks"]["PreToolUse"] = [g for g in groups if not _mine(g)] + mine[:1]
+        _save_settings(path, data); say("updated"); return 0
+    groups.append(json.loads(json.dumps(HOOK_GROUP)))
+    _save_settings(path, data); say("added"); return 0
+
+
 def hook(action, path):
     """Add, remove or check the one PreToolUse group the backbone owns, recognised
     by its command; every other key, hook and permission is left as found, and
-    the group is never added twice (measured on twelve shapes of settings.json)."""
+    the group is never added twice (measured on twelve shapes of settings.json).
+    On add, when WORKER is grok, claude or opencode, the four delegate allow
+    rules are merged in too. A rule already in the file stays."""
     if action == "check":
         try:
             groups = _load_settings(path).get("hooks", {}).get("PreToolUse", [])
@@ -453,18 +529,12 @@ def hook(action, path):
         say("ok"); return 0
     data = _load_settings(path)
     if action == "add":
-        groups = data.setdefault("hooks", {}).setdefault("PreToolUse", [])
-        mine = [g for g in groups if _mine(g)]
-        if mine:
-            if len(mine) == 1 and mine[0].get("matcher") == HOOK_GROUP["matcher"]:
-                say("already there"); return 0
-            # An older copy, or two: one group, with the wider matcher. Two of them
-            # counted every call twice and halved the cap (measured in review).
-            mine[0]["matcher"] = HOOK_GROUP["matcher"]
-            data["hooks"]["PreToolUse"] = [g for g in groups if not _mine(g)] + mine[:1]
-            _save_settings(path, data); say("updated"); return 0
-        groups.append(json.loads(json.dumps(HOOK_GROUP)))
-        _save_settings(path, data); say("added"); return 0
+        # The word printed is about the hook only. The allow merge prints nothing
+        # here: an older template-update calls this and does not know a second
+        # line, and the rules still land on that first update (n-cdb28d).
+        rc = _add_hook(data, path)
+        allow_delegate(path, quiet=True)
+        return rc
     groups = data.get("hooks", {}).get("PreToolUse")
     if not groups or not any(_mine(g) for g in groups):
         say("not there"); return 0
@@ -484,6 +554,10 @@ def fmt(n):
 
 def main():
     argv = sys.argv[1:]
+    if argv[:1] == ["allow"]:
+        if len(argv) > 2:
+            say("budget.py allow [.claude/settings.json]"); return 2
+        return allow_delegate(argv[1] if len(argv) > 1 else os.path.join(".claude", "settings.json"))
     if argv[:1] == ["hook"]:
         action = argv[1] if len(argv) > 1 else "add"
         if action not in ("add", "remove", "check", "health"):

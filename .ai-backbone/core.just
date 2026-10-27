@@ -1042,6 +1042,29 @@ tools-update:
     fi
     echo "Done. Review .pre-commit-config.yaml$moved with 'git diff', then 'just save'."
 
+# Claude Code allow rules for just delegate and its three companions (n-cdb28d).
+# .claude/settings.json is a seed: copied once, then the project's own, so
+# template-update never replaces it. When WORKER is grok, claude or opencode
+# the four rules are added to its allow list. A rule already there stays.
+# Unset, off, or anything else: nothing is written. A broken file is named
+# and left as found. Never a reason for the caller to fail.
+_delegate-allow:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "${WORKER-}" in
+      grok|claude|opencode) ;;
+      *) exit 0 ;;
+    esac
+    if [ -f .ai-backbone/budget.py ] && { [ -d .claude ] || [ -f .claude/settings.json ]; }; then
+      if said=$("$(just _py)" .ai-backbone/budget.py allow 2>/dev/null); then
+        case "$said" in
+          added) echo "Delegation: .claude/settings.json may run just delegate, delegate-status, delegate-accept and delegate-drop without asking. A rule already in the file was left there." ;;
+        esac
+      else
+        echo "warn  the delegation allow rules could not be merged into .claude/settings.json (a comment or a trailing comma in it?). Nothing already there was removed."
+      fi
+    fi
+
 # Install the git hooks that check every save (leaked secrets, message style), and every push when the config has a pre-push hook
 [group('setup')]
 hooks-install:
@@ -1110,7 +1133,9 @@ hooks-install:
     # The subagent-cap hook too (spec 014): one PreToolUse group in the project's
     # own .claude/settings.json, merged beside its permissions and its other hooks
     # and never added twice. A project made before it existed gets it here, on the
-    # next `just hooks-install` or `just template-update`.
+    # next `just hooks-install` or `just template-update`. The delegate allow
+    # rules go in first, the same file, and only when WORKER is set (n-cdb28d).
+    just _delegate-allow
     if [ -f .ai-backbone/budget.py ] && { [ -d .claude ] || [ -f .claude/settings.json ]; }; then
       if said=$("$(just _py)" .ai-backbone/budget.py hook add 2>/dev/null); then
         case "$said" in added|updated) echo "Subagent cap: in .claude/settings.json, $said. A session starts at most 8 on its own (git config --global ai-backbone.agent-cap <n> changes it)." ;; esac
@@ -3556,6 +3581,10 @@ template-update to="":
     # .claude/settings.json beside its permissions, never twice, never a reason
     # to fail an update. The same step hooks-install takes.
     caphook() {
+      # Before the hook: the new script says when the rules were added. An older
+      # template-update never calls this recipe; its hook add still merges them,
+      # quietly, because the budget.py it just copied does (n-cdb28d).
+      just _delegate-allow
       if [ -f .ai-backbone/budget.py ] && { [ -d .claude ] || [ -f .claude/settings.json ]; }; then
         if said=$("$(just _py)" .ai-backbone/budget.py hook add 2>/dev/null); then
           case "$said" in added|updated) echo "Subagent cap: in .claude/settings.json, $said. A session starts at most 8 on its own (git config --global ai-backbone.agent-cap <n> changes it)." ;; esac
@@ -3960,6 +3989,9 @@ new-project name lang="":
     just sync-rules >/dev/null
     just _hook-lint >/dev/null
     if command -v prek >/dev/null 2>&1; then just hooks-install >/dev/null; fi
+    # hooks-install already merged these when prek is here. This covers a
+    # machine without it, and says so when the rules were not there yet.
+    just _delegate-allow
     git add -A
     # The checks run inside the commit. Show their output only when they fail.
     msg="chore: start $slug from ai-backbone"; out=$(mktemp)
@@ -4036,6 +4068,7 @@ adopt path:
     core sync-rules >/dev/null 2>&1 || true
     hook=$(core _hook-lint 2>/dev/null || true); if [ -n "$hook" ]; then echo "  $hook"; fi
     if command -v prek >/dev/null 2>&1; then core hooks-install >/dev/null 2>&1 || true; fi
+    core _delegate-allow || true
     echo
     echo "$added file(s) added, $kept of yours kept. Nothing was overwritten and nothing is saved yet."
     echo "Next: look at git status, then: just save \"chore: adopt ai-backbone\""
