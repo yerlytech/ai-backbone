@@ -1872,6 +1872,7 @@ import importlib.util
 import io
 import json
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -2230,8 +2231,21 @@ elif mode.startswith("npm-"):
         '  outdated) [ -n "${FAKE_NPM_SLEEP:-}" ] && /bin/sleep "$FAKE_NPM_SLEEP"; printf \'%s\' "$FAKE_NPM_OUTDATED"; exit "${FAKE_NPM_OUTDATED_RC:-1}";;\n'
         '  audit) [ -n "${FAKE_NPM_SLEEP:-}" ] && /bin/sleep "$FAKE_NPM_SLEEP"; printf \'%s\' "$FAKE_NPM_AUDIT"; exit "${FAKE_NPM_AUDIT_RC:-1}";;\n'
         'esac\n'
-        'exit 0\n', encoding="utf-8")
+        'exit 0\n', encoding="utf-8", newline="\n")
     script.chmod(0o755)
+    # Python on Windows finds a command by its extension, as a person's shell
+    # there does not (spec 020). The script stays LF: a CRLF shebang is not a
+    # program. npm.cmd names bash by a full path, because PATH below is only
+    # this folder, and a native Python will not run an extensionless script.
+    if os.name == "nt":
+        bash = shutil.which("bash") or shutil.which("sh")
+        if not bash:
+            fail("bash is not on PATH, so the stand-in npm cannot run")
+        (bindir / "npm.cmd").write_text(
+            '@echo off\n'
+            f'"{bash}" "%~dp0npm" %*\n'
+            'exit /b %ERRORLEVEL%\n',
+            encoding="utf-8", newline="\r\n")
     os.environ["FAKE_NPM_LOG"] = str(log)
     if mode == "npm-none":
         tree.mkdir(parents=True, exist_ok=True)
