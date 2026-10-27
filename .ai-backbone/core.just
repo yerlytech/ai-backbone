@@ -1462,6 +1462,9 @@ delegate task="":
     set -euo pipefail
     task="${1:-}"
     if [ -z "$task" ]; then echo "refuses: name the task"; exit 1; fi
+    # Zero-width, bidi marks and HTML comments are stripped before the task is
+    # named or shown, so they never reach the worker (n-5b9b58).
+    task=$(printf '%s' "$task" | perl -CS -Mutf8 -0777 -pe 's/<!--.*?-->//sg; s/[\x{200B}-\x{200F}\x{202A}-\x{202E}\x{2060}\x{2066}-\x{2069}\x{FEFF}]//g;')
     worker="${WORKER-}"
     case "$worker" in
       ""|off)
@@ -1570,15 +1573,22 @@ delegate task="":
     # flag is hidden from `grok --help` and takes whole seconds (grok 1.0.62,
     # measured 2026-10-22).
     background_wait=$(LC_ALL=C awk -v t="$timeout_min" 'BEGIN { printf "%d", t * 60 }')
-    # The same fold as `_slug`. Inlined: a nested `just` looks for a Justfile
-    # from this folder, and a run pointed at another directory has none.
-    # A fix round already has its branch, so the task needs no slug.
+    # The same fold as `_slug`, inlined so a run pointed at another directory
+    # still has one. A Title: line names the branch; a same-day clash gets -2 (n-66b728).
     if [ "$fix_round" -eq 0 ]; then
-      slug=$(printf '%s' "$task" | perl -CS -Mutf8 -pe 'tr/çğıöşüÇĞİÖŞÜ/cgiosucgiosu/; $_=lc; s/[^a-z0-9]+/-/g; s/^-+|-+$//g')
-      slug=$(printf '%s' "$slug" | cut -c1-48 | sed 's/-*$//')
+      name_src=$(printf '%s\n' "$task" | awk '/^Title:[[:space:]]*/ { sub(/^Title:[[:space:]]*/, ""); print; exit }')
+      if [ -z "$name_src" ]; then name_src=$task; fi
+      slug=$(printf '%s' "$name_src" | perl -CS -Mutf8 -pe 'tr/çğıöşüÇĞİÖŞÜ/cgiosucgiosu/; $_=lc; s/[^a-z0-9]+/-/g; s/^-+|-+$//g')
+      slug=$(printf '%s' "$slug" | cut -c1-40 | sed 's/-*$//')
       if [ -z "$slug" ]; then echo "refuses: the task has no name a branch can use"; exit 1; fi
-      branch="delegate/$(LC_ALL=C date +%Y-%m-%d)-$slug"
-      if git show-ref --verify --quiet "refs/heads/$branch"; then echo "refuses: $branch already exists"; exit 1; fi
+      day=$(LC_ALL=C date +%Y-%m-%d)
+      branch="delegate/${day}-${slug}"
+      n=2
+      while git show-ref --verify --quiet "refs/heads/$branch"; do
+        if [ "$n" -gt 20 ]; then echo "refuses: too many branches for this task"; exit 1; fi
+        branch="delegate/${day}-${slug}-${n}"
+        n=$((n + 1))
+      done
     fi
     top=$(git rev-parse --show-toplevel)
     dir="$HOME/.cache/ai-backbone/delegate/$(basename "$top")"
@@ -1599,7 +1609,19 @@ delegate task="":
     # of them is still running, then drops the lock.
     wpid=""
     tpid=""
-    trap 'if [ -n "$tpid" ]; then kill -TERM -"$tpid" 2>/dev/null || kill -TERM "$tpid" 2>/dev/null || true; fi; if [ -n "$wpid" ]; then kill -TERM -"$wpid" 2>/dev/null || kill -TERM "$wpid" 2>/dev/null || true; fi; rm -rf "$lock"' EXIT
+    hookdir=""
+    hooks_prev=""
+    # The deny list is command text. A merge was run in another form anyway
+    # (n-683f69). This ref hook is what actually refuses it.
+    restore_delegate_hook() {
+      if [ -z "$hookdir" ]; then return 0; fi
+      if [ -n "$hooks_prev" ]; then git config --local core.hooksPath "$hooks_prev" || true
+      else git config --local --unset core.hooksPath || true
+      fi
+      rm -rf "$hookdir"
+      hookdir=""
+    }
+    trap 'restore_delegate_hook; if [ -n "$tpid" ]; then kill -TERM -"$tpid" 2>/dev/null || kill -TERM "$tpid" 2>/dev/null || true; fi; if [ -n "$wpid" ]; then kill -TERM -"$wpid" 2>/dev/null || kill -TERM "$wpid" 2>/dev/null || true; fi; rm -rf "$lock"' EXIT
     # opencode climbs WORKER_LADDER (spec 038). The first try of a branch takes
     # the first model; each fix round takes the next. Past the last, the job
     # stops. WORKER_MODEL pins one model and does not climb. Grok and claude
@@ -1813,6 +1835,94 @@ delegate task="":
     # job keeps this shell's input, and a session holds that open: a CLI that
     # reads it to the end never exits after its report. The worker reads
     # nothing, so its input is empty.
+    # n-683f69: refuse a merge commit, or a tip whose first parent is not the
+    # old tip, at the ref. Creating or deleting another branch stays the breach check's job.
+    hookdir="$dir/${id}.hooks"
+    mkdir -p "$hookdir"
+    real_hooks=$(git rev-parse --git-path hooks)
+    if [ -d "$real_hooks" ]; then
+      for h in "$real_hooks"/*; do
+        [ -e "$h" ] || continue
+        ln -s "$h" "$hookdir/$(basename "$h")" 2>/dev/null || true
+      done
+    fi
+    hooks_prev=$(git config --local --get core.hooksPath || true)
+    if [ -n "$hooks_prev" ] && [ -d "$hooks_prev" ]; then
+      for h in "$hooks_prev"/*; do
+        [ -e "$h" ] || continue
+        ln -sfn "$h" "$hookdir/$(basename "$h")" 2>/dev/null || true
+      done
+    fi
+    # The ref lock is held while this hook runs, so it must not call git (n-683f69).
+    objroot=$(git rev-parse --git-common-dir)
+    case "$objroot" in
+      /*) ;;
+      *) objroot=$(cd "$objroot" && pwd -P) ;;
+    esac
+    objroot_q=$(printf '%s' "$objroot" | sed "s/'/'\\\\''/g")
+    rm -f "$hookdir/reference-transaction" "$hookdir/parents.pl"
+    # Written with printf: a heredoc here is a just parse error (1.59.0).
+    printf '%s\n' \
+      'use IO::Uncompress::Inflate qw(inflate);' \
+      'my ($root, $sha) = @ARGV;' \
+      'exit 2 if $sha !~ /^[0-9a-f]{40}\z/;' \
+      'my $path = $root . "/objects/" . substr($sha, 0, 2) . "/" . substr($sha, 2);' \
+      'exit 2 unless -f $path;' \
+      'open my $fh, "<:raw", $path or exit 2;' \
+      'local $/;' \
+      'my $raw = <$fh>;' \
+      'close $fh;' \
+      'my $out = "";' \
+      'my $status = inflate(\$raw => \$out);' \
+      'exit 2 unless $status;' \
+      'my $nul = index($out, "\0");' \
+      'exit 2 if $nul < 0;' \
+      'exit 2 unless substr($out, 0, 6) eq "commit";' \
+      'my $body = substr($out, $nul + 1);' \
+      'foreach my $line (split /\n/, $body) {' \
+      '  last if $line eq "";' \
+      '  if ($line =~ /^parent ([0-9a-f]{40})\z/) { print $1, "\n"; }' \
+      '}' \
+      'exit 0;' \
+      > "$hookdir/parents.pl"
+    printf '%s\n' \
+      '#!/bin/sh' \
+      '# n-683f69: a merge is refused at the ref, not by the command text.' \
+      '[ "$1" = "prepared" ] || exit 0' \
+      "objroot='$objroot_q'" \
+      'here=$(CDPATH= cd "$(dirname "$0")" && pwd)' \
+      'while read -r old new ref; do' \
+      '  case "$ref" in' \
+      '    refs/heads/*) ;;' \
+      '    *) continue ;;' \
+      '  esac' \
+      '  case "$old" in' \
+      '    0000000000000000000000000000000000000000) continue ;;' \
+      '  esac' \
+      '  case "$new" in' \
+      '    0000000000000000000000000000000000000000) continue ;;' \
+      '  esac' \
+      '  # The same tip again is not a move: worktree add writes the new branch twice.' \
+      '  [ "$old" = "$new" ] && continue' \
+      '  if ! parents=$(perl -MIO::Uncompress::Inflate "$here/parents.pl" "$objroot" "$new"); then' \
+      '    echo "refuses: the branch may only move by a new commit" >&2' \
+      '    exit 1' \
+      '  fi' \
+      '  n=$(printf "%s\n" "$parents" | grep -c . || true)' \
+      '  if [ "$n" -gt 1 ]; then' \
+      '    echo "refuses: a merge is not a commit on this branch" >&2' \
+      '    exit 1' \
+      '  fi' \
+      '  first=$(printf "%s\n" "$parents" | head -n 1)' \
+      '  if [ "$first" != "$old" ]; then' \
+      '    echo "refuses: the branch may only move by a new commit" >&2' \
+      '    exit 1' \
+      '  fi' \
+      'done' \
+      'exit 0' \
+      > "$hookdir/reference-transaction"
+    chmod +x "$hookdir/reference-transaction"
+    git config --local core.hooksPath "$hookdir"
     rm -f "$dir/${id}.timedout"
     set -m
     # A worker that has committed, printed its report and then sits with no
@@ -1868,6 +1978,7 @@ delegate task="":
     went_quiet=0
     if [ -f "$dir/${id}.idle" ]; then went_quiet=1; rc=0; rm -f "$dir/${id}.idle"; fi
     set -e
+    restore_delegate_hook
     after_protect=$(git rev-parse "refs/heads/$protect" 2>/dev/null || echo missing)
     after_branches=$(git for-each-ref refs/heads --format='%(refname)')
     after_foreign=$(foreign_branches)
@@ -1913,13 +2024,13 @@ delegate task="":
       while IFS= read -r ref; do
         [ -n "$ref" ] || continue
         case "$ref" in
-          refs/heads/lane/*) continue ;;
           refs/heads/delegate/*)
             # A removal is another run's drop; an addition is a breach unless
             # its worktree has it checked out (the foreign list, below).
             if printf '%s\n' "$before_branches" | grep -qxF "$ref"; then continue; fi
             ;;
         esac
+        # n-e3b7b0: a lane branch counts unless another worktree has it checked out.
         if printf '%s\n' "$foreign" | grep -qxF "$ref"; then continue; fi
         branch_change=1
       done < "$changed_file"
@@ -2058,11 +2169,54 @@ delegate-accept branch="":
       echo "refuses: $branch is not a fast-forward of $onto"; exit 1
     fi
     here=$(git symbolic-ref -q --short HEAD || echo "no branch")
-    if [ "$here" != "$onto" ]; then git checkout -q "$onto"; fi
-    if ! git merge --ff-only "$branch" >/dev/null 2>&1; then
-      echo "refuses: $branch is not a fast-forward of $onto"; exit 1
+    here_top=$(git rev-parse --show-toplevel)
+    # n-67267f: fast-forward the base where it lives. Do not switch a worktree
+    # that is on main onto a lane another worktree holds.
+    canon() { if [ -z "$1" ]; then return 0; fi; (cd "$1" && pwd -P); }
+    worktree_of() {
+      # The assignment has to sit on perl. On the git command it never reaches
+      # the other side of the pipe, and every worktree looks empty (n-67267f).
+      git worktree list --porcelain | DELEGATE_WANT="refs/heads/$1" perl -ne '
+        if (/^worktree (.*)/) { $wt = $1 }
+        elsif (/^branch (.+)/ && $1 eq $ENV{DELEGATE_WANT}) { print "$wt\n" }
+      '
+    }
+    onto_wt=$(canon "$(worktree_of "$onto")")
+    branch_wt=$(canon "$(worktree_of "$branch")")
+    here_top=$(canon "$here_top")
+    ff_there() {
+      if ! git -C "$1" merge --ff-only "$branch" >/dev/null 2>&1; then
+        echo "refuses: $branch is not a fast-forward of $onto"; exit 1
+      fi
+    }
+    if [ -n "$branch_wt" ] && [ "$branch_wt" != "$here_top" ]; then
+      if [ -n "$(git -C "$branch_wt" status --porcelain)" ]; then
+        echo "refuses: the worktree on $branch is not clean"; exit 1
+      fi
+      if [ -n "$onto_wt" ] && [ "$onto_wt" != "$branch_wt" ]; then
+        echo "refuses: $onto is checked out in another worktree"; exit 1
+      fi
+      git -C "$branch_wt" checkout -q "$onto"
+      ff_there "$branch_wt"
+    elif [ -n "$onto_wt" ] && [ "$onto_wt" != "$here_top" ]; then
+      if [ -n "$(git -C "$onto_wt" status --porcelain)" ]; then
+        echo "refuses: the worktree on $onto is not clean"; exit 1
+      fi
+      ff_there "$onto_wt"
+    else
+      if [ "$here" != "$onto" ]; then git checkout -q "$onto"; fi
+      if ! git merge --ff-only "$branch" >/dev/null 2>&1; then
+        echo "refuses: $branch is not a fast-forward of $onto"; exit 1
+      fi
     fi
-    git branch -d "$branch" >/dev/null
+    # -d compares with HEAD. The base just fast-forwarded may be another
+    # worktree, so HEAD does not contain the branch yet (n-67267f).
+    if ! git branch -d "$branch" >/dev/null 2>&1; then
+      if ! git merge-base --is-ancestor "$branch" "$onto" 2>/dev/null \
+        || ! git branch -D "$branch" >/dev/null 2>&1; then
+        echo "refuses: $branch is still checked out in another worktree"; exit 1
+      fi
+    fi
     echo "accepted $branch onto $onto"
 
 # Ask once, then delete a delegate branch. A manager has no terminal: --yes

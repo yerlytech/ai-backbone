@@ -119,6 +119,20 @@ request that was accepted. When one layer already stops the attack, the missing
 second layer is a hardening note. Hardening notes go to the maintainer as a
 list of their own, after the findings, never mixed into them.
 
+## A Rust lens
+
+When the project is Rust, that lens reads this list. A hit is a finding only
+with a verdict, the same as any other lens.
+
+- `unwrap` or `expect` on a path a user can reach
+- `unsafe` without a `SAFETY` comment on the block
+- a `must_use` result that is ignored
+- an error returned with no context about what failed
+- `panic`, `todo` or `unreachable` where the program could recover
+- `std::process::Command` built from input that was not checked
+- a path from the user that is not canonicalized, then checked to stay under its root
+- deserialize with no limit on size or depth
+
 ## Checklists for a security lens
 
 Optional. When the project has a security lens, that lens may read the

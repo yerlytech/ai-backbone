@@ -678,6 +678,8 @@ check "a save is not refused for the file VS Code writes, comments and all" "jus
 git reset -q --hard
 check "the second-day lens asks about any toolchain, with Rust and Flutter as its examples" "grep -q 'Dockerfile' .ai-backbone/templates/audit-lenses.md && grep -q 'pubspec.yaml' .ai-backbone/templates/audit-lenses.md"
 check "the audit skill gives every finding a verdict, anchors severity, and keeps a flag apart" "grep -q '^## Verdicts' .agents/skills/audit/SKILL.md && grep -q 'Needs validation' .agents/skills/audit/SKILL.md && grep -q 'The severity never exceeds the impact shown' .agents/skills/audit/SKILL.md && grep -q '^## A flag is not a finding' .agents/skills/audit/SKILL.md && grep -q 'security-audit-skill/blob/c1c8a8c/' .agents/skills/audit/SKILL.md"
+check "the audit skill's Rust lens names the production hazards" "grep -q '^## A Rust lens' .agents/skills/audit/SKILL.md && grep -q '\`unsafe\` without a \`SAFETY\` comment' .agents/skills/audit/SKILL.md && grep -q 'canonicalize' .agents/skills/audit/SKILL.md && grep -q 'size or depth' .agents/skills/audit/SKILL.md"
+check "the delegate skill says a pin bump is fetched by the desk, and names the ref guard" "grep -q 'The worker has no network' .agents/skills/delegate/SKILL.md && grep -q 'release notes into \`target/\`' .agents/skills/delegate/SKILL.md && grep -q 'first parent is the old tip' .agents/skills/delegate/SKILL.md && grep -q 'zero-width character' .agents/skills/delegate/SKILL.md"
 echo x > stray.txt
 check "doctor names a file that does not belong in the root" "says 'do not belong: stray.txt' just doctor"
 # The three ways out of that warning, and then the same real stray again with all
@@ -1818,6 +1820,9 @@ check "a major row is answered by any release of its major" "upy 'u.same_major(\
 # A source that spells its versions its own way (REL_18_6) is read through the
 # row's tag pattern, and a tag of another shape is left out (spec 026).
 check "a tag pattern reads REL_18_7 as 18.7, newer than 18.6, and leaves REL9_6_24 out" "upy '[r[\"version\"] for r in u.newer_than(\"18.6\", u.tagged({\"tag\": \"REL_{major}_{minor}\"}, [{\"version\": v, \"prerelease\": False} for v in (\"REL_18_7\", \"REL_18_6\", \"REL9_6_24\")]), False)] == [\"18.7\"] and u.tag_of({\"tag\": \"REL_{major}_{minor}\"}, \"18.6\") == \"REL_18_6\"'"
+check "a filter keeps one stable line and leaves mainline out" "upy '[r[\"version\"] for r in u.newer_than(\"release-1.30.2\", u.matched({\"filter\": \"release-1\\\\.30\\\\.\"}, [{\"version\": v, \"prerelease\": False} for v in (\"release-1.31.8\", \"release-1.30.4\", \"release-1.30.2\")]), False)] == [\"release-1.30.4\"]'"
+check "a filter that matches nothing the source lists says so" "says 'matches filter' \"\$(just _py)\" -c 'import importlib.util as i; s=i.spec_from_file_location(\"u\", \".ai-backbone/upstream.py\"); u=i.module_from_spec(s); s.loader.exec_module(u); u.matched({\"filter\": \"release-1\\\\.30\\\\.\"}, [{\"version\": \"release-1.31.8\"}])'"
+check "the upstream template names a filter for one stable line" "grep -q 'follow one stable line' '$root/.ai-backbone/templates/upstream.toml'"
 check "the template says where a pub pin lives"            "grep -q 'pubspec.lock for pub' '$root/.ai-backbone/templates/upstream.toml'"
 # pub.dev is a source kind, for Dart and Flutter (3.20.0): a `pub:` row is counted
 # like any other, not refused as unknown, and its version's folder in the pub cache
@@ -4170,6 +4175,18 @@ case "$mode" in
     echo report
     exec perl -e 'sleep 12'
     ;;
+  laneown)
+    git branch lane/sneak
+    echo report
+    ;;
+  merge)
+    printf 'base\n' >> README.md
+    git add README.md
+    git commit -qm "chore: base" --no-verify
+    other=$(git commit-tree "HEAD^{tree}" -p "HEAD^" -m other)
+    git merge --no-edit -m "merge other" "$other" || true
+    echo report
+    ;;
   stdin)
     # A CLI that reads its input until the end before it exits.
     cat >/dev/null
@@ -4388,7 +4405,17 @@ check "grok's deny list also names the shell wrappers that step around rm (added
   "grep -qx 'Bash(sh:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(bash:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(zsh:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(eval:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(xargs:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(env:\*)' \"\$dprompt.deny\""
 git -C "$dproj" checkout -q main
 d_run ok grok "" delegate "add a line"
-check "the same task on the same day is refused, and the first branch stays" "[ \$d_rc -ne 0 ] && grep -q 'already exists' <<<\"\$d_out\" && git -C \"\$dproj\" show-ref --verify --quiet \"refs/heads/\$dbr\""
+dbr2=$(git -C "$dproj" symbolic-ref --short HEAD)
+check "the same task on the same day gets a short suffix, and the first branch stays" "[ \$d_rc -eq 0 ] && [ \"\$dbr2\" = \"\${dbr}-2\" ] && git -C \"\$dproj\" show-ref --verify --quiet \"refs/heads/\$dbr\" && git -C \"\$dproj\" show-ref --verify --quiet \"refs/heads/\$dbr2\""
+d_new titled
+d_run ok grok "" delegate "$(printf 'From the company desk\n\nTitle: pin the crates\n\nDo the pin.')"
+dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+check "a Title line names the branch, and the task's first words do not" "case \"\$dbr\" in delegate/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-pin-the-crates) ;; *) false ;; esac && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*from-the-company*')\" ] && grep -q 'Do the pin.' \"\$dprompt\""
+d_new strip
+zw=$(perl -CS -Mutf8 -e 'binmode STDOUT, ":utf8"; print "\x{200b}\x{202e}"')
+d_run ok grok "" delegate "add a ${zw}line<!--hide-->"
+dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+check "zero-width, a bidi mark and an HTML comment never reach the worker or the branch name" "case \"\$dbr\" in delegate/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-add-a-line) ;; *) false ;; esac && ! grep -q hide \"\$dprompt\" && perl -CS -Mutf8 -ne 'exit 1 if /[\\x{200B}\\x{202E}]/' \"\$dprompt\""
 d_new bgwait
 d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=ok FAKE_WORKER_PROMPT="$dprompt" \
   WORKER=grok DELEGATE_TIMEOUT=2 just -f "$root/Justfile" -d "$dproj" delegate "wait in the background" 2>&1) && d_rc=0 || d_rc=$?
@@ -4552,6 +4579,16 @@ d_run branch grok "" delegate "add a branch"
 first=${d_out%%$'\n'*}
 check "a worker that adds a branch is a breach, said first" \
   "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: branch list changed' ] && grep -q '^report$' <<<\"\$d_out\" && git -C \"\$dproj\" show-ref --verify --quiet refs/heads/from-the-worker"
+d_new nomerge
+d_run merge grok "" delegate "do not merge"
+dlog=""
+for f in "$dhome/.cache/ai-backbone/delegate/delegate-nomerge"/*.log; do
+  [ -f "$f" ] || continue
+  dlog=$f
+done
+parents=$(git -C "$dproj" rev-list --parents -n 1 HEAD | wc -w | tr -d ' ')
+check "a merge into the worker branch is refused at the ref, and the tip stays one parent" \
+  "[ \$d_rc -eq 0 ] && [ \"\$parents\" = 2 ] && [ -n \"\$dlog\" ] && grep -q 'refuses: a merge is not a commit on this branch' \"\$dlog\" && ! grep -q '^BREACH:' <<<\"\$d_out\""
 # A parallel lane is another worktree of the same repository. Its branch is
 # checked out there, before or after this run, so it is not this run's change
 # (n-1cbec4). Two worktrees, one created and one dropped during the job.
@@ -4572,6 +4609,11 @@ d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=siblingd
   WORKER=grok just -f "$root/Justfile" -d "$dproj" delegate "run beside a lane that leaves" 2>&1) && d_rc=0 || d_rc=$?
 check "a lane branch another worktree drops during the run is not a breach" \
   "[ \$d_rc -eq 0 ] && ! grep -q '^BREACH:' <<<\"\$d_out\" && ! git -C \"\$dproj\" show-ref --verify --quiet refs/heads/lane/old"
+d_new laneown
+d_run laneown grok "" delegate "make a lane"
+first=${d_out%%$'\n'*}
+check "a lane branch the worker creates and leaves unchecked is a breach" \
+  "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: branch list changed' ] && git -C \"\$dproj\" show-ref --verify --quiet refs/heads/lane/sneak"
 d_new fixround
 d_run ok grok "" delegate "add a line"
 dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
@@ -4648,6 +4690,26 @@ check "a job starts from DELEGATE_BASE and records branch.<name>.delegateBase" \
 d_run ok "" "" delegate-accept
 check "accept fast-forwards the recorded base and leaves the default branch" \
   "[ \$d_rc -eq 0 ] && grep -qx \"accepted \$dbr onto migration\" <<<\"\$d_out\" && [ \"\$(git -C \"\$dproj\" symbolic-ref --short HEAD)\" = migration ] && git -C \"\$dproj\" cat-file -e migration:worker-did.txt && ! git -C \"\$dproj\" cat-file -e main:worker-did.txt && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ]"
+d_new acceptwt
+git -C "$dproj" checkout -qb migration
+printf 'on the migration\n' >> "$dproj/README.md"
+git -C "$dproj" add README.md
+git -C "$dproj" commit -qm "chore: migration"
+git -C "$dproj" checkout -q main
+side="$tmp/delegate-accept-wt"
+rm -rf "$side"
+git -C "$dproj" worktree add -q "$side" migration
+d_out=$(env -u WORKER -u WORKER_MODEL -u DELEGATE_TIMEOUT -u DELEGATE_IDLE -u WORKER_BIN -u DELEGATE_YES -u WORKER_LADDER \
+  HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE=ok \
+  WORKER=grok DELEGATE_BASE=migration \
+  just -f "$root/Justfile" -d "$side" delegate "add a line" 2>&1) && d_rc=0 || d_rc=$?
+dbr=$(git -C "$side" symbolic-ref --short HEAD)
+d_out=$(env -u WORKER -u DELEGATE_BASE HOME="$dhome" just -f "$root/Justfile" -d "$dproj" delegate-accept 2>&1) && d_rc=0 || d_rc=$?
+main_now=$(git -C "$dproj" symbolic-ref --short HEAD)
+side_now=$(git -C "$side" symbolic-ref --short HEAD)
+check "accept from the main worktree fast-forwards the lane and does not switch main" \
+  "[ \$d_rc -eq 0 ] && [ \"\$main_now\" = main ] && [ \"\$side_now\" = migration ] && git -C \"\$dproj\" cat-file -e migration:worker-did.txt && ! git -C \"\$dproj\" cat-file -e main:worker-did.txt && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ] && grep -qx \"accepted \$dbr onto migration\" <<<\"\$d_out\""
+git -C "$dproj" worktree remove --force "$side" 2>/dev/null || true
 d_migration basedrop
 DELEGATE_BASE=migration d_run ok grok "" delegate "add a line"
 nbr=$(git -C "$dproj" symbolic-ref --short HEAD)

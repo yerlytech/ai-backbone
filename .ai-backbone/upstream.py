@@ -625,6 +625,27 @@ def tagged(entry, releases):
     return out
 
 
+def matched(entry, releases):
+    """Drop releases whose version does not match `filter`, a regex.
+
+    A stable line (nginx 1.30, not mainline 1.31) is the row's filter, not a
+    sentence in `check` (n-8e5451). A pattern that matches nothing the source
+    listed is said, the same way a tag pattern that fits no tag is said."""
+    pattern = str(entry.get("filter") or "")
+    if not pattern:
+        return releases
+    try:
+        regex = re.compile(pattern)
+    except re.error as err:
+        raise ValueError(f"filter = \"{pattern}\" is not a pattern ({err})") from err
+    out = [r for r in releases if r.get("version") and regex.search(str(r["version"]))]
+    if releases and not out:
+        newest = releases[0].get("version") or "?"
+        raise ValueError(f"no version the source lists matches filter = \"{pattern}\";"
+                         f" the newest tag is {newest}")
+    return out
+
+
 def tag_of(entry, version):
     """The tag a version of this row is written as at the source."""
     pattern = str(entry.get("tag") or "")
@@ -2056,7 +2077,7 @@ def survey(watched, refresh, deadline, only=""):
         known = held_date.get("at", "") if isinstance(held_date, dict) and held_date.get("pin") == entry.get("pin", "?") else ""
         try:
             got, old, live = obtain(entry, refresh, deadline)
-            releases = tagged(entry, got)
+            releases = matched(entry, tagged(entry, got))
         except (OSError, ValueError, http.client.HTTPException,
                 subprocess.TimeoutExpired, Unreachable) as err:
             # The reason goes to `whynot`, not into the table: it is a sentence,

@@ -218,20 +218,25 @@ its own findings costs half of one skeptic per finding and finds the same
 
 A project built on this follows three public standards, so that the next agent
 and the next person find what they expect without being told. Version numbers
-follow https://semver.org: the first version is 0.1.0, and 1.0.0 is the first
-one other people rely on. From its first version on, the project keeps a
-`CHANGELOG.md` in its root after https://keepachangelog.com: newest first,
-written for whoever uses the thing. A version is the project's own, not the
-backbone's, and it is cut at a meaningful point: `just release` when a spec is
-done, and `just release patch` when a fix goes out on its own between specs.
-It reads the step from the commits since the last version. The first run
-drafts the notes into `## [Unreleased]` in `CHANGELOG.md`, from the feat,
-fix, perf, refactor, revert and breaking commits the notes there do not say
-yet, shows them and stops: show them to the person. The next run tags
-`vX.Y.Z` with whatever `[Unreleased]` then says, and notes that already say
-every commit are released at once. The tag goes to GitHub with the backup.
-The person types none of it. Only the maintainer's word crosses into
-1.0.0 (`just release major`). Commit messages follow
+follow CalVer `YY.M.PATCH` (https://calver.org): two-digit year, month without
+a leading zero, patch from 0 — October 2026 is `26.10.0`, then `26.10.1`, and
+January 2027 is `27.1.0`. It is also valid Semantic Versioning
+(https://semver.org), so cargo, npm, the App Store and the backbone's own
+semver tools keep working, and a CalVer version is always higher than any
+`0.x`, `1.x` or `3.x` number before it. An old SemVer project needs no step of
+its own: its next release is the CalVer of the day. From its first version on,
+the project keeps a `CHANGELOG.md` in its root after
+https://keepachangelog.com: newest first, written for whoever uses the thing.
+A version is the project's own, not the backbone's, and it is cut at a
+meaningful point: `just release` when a spec is done, and `just release patch`
+when a fix goes out on its own between specs. The first run drafts the notes
+into `## [Unreleased]` in `CHANGELOG.md`, from the feat, fix, perf, refactor,
+revert and breaking commits the notes there do not say yet, shows them and
+stops: show them to the person. The next run tags `vYY.M.PATCH` with whatever
+`[Unreleased]` then says, and notes that already say every commit are released
+at once. The tag goes to GitHub with the backup. The person types none of it.
+`patch`, `minor` and `major` are still accepted, and all mean that same next
+CalVer version. Commit messages follow
 https://www.conventionalcommits.org: the commit hook refuses a message without
 its kind at the front (`feat`, `fix`, `docs`, `chore`, `test`, `refactor`,
 `style`, `perf`, `build`, `ci`, `revert`), and `just save` writes `chore:` for

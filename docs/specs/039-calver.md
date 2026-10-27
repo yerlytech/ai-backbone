@@ -1,5 +1,5 @@
 ---
-status: approved
+status: done
 date: 2026-10-23
 ---
 
@@ -64,28 +64,28 @@ None. The maintainer decided CalVer `YY.M.PATCH` at the company desk on
 
 ## Acceptance
 
-- [ ] `just release` in a project with no tag cuts this month's `YY.M.0`.
-- [ ] A second release in the same month cuts the next patch, `YY.M.1`.
-- [ ] A release in a new month cuts `YY.(M+1).0`.
-- [ ] A project whose last tag is `v0.4.2` cuts `26.10.0`, not `0.4.3`.
-- [ ] `patch`, `minor` and `major` are accepted, mean the next CalVer, and say
+- [x] `just release` in a project with no tag cuts this month's `YY.M.0`.
+- [x] A second release in the same month cuts the next patch, `YY.M.1`.
+- [x] A release in a new month cuts `YY.(M+1).0`.
+- [x] A project whose last tag is `v0.4.2` cuts `26.10.0`, not `0.4.3`.
+- [x] `patch`, `minor` and `major` are accepted, mean the next CalVer, and say
       so in one line.
-- [ ] An existing tag refuses the release, as before.
-- [ ] A new `CHANGELOG.md` says the versions follow CalVer `YY.M.PATCH`
+- [x] An existing tag refuses the release, as before.
+- [x] A new `CHANGELOG.md` says the versions follow CalVer `YY.M.PATCH`
       (https://calver.org), also valid Semantic Versioning.
-- [ ] The session skill's "Public standards" and every doc that names SemVer for
+- [x] The session skill's "Public standards" and every doc that names SemVer for
       projects say CalVer.
-- [ ] `core.just` line 1 says `26.10.0`, and the CHANGELOG has its entry.
-- [ ] `just stable 26.10.0`, `template-update`, the freshness block and a
+- [x] `core.just` line 1 says `26.10.0`, and the CHANGELOG has its entry.
+- [x] `just stable 26.10.0`, `template-update`, the freshness block and a
       project's "behind" check read `26.10.0` as newer than `3.46.0`.
-- [ ] `just self-test` is green.
+- [x] `just self-test` is green.
 
 ## Tasks
 
-- [ ] Write this spec, approved.
-- [ ] `just release`: the CalVer rule, the step arguments, the CHANGELOG header,
+- [x] Write this spec, approved.
+- [x] `just release`: the CalVer rule, the step arguments, the CHANGELOG header,
       no `1.0.0` rule; self-test cases for first release, same month twice, a new
       month, a last tag of `v0.4.2`, and an existing tag.
-- [ ] The session skill, the spec skill and the docs: CalVer for projects.
-- [ ] The backbone's own version to `26.10.0`: `core.just`, the CHANGELOG entry,
+- [x] The session skill, the spec skill and the docs: CalVer for projects.
+- [x] The backbone's own version to `26.10.0`: `core.just`, the CHANGELOG entry,
       and a self-test that the version comparison reads it as newer than `3.46.0`.

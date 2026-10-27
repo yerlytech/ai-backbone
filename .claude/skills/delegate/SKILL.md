@@ -13,7 +13,8 @@ With `WORKER` set to `grok`, `claude` or `opencode`, this session is the manager
 
 1. Write no product code. One task at a time.
 2. `just delegate "<task>"`. The worker runs on `delegate/<date>-<slug>`, in
-   this folder, and commits with `just save`. The recipe prints the worker's
+   this folder, and commits with `just save`. A line `Title: ...` in the task
+   is the slug. The same slug on the same day becomes `…-2`, then `…-3`. The recipe prints the worker's
    report (at most 15 lines), the commits, whether the tree is clean, and the
    exit. The log stays outside the repo. An opencode report ends with
    `cost: $<sum> on <model>, <n> steps`, summed from that run's events.
@@ -39,7 +40,9 @@ the last report, the model and cost of the last opencode run when the log has
 one, and the open `delegate/*` branches. `DELEGATE_TIMEOUT` is
 minutes for one job (180 if unset). `DELEGATE_BASE` is a long-lived branch to
 start from instead of the default. The branch records it, accept
-fast-forwards onto it, and drop returns to it. `WORKER_MODEL` pins one model.
+fast-forwards onto it, and drop returns to it. Accept does that in the
+worktree that has the delegate branch checked out, and does not switch a
+worktree that is on main onto the lane. `WORKER_MODEL` pins one model.
 For `claude` it is passed through. For `opencode` it is used on every round
 instead of the ladder. `WORKER_LADDER` is that ladder, comma-separated
 `opencode-go/<id>`. Unset, it is
@@ -59,6 +62,27 @@ denies push, merge, rebase, checkout, switch, reset, branch deletion, tag,
 publish, ship, deploy, release, undo, gh, curl, ssh and rm, the wrappers
 `sh`, `bash`, `zsh`, `eval`, `xargs` and `env`, web fetch, and paths outside
 the project.
+
+## Pin bumps
+
+The worker has no network. Before a task that bumps a pin, the desk installs
+the package in the lane and writes the release notes into `target/`. The
+worker reads that file. It does not run npm, gh or `just upstream`.
+
+## What a worker cannot do
+
+The deny list is command text and can be reworded. These hold another way:
+
+- A merge, a rebase or a reset does not move the branch. The ref update is
+  refused unless the new tip's first parent is the old tip.
+- `DELEGATE_TIMEOUT` and `DELEGATE_IDLE` kill the worker's process group.
+- opencode cannot read a path outside the project.
+- curl, ssh and gh are denied. A firewall for every outbound call is not this list.
+- The task text has no zero-width character, bidi mark or HTML comment.
+
+A grok rule that denies reads of `~/.aws`, `~/.appstoreconnect`, `brain/03-stack`
+and `.env` is not here: that syntax was not measured. opencode's rule above
+covers a path outside the project.
 
 A run that pushed, moved the default branch (or the base, when one is set), or
 changed the branch list prints `BREACH:` first and exits non-zero. A fetch

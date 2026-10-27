@@ -1,5 +1,5 @@
 ---
-status: approved
+status: done
 date: 2026-10-22
 approved: the maintainer, 2026-10-22 (the direction: an opencode worker that starts cheap and
   climbs a model ladder; the details below were written by the session from that word and from

@@ -16,6 +16,41 @@ entries below are the record of every version.
 
 ## [Unreleased]
 
+**A lane branch the worker creates is a breach (n-e3b7b0).** The branch-list
+check skipped every `lane/` name, so a worker that created one and left it
+unchecked was not caught. A `lane/` branch is ignored only when another
+worktree has it checked out.
+
+**Two tasks that start alike no longer collide (n-66b728).** The branch is
+still `delegate/<date>-<slug>`. A `Title:` line is the slug. The same slug
+on the same day is `-2`, then `-3`.
+
+**Accept does not switch the main worktree onto a lane (n-67267f).**
+`just delegate-accept` fast-forwards the recorded base in the worktree that
+has the delegate branch, and deletes the branch. A worktree that is on main
+stays there.
+
+**A merge is refused at the ref (n-683f69).** The deny list is command text
+and was stepped around. For the length of the job, a branch tip moves only
+when the new commit's first parent is the old tip, so a merge commit, a
+rebase or a reset does not land. Creating or deleting another branch is
+still the breach check's to catch.
+
+**The task text is stripped before the worker sees it (n-5b9b58).**
+Zero-width characters, bidi marks and HTML comments are removed. The
+delegate skill lists what else a worker cannot do. A pin bump is installed
+by the desk, and the release notes go in `target/`, because the worker has
+no network (n-92dae6).
+
+**A watch can follow one stable line (n-8e5451).** A row may set `filter`
+to a regex. Only versions that match are compared, so a mainline tag is
+not behind when the row is the stable line. A pattern that matches nothing
+the source lists is said.
+
+**A Rust lens has a checklist (n-e28eea).** The audit skill names the
+production hazards a Rust reading looks for. A hit is still a finding only
+with a verdict.
+
 ## 26.10.0 — 2026-10-24
 
 **Versions follow CalVer `YY.M.PATCH`, for every project and for the backbone

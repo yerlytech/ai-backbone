@@ -196,7 +196,7 @@ just project-note <project> "one line"   # a note for another project on this ma
 just save "msg" <path>...                # save only those paths, and hear what was left unsaved
 just delegate "<task>"                  # hand one task to a worker on its own branch
 just delegate-status                    # whether a job is running, the last report and its cost, the open delegate branches
-just delegate-accept [branch]           # fast-forward the default branch, or the recorded base, onto that work
+just delegate-accept [branch]           # fast-forward the default branch, or the recorded base, onto that work; a main worktree is not switched onto a lane
 just delegate-drop [branch]             # ask once (--yes skips it), then delete the branch and return to that base
 just secrets-to-brain                   # move git-ignored secrets into brain/secrets/, leave a link at the old path
 just secrets-back                       # put each secret back and empty brain/secrets/
@@ -205,7 +205,9 @@ just --list          # everything
 
 When `WORKER` is `grok`, `claude` or `opencode`, the session manages. It sends one task,
 reads the report, and accepts, fixes or drops. A fix is another `just delegate`
-on that same `delegate/*` branch, so the first round's commits stay. It writes
+on that same `delegate/*` branch, so the first round's commits stay. A line
+`Title:` in the task names the branch; the same name on the same day gets
+`-2`. It writes
 no product code.
 `just publish` and `just ship` stay with that session. `WORKER` unset or `off`
 is the default on a new machine, and then the session does the work as before,
