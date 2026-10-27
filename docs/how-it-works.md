@@ -131,3 +131,11 @@ Code's own permissions page says so, read 2026-10-18). Other agents (Codex,
 Gemini CLI, Cursor, Zed's own agent) do not read this file at all. What really
 holds is elsewhere: the gate, which nothing on `cloud` can change, your yes
 before code reaches `main`, and `brain/` never leaving your machine.
+
+The file is a seed. A new project gets a copy, and after that the file is the
+project's. `just template-update` does not replace it. When `WORKER` is
+`grok`, `claude` or `opencode`, a new project and `just template-update` add
+four allow rules, so Claude Code may run `just delegate`, `just delegate-status`,
+`just delegate-accept` and `just delegate-drop` without asking. A rule the
+project wrote stays. With `WORKER` unset or `off`, nothing is added. The same
+merge runs on `just hooks-install` and on `just adopt`.

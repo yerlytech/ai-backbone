@@ -18,6 +18,10 @@ unset $(git rev-parse --local-env-vars 2>/dev/null) 2>/dev/null || true
 # Claude Code names this file for its SessionStart hook; every session-start
 # below would write into the real one (spec 028).
 unset CLAUDE_ENV_FILE
+# Nor this machine's delegation choice. A runner with WORKER set would write
+# allow rules into every throwaway project. The checks that want them set
+# WORKER themselves (n-cdb28d).
+unset WORKER
 root="$(cd "$(dirname "$0")/.." && pwd -P)"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -503,6 +507,35 @@ check "and so does template-update, for a project made before the hook existed" 
 check "the seed gives a new project the hook"           "grep -q 'agent-cap.sh' '$root/.claude/settings.json'"
 # Spec 031: nothing throws work away unasked; the list guards habits, not a boundary.
 check "the seed does not allow git checkout -- ., and denies the other rm spellings" "! grep -qF 'git checkout -- .' '$root/.claude/settings.json' && grep -qF 'Bash(rm -fr:*)' '$root/.claude/settings.json' && grep -qF 'Bash(rm -r -f:*)' '$root/.claude/settings.json' && grep -q 'It is not a security boundary' '$root/docs/how-it-works.md'"
+# n-cdb28d. .claude/settings.json is a seed, then the project's. The four
+# delegation rules are merged when WORKER is set. A rule the project wrote stays.
+da="$tmp/delegate-allow"; mkdir -p "$da"
+"$py" - "$da/own.json" <<'PYEOF'
+import json, sys
+json.dump({"permissions": {"allow": ["Bash(just mine:*)"], "deny": ["Bash(sudo:*)"]}, "kept": True}, open(sys.argv[1], "w"), indent=2)
+open(sys.argv[1], "a").write("\n")
+PYEOF
+cp "$da/own.json" "$da/off.json"
+check "WORKER unset or off adds no delegation rule and does not rewrite the file" "[ \"\$(env -u WORKER '$py' '$root/.ai-backbone/budget.py' allow '$da/off.json')\" = off ] && [ \"\$(env WORKER=off '$py' '$root/.ai-backbone/budget.py' allow '$da/off.json')\" = off ] && [ \"\$(env WORKER=other '$py' '$root/.ai-backbone/budget.py' allow '$da/off.json')\" = off ] && cmp -s '$da/own.json' '$da/off.json'"
+check "the four delegation rules are added once, behind a rule the project wrote" "[ \"\$(env WORKER=grok '$py' '$root/.ai-backbone/budget.py' allow '$da/own.json')\" = added ] && [ \"\$(env WORKER=claude '$py' '$root/.ai-backbone/budget.py' allow '$da/own.json')\" = 'already there' ] && '$py' -c \"import json,sys; d=json.load(open(sys.argv[1])); a=d['permissions']['allow']; assert a==['Bash(just mine:*)','Bash(just delegate:*)','Bash(just delegate-status:*)','Bash(just delegate-accept:*)','Bash(just delegate-drop:*)'], a; assert d['permissions']['deny']==['Bash(sudo:*)'] and d['kept'] is True\" '$da/own.json'"
+printf '{ // comment\n}\n' > "$da/bad.json"
+check "a settings file that is not plain JSON is left alone when the delegation rules are asked for" "! env WORKER=grok '$py' '$root/.ai-backbone/budget.py' allow '$da/bad.json' >/dev/null && grep -q '// comment' '$da/bad.json'"
+printf '{"permissions":{"allow":"Bash(just mine:*)"}}\n' > "$da/str.json"
+check "an allow value that is not a list is left alone" "! env WORKER=grok '$py' '$root/.ai-backbone/budget.py' allow '$da/str.json' >/dev/null && grep -q 'Bash(just mine:' '$da/str.json' && ! grep -q 'just delegate:' '$da/str.json'"
+check "the seed does not list the delegation rules" "! grep -qF 'Bash(just delegate:*)' '$root/.claude/settings.json' && grep -q 'just delegate-drop' '$root/docs/how-it-works.md' && grep -q n-cdb28d '$root/CHANGELOG.md' && ! grep -q n-cdb28d '$root/docs/backlog.md'"
+if ( cd "$root" && env -u WORKER just new-project "$tmp/deleg-old" ) >/dev/null 2>&1; then ok "a project made with delegation off"; else bad "a project made with delegation off"; fi
+check "that project has no delegation allow rule yet" "! grep -qF 'Bash(just delegate:*)' '$tmp/deleg-old/.claude/settings.json' && grep -qF 'Bash(just:*)' '$tmp/deleg-old/.claude/settings.json'"
+"$py" - "$tmp/deleg-old/.claude/settings.json" <<'PYEOF'
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["permissions"]["allow"].insert(0, "Bash(just mine:*)")
+json.dump(d, open(p, "w"), indent=2)
+open(p, "a").write("\n")
+PYEOF
+check "template-update with WORKER set adds the four rules and keeps the project's" "upd=\$(cd '$tmp/deleg-old' && env WORKER=opencode just template-update 2>&1) && grep -q 'may run just delegate' <<<\"\$upd\" && '$py' -c \"import json,sys; d=json.load(open(sys.argv[1])); a=d['permissions']['allow']; assert a[0]=='Bash(just mine:*)', a; assert a.count('Bash(just delegate:*)')==1; assert 'Bash(just delegate-status:*)' in a and 'Bash(just delegate-accept:*)' in a and 'Bash(just delegate-drop:*)' in a; assert 'Bash(just:*)' in a; assert 'Bash(sudo:*)' in d['permissions']['deny']\" '$tmp/deleg-old/.claude/settings.json' && upd2=\$(cd '$tmp/deleg-old' && env WORKER=grok just template-update 2>&1) && ! grep -q 'may run just delegate' <<<\"\$upd2\" && '$py' -c \"import json,sys; a=json.load(open(sys.argv[1]))['permissions']['allow']; assert a.count('Bash(just delegate:*)')==1 and a.count('Bash(just mine:*)')==1\" '$tmp/deleg-old/.claude/settings.json'"
+if ( cd "$root" && env WORKER=claude just new-project "$tmp/deleg-fresh" ) >/dev/null 2>&1; then ok "a fresh project with WORKER set"; else bad "a fresh project with WORKER set"; fi
+check "a fresh project gets the four rules and keeps the seed's" "'$py' -c \"import json,sys; d=json.load(open(sys.argv[1])); a=d['permissions']['allow']; assert 'Bash(just:*)' in a and a.count('Bash(just delegate:*)')==1 and 'Bash(just delegate-status:*)' in a and 'Bash(just delegate-accept:*)' in a and 'Bash(just delegate-drop:*)' in a; assert 'Bash(sudo:*)' in d['permissions']['deny']\" '$tmp/deleg-fresh/.claude/settings.json'"
 # Claude Code's skills are copies, never links: Git for Windows checks a link out
 # as a text file naming its target, and Claude Code found no skills (spec 020).
 check "a new project's skills are copies Claude Code reads on any machine" "[ -f .claude/skills/session/SKILL.md ] && [ ! -L .claude/skills/session ] && just _rules-check"

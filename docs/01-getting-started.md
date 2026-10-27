@@ -224,6 +224,10 @@ one. For opencode, `WORKER_LADDER` is the ladder. Unset, it is
 `opencode-go/kimi-k3`. The first try uses the first; each fix round the next;
 past the last, the job refuses. The report ends with what that run cost, and
 `just delegate-status` shows the model and the cost of the last run.
+A new project, and `just template-update` on one already there, add Claude
+Code allow rules for those four commands when `WORKER` is set. A rule the
+project already wrote stays. With `WORKER` unset or `off`, that file is left
+alone.
 
 ## The backbone gets stronger while you work
 

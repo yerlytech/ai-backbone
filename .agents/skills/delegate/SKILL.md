@@ -27,6 +27,13 @@ With `WORKER` set to `grok`, `claude` or `opencode`, this session is the manager
    job yourself instead. For opencode, that is past the last model of the ladder.
 6. A spec still goes to the maintainer for a yes. A draft of one may be delegated.
 
+`.claude/settings.json` is the project's own file after it is created. When
+`WORKER` is `grok`, `claude` or `opencode`, a new project and
+`just template-update` add allow rules for `just delegate`,
+`just delegate-status`, `just delegate-accept` and `just delegate-drop`.
+A rule the project wrote stays. Do not edit that file to add these. With
+`WORKER` unset or `off`, nothing is added.
+
 ## Queue
 
 Related small jobs are one task text: one round, one report. Independent jobs

@@ -16,6 +16,16 @@ entries below are the record of every version.
 
 ## [Unreleased]
 
+**Delegation may run without a prompt when it is on (n-cdb28d).**
+`.claude/settings.json` is a seed: copied once, then the project's.
+When `WORKER` is `grok`, `claude` or `opencode`, a new project and
+`just template-update` add `Bash(just delegate:*)`,
+`Bash(just delegate-status:*)`, `Bash(just delegate-accept:*)` and
+`Bash(just delegate-drop:*)` to its allow list. A rule the project wrote
+is left in place. With `WORKER` unset or `off`, nothing is added. An update
+from an older backbone still adds them, on that same `just template-update`.
+The maintainer said yes on 2026-10-27.
+
 **A lane branch the worker creates is a breach (n-e3b7b0).** The branch-list
 check skipped every `lane/` name, so a worker that created one and left it
 unchecked was not caught. A `lane/` branch is ignored only when another
