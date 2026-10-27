@@ -1824,19 +1824,57 @@ def package_dirs():
     return out
 
 
+def _windows_comspec(env):
+    """cmd.exe by a full path. The PATH this call passes is the folder that
+    holds npm, so CreateProcess must not go looking for an unqualified
+    cmd.exe: one earlier on PATH would be the wrong program, and System32 is
+    not on that PATH."""
+    comspec = env.get("ComSpec") or env.get("COMSPEC")
+    if comspec:
+        return comspec
+    root = env.get("SystemRoot") or env.get("SYSTEMROOT") or ""
+    return os.path.join(root, "System32", "cmd.exe")
+
+
+def npm_windows_argv(found, args, env):
+    """argv for an npm that shutil.which has already resolved on Windows.
+    Node's npm is npm.cmd, and so is the suite's stand-in. CreateProcess,
+    which is what shell=False uses, appends .exe only and will not start a
+    .cmd, so the name `npm` raises FileNotFoundError while npm.cmd sits on
+    PATH. cmd /c resolves the name `npm` through PATHEXT in that same PATH:
+    the real install and the stand-in are found the same way. An .exe is a
+    program and runs as itself."""
+    if os.path.splitext(found)[1].lower() in (".cmd", ".bat"):
+        return [_windows_comspec(env), "/d", "/c", "npm", *args]
+    return [found, *args]
+
+
+def npm_argv(args, env):
+    """argv for one npm call. On Windows a missing npm is a FileNotFoundError
+    here, not cmd's 9009, so the session says npm is not installed."""
+    if os.name != "nt":
+        return ["npm", *args]
+    found = shutil.which("npm", path=env.get("PATH", ""))
+    if not found:
+        raise FileNotFoundError("npm")
+    return npm_windows_argv(found, args, env)
+
+
 def npm_call(folder, args, seconds):
     """One npm call, its answer as text. Through temporary files, not pipes: a
     child npm started that outlives its parent must not hold this session on a
     pipe that never closes. The return code is npm's; 1 means "found something"
-    for both outdated and audit, not a failure."""
+    for both outdated and audit, not a failure. shell stays false: on Windows
+    the argv is already cmd /c when the file on PATH is a .cmd."""
     env = dict(os.environ)
     env.update({"NO_UPDATE_NOTIFIER": "1", "npm_config_update_notifier": "false",
                 "npm_config_fund": "false", "npm_config_progress": "false",
                 "npm_config_audit": "false"})
     with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as out, \
             tempfile.TemporaryFile(mode="w+", encoding="utf-8") as err:
-        done = subprocess.run(["npm", *args], cwd=folder, stdout=out, stderr=err,
-                              text=True, timeout=max(seconds, 0.05), env=env)
+        done = subprocess.run(npm_argv(args, env), cwd=folder, stdout=out, stderr=err,
+                              text=True, timeout=max(seconds, 0.05), env=env,
+                              shell=False)
         out.seek(0)
         return done.returncode, out.read()
 

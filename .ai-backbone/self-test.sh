@@ -2218,6 +2218,24 @@ elif mode == "brew":
             fail(str(err))
     else:
         fail("a formula with no stable version was read as an answer")
+elif mode == "npm-win":
+    # The shape of the Windows launch, on every machine: the suite's Mac run
+    # never starts CreateProcess, and a .cmd stand-in that the Mac run can
+    # execute is how the last fix stayed green here and red on windows-latest.
+    env = {"ComSpec": r"C:\Windows\System32\cmd.exe", "SystemRoot": r"C:\Windows"}
+    cmd = u.npm_windows_argv(r"C:\Program Files\nodejs\npm.cmd", ["outdated", "--json"], env)
+    if cmd != [r"C:\Windows\System32\cmd.exe", "/d", "/c", "npm", "outdated", "--json"]:
+        fail(repr(cmd))
+    upper = u.npm_windows_argv(r"C:\node\npm.CMD", ["outdated", "--json"], env)
+    if upper != cmd:
+        fail(repr(upper))
+    exe = u.npm_windows_argv(r"C:\node\npm.exe", ["audit", "--json"], env)
+    if exe != [r"C:\node\npm.exe", "audit", "--json"]:
+        fail(repr(exe))
+    bare = u.npm_windows_argv(r"C:\node\npm.bat", ["audit", "--json"], {"SystemRoot": r"C:\Windows"})
+    expect = os.path.join(r"C:\Windows", "System32", "cmd.exe")
+    if bare != [expect, "/d", "/c", "npm", "audit", "--json"]:
+        fail(repr(bare))
 elif mode.startswith("npm-"):
     tree = Path(base) / (mode + "-tree")
     bindir = Path(base) / (mode + "-bin")
@@ -2233,10 +2251,14 @@ elif mode.startswith("npm-"):
         'esac\n'
         'exit 0\n', encoding="utf-8", newline="\n")
     script.chmod(0o755)
-    # Python on Windows finds a command by its extension, as a person's shell
-    # there does not (spec 020). The script stays LF: a CRLF shebang is not a
-    # program. npm.cmd names bash by a full path, because PATH below is only
-    # this folder, and a native Python will not run an extensionless script.
+    # The real npm on Windows is npm.cmd. CreateProcess (shell=False) appends
+    # .exe only and will not start a .cmd; upstream.py runs the name `npm`
+    # through cmd /c, which resolves npm.cmd by PATHEXT in this folder. The
+    # script stays LF: a CRLF shebang is not a program. npm.cmd names bash by
+    # a full path, because PATH below is only this folder. The exit code is
+    # stored before the next line is parsed: `%ERRORLEVEL%` on the same line
+    # as the program is still the previous one. The log path is the Git bash
+    # form of the same file: a redirection there does not open C:\...
     if os.name == "nt":
         bash = shutil.which("bash") or shutil.which("sh")
         if not bash:
@@ -2244,9 +2266,18 @@ elif mode.startswith("npm-"):
         (bindir / "npm.cmd").write_text(
             '@echo off\n'
             f'"{bash}" "%~dp0npm" %*\n'
-            'exit /b %ERRORLEVEL%\n',
+            'set RC=%ERRORLEVEL%\n'
+            'exit /b %RC%\n',
             encoding="utf-8", newline="\r\n")
-    os.environ["FAKE_NPM_LOG"] = str(log)
+    def for_bash(path):
+        text = os.fspath(path)
+        if os.name != "nt":
+            return text
+        drive, rest = os.path.splitdrive(text)
+        if drive:
+            return "/" + drive[0].lower() + rest.replace("\\", "/")
+        return text
+    os.environ["FAKE_NPM_LOG"] = for_bash(log)
     if mode == "npm-none":
         tree.mkdir(parents=True, exist_ok=True)
     else:
@@ -2280,6 +2311,9 @@ elif mode.startswith("npm-"):
     rc, out = run(tree, "--npm")
     took = time.monotonic() - started
     calls = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+    # Git bash logs a /c/... path; cmd would log C:\... Either way the folder
+    # is the same one.
+    calls = [c.replace("\\", "/") for c in calls]
     if mode == "npm-none":
         if rc != 0 or out != "" or calls:
             fail(f"rc={rc} calls={calls}\n{out}")
@@ -2335,6 +2369,7 @@ check "a pointer with no version is unreachable, never current"      "fresh035 p
 check "a stable channel is not compared with a registry's alpha"     "fresh035 pointer-fresh"
 check "a worker CLI is compared with the channel it was installed on" "fresh035 channel-fresh"
 check "a Homebrew formula says the stable version brew would install" "fresh035 brew"
+check "Windows runs npm.cmd through cmd, and npm.exe as itself"    "fresh035 npm-win"
 check "npm outdated and audit are read for every package.json, node_modules skipped" "fresh035 npm-report"
 check "no package.json means no npm call and no line"                "fresh035 npm-none"
 check "a slow npm is one line, and the session goes on"              "fresh035 npm-slow"
