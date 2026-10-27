@@ -4955,9 +4955,18 @@ d_new ocbin
 mkdir -p "$dhome/.opencode/bin" "$tmp/delegate-plain"
 cp "$dbin/opencode" "$dhome/.opencode/bin/opencode"
 chmod +x "$dhome/.opencode/bin/opencode"
-ln -sf "$(command -v just)" "$tmp/delegate-plain/just"
-ln -sf "$(command -v git)" "$tmp/delegate-plain/git"
-ln -sf "$(command -v perl)" "$tmp/delegate-plain/perl"
+# A copied exe does not start: its libraries sit beside the real one, and
+# Git Bash copies when it cannot link (spec 020). The new task strip and the
+# ref hook both run perl, so a copied perl.exe ended the recipe before the
+# worker. A script runs the real binary. This folder still has no opencode.
+for tool in just git perl; do
+  src=$(command -v "$tool")
+  printf '#!/bin/sh\nexec "%s" "$@"\n' "$src" > "$tmp/delegate-plain/$tool"
+  chmod +x "$tmp/delegate-plain/$tool"
+  if command -v cygpath >/dev/null 2>&1; then
+    printf '@echo off\r\n"%s" %%*\r\n' "$(cygpath -w "$src")" > "$tmp/delegate-plain/$tool.cmd"
+  fi
+done
 rm -f "$tmp/delegate-binlog"
 # Homebrew's bin holds the real opencode next to just. This path does not,
 # or the fallback would never run and a live model would.
