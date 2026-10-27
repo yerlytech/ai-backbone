@@ -1872,6 +1872,7 @@ import importlib.util
 import io
 import json
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -2230,8 +2231,21 @@ elif mode.startswith("npm-"):
         '  outdated) [ -n "${FAKE_NPM_SLEEP:-}" ] && /bin/sleep "$FAKE_NPM_SLEEP"; printf \'%s\' "$FAKE_NPM_OUTDATED"; exit "${FAKE_NPM_OUTDATED_RC:-1}";;\n'
         '  audit) [ -n "${FAKE_NPM_SLEEP:-}" ] && /bin/sleep "$FAKE_NPM_SLEEP"; printf \'%s\' "$FAKE_NPM_AUDIT"; exit "${FAKE_NPM_AUDIT_RC:-1}";;\n'
         'esac\n'
-        'exit 0\n', encoding="utf-8")
+        'exit 0\n', encoding="utf-8", newline="\n")
     script.chmod(0o755)
+    # Python on Windows finds a command by its extension, as a person's shell
+    # there does not (spec 020). The script stays LF: a CRLF shebang is not a
+    # program. npm.cmd names bash by a full path, because PATH below is only
+    # this folder, and a native Python will not run an extensionless script.
+    if os.name == "nt":
+        bash = shutil.which("bash") or shutil.which("sh")
+        if not bash:
+            fail("bash is not on PATH, so the stand-in npm cannot run")
+        (bindir / "npm.cmd").write_text(
+            '@echo off\n'
+            f'"{bash}" "%~dp0npm" %*\n'
+            'exit /b %ERRORLEVEL%\n',
+            encoding="utf-8", newline="\r\n")
     os.environ["FAKE_NPM_LOG"] = str(log)
     if mode == "npm-none":
         tree.mkdir(parents=True, exist_ok=True)
@@ -3757,7 +3771,13 @@ check "a folder that is not cargo's is left alone by the recipe too" "says 'is n
 # A Rust workspace below the root: the recipe finds every folder cargo made,
 # not only the one the layer names (n-2a36ec).
 mkcargo "$bo/proj/src/app/target"
-check "trim-build finds a nested workspace's build folder too" "says 'over the cap of .*: removed' tcap 0.0001 env -u CARGO_META_TARGET just trim-build && [ ! -e '$bo/proj/src/app/target/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && grep -q 'over the cap' '$bo/proj/src/app/target/ai-backbone-trim.log'"
+# Where cargo's locks can be read, the nested folder is trimmed. Where they
+# cannot (no fcntl, spec 020), it is still found and nothing is removed.
+if "$py" -c 'import fcntl' 2>/dev/null; then
+  check "trim-build finds a nested workspace's build folder too" "says 'over the cap of .*: removed' tcap 0.0001 env -u CARGO_META_TARGET just trim-build && [ ! -e '$bo/proj/src/app/target/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && grep -q 'over the cap' '$bo/proj/src/app/target/ai-backbone-trim.log'"
+else
+  check "trim-build finds a nested workspace's build folder too" "says 'over the cap of .*; cargo.s locks cannot be read' tcap 0.0001 env -u CARGO_META_TARGET just trim-build && [ -e '$bo/proj/src/app/target/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && grep -q 'cargo.s locks cannot be read' '$bo/proj/src/app/target/ai-backbone-trim.log'"
+fi
 rm -f "$tmp/tr/target/ai-backbone-trim.log" "$tmp/tr/target/ai-backbone-trim.done"
 tcap 60 env BUILD_WAIT_MINUTES=1 just _build-wait >/dev/null 2>&1
 i=0; until [ -s "$tmp/tr/target/ai-backbone-trim.log" ] || [ "$i" -ge 100 ]; do sleep 0.1; i=$((i + 1)); done
@@ -4935,9 +4955,18 @@ d_new ocbin
 mkdir -p "$dhome/.opencode/bin" "$tmp/delegate-plain"
 cp "$dbin/opencode" "$dhome/.opencode/bin/opencode"
 chmod +x "$dhome/.opencode/bin/opencode"
-ln -sf "$(command -v just)" "$tmp/delegate-plain/just"
-ln -sf "$(command -v git)" "$tmp/delegate-plain/git"
-ln -sf "$(command -v perl)" "$tmp/delegate-plain/perl"
+# A copied exe does not start: its libraries sit beside the real one, and
+# Git Bash copies when it cannot link (spec 020). The new task strip and the
+# ref hook both run perl, so a copied perl.exe ended the recipe before the
+# worker. A script runs the real binary. This folder still has no opencode.
+for tool in just git perl; do
+  src=$(command -v "$tool")
+  printf '#!/bin/sh\nexec "%s" "$@"\n' "$src" > "$tmp/delegate-plain/$tool"
+  chmod +x "$tmp/delegate-plain/$tool"
+  if command -v cygpath >/dev/null 2>&1; then
+    printf '@echo off\r\n"%s" %%*\r\n' "$(cygpath -w "$src")" > "$tmp/delegate-plain/$tool.cmd"
+  fi
+done
 rm -f "$tmp/delegate-binlog"
 # Homebrew's bin holds the real opencode next to just. This path does not,
 # or the fallback would never run and a live model would.
