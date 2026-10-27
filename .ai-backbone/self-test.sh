@@ -3771,7 +3771,13 @@ check "a folder that is not cargo's is left alone by the recipe too" "says 'is n
 # A Rust workspace below the root: the recipe finds every folder cargo made,
 # not only the one the layer names (n-2a36ec).
 mkcargo "$bo/proj/src/app/target"
-check "trim-build finds a nested workspace's build folder too" "says 'over the cap of .*: removed' tcap 0.0001 env -u CARGO_META_TARGET just trim-build && [ ! -e '$bo/proj/src/app/target/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && grep -q 'over the cap' '$bo/proj/src/app/target/ai-backbone-trim.log'"
+# Where cargo's locks can be read, the nested folder is trimmed. Where they
+# cannot (no fcntl, spec 020), it is still found and nothing is removed.
+if "$py" -c 'import fcntl' 2>/dev/null; then
+  check "trim-build finds a nested workspace's build folder too" "says 'over the cap of .*: removed' tcap 0.0001 env -u CARGO_META_TARGET just trim-build && [ ! -e '$bo/proj/src/app/target/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && grep -q 'over the cap' '$bo/proj/src/app/target/ai-backbone-trim.log'"
+else
+  check "trim-build finds a nested workspace's build folder too" "says 'over the cap of .*; cargo.s locks cannot be read' tcap 0.0001 env -u CARGO_META_TARGET just trim-build && [ -e '$bo/proj/src/app/target/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && grep -q 'cargo.s locks cannot be read' '$bo/proj/src/app/target/ai-backbone-trim.log'"
+fi
 rm -f "$tmp/tr/target/ai-backbone-trim.log" "$tmp/tr/target/ai-backbone-trim.done"
 tcap 60 env BUILD_WAIT_MINUTES=1 just _build-wait >/dev/null 2>&1
 i=0; until [ -s "$tmp/tr/target/ai-backbone-trim.log" ] || [ "$i" -ge 100 ]; do sleep 0.1; i=$((i + 1)); done
