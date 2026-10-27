@@ -16,6 +16,15 @@ entries below are the record of every version.
 
 ## [Unreleased]
 
+**Session start finds npm on Windows.** The check runs `npm` with
+CreateProcess and `shell=False`. That appends `.exe` only and will not start
+a `.cmd`, so a machine whose npm is `npm.cmd` — the normal install, and the
+suite's stand-in — was told npm is not installed. The call now resolves `npm`
+through PATHEXT and, when that file is a `.cmd` or `.bat`, runs the name
+`npm` with `cmd /c`. The folder on PATH is the only difference between the
+real npm and the stand-in. No npm is still "not installed", not a failed
+session.
+
 **Delegation may run without a prompt when it is on (n-cdb28d).**
 `.claude/settings.json` is a seed: copied once, then the project's.
 When `WORKER` is `grok`, `claude` or `opencode`, a new project and
