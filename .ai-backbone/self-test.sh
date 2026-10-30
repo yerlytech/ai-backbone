@@ -979,11 +979,10 @@ box="$hub/bb/.git/ai-backbone-notes-outbox"
 # The backlog itself passes the rule a note is held to, and the pages say the route.
 bad=""; while IFS= read -r nl; do nr=$(just -f "$root/Justfile" -d "$root" _note-check "$nl" "$root"); [ -z "$nr" ] || bad="$bad$nr: ${nl:0:70}"$'\n'; done < <(grep '^- \[' "$root/docs/backlog.md")
 check "no line of the backbone's own backlog carries what a note may not" "[ -z \"\$bad\" ] || { printf '%s\n' \"\$bad\"; false; }"
-# Open lines, or a built line ticked with its commit, each with a date and an
-# id in the project's place (spec 024); and no tracked file names a project
-# next to this backbone on this machine (nothing next to it on a runner: the
-# check bites on the maintainer's machine).
-check "the backlog holds open lines, or a built line ticked with its commit, each dated and with an id, or a question for the maintainer" "! grep -vE '^- \[x\] [0-9]{4}-[0-9]{2}-[0-9]{2}, n-[0-9a-f]{6}: .*[0-9a-f]{7}|^- \[[ ?]\] [0-9]{4}-[0-9]{2}-[0-9]{2}, n-[0-9a-f]{6}: |^[^ -]|^\$' '$root/docs/backlog.md'"
+# Open lines only, each with a date and an id in the project's place (spec 024);
+# and no tracked file names a project next to this backbone on this machine
+# (nothing next to it on a runner: the check bites on the maintainer's machine).
+check "the backlog holds open lines only, each dated and with an id, or a question for the maintainer" "! grep -q '^- \[x\]' '$root/docs/backlog.md' && ! grep -vE '^- \[[ ?]\] [0-9]{4}-[0-9]{2}-[0-9]{2}, n-[0-9a-f]{6}: |^[^ -]|^\$' '$root/docs/backlog.md'"
 sib=$(just _sibling-names "$root" | tr '\n' '|')
 hits=""; if [ -n "$sib" ]; then hits=$(cd "$root" && IFS='|'; for n in $sib; do [ -n "$n" ] || continue; git grep -ilF -w -- "$n" -- . ':!LICENSE' ':!brain' 2>/dev/null | sed "s/^/$n: /"; done); fi
 check "no tracked file names a project next to this backbone (LICENSE aside)" "[ -z \"\$hits\" ] || { printf '%s\n' \"\$hits\"; false; }"
