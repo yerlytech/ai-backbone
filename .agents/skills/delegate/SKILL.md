@@ -1,6 +1,6 @@
 ---
 name: delegate
-description: How a session hands one task to a worker with just delegate, then accepts, fixes or drops the branch. Use when WORKER is grok, claude or opencode and the session manages instead of writing the product code.
+description: How a session hands one task to a worker with just delegate, then accepts, fixes or drops the branch. Use when WORKER is grok, claude, opencode or kimi and the session manages instead of writing the product code.
 ---
 
 # Delegate
@@ -9,7 +9,7 @@ description: How a session hands one task to a worker with just delegate, then a
 the default on a new machine. The same when the named worker is not installed.
 Do the work yourself, as before.
 
-With `WORKER` set to `grok`, `claude` or `opencode`, this session is the manager.
+With `WORKER` set to `grok`, `claude`, `opencode` or `kimi`, this session is the manager.
 
 1. Write no product code. One task at a time.
 2. `just delegate "<task>"`. The worker runs on `delegate/<date>-<slug>`, in
@@ -28,7 +28,7 @@ With `WORKER` set to `grok`, `claude` or `opencode`, this session is the manager
 6. A spec still goes to the maintainer for a yes. A draft of one may be delegated.
 
 `.claude/settings.json` is the project's own file after it is created. When
-`WORKER` is `grok`, `claude` or `opencode`, a new project and
+`WORKER` is `grok`, `claude`, `opencode` or `kimi`, a new project and
 `just template-update` add allow rules for `just delegate`,
 `just delegate-status`, `just delegate-accept` and `just delegate-drop`.
 A rule the project wrote stays. Do not edit that file to add these. With
@@ -59,8 +59,9 @@ instead of the ladder. `WORKER_LADDER` is that ladder, comma-separated
 The first try of a branch uses the first model; each fix round uses the next.
 `WORKER_BIN` is the binary, when set. Otherwise the name
 on `PATH` is used, and otherwise `~/.grok/bin/grok`, Claude's
-`~/.claude/local/claude` then `~/.local/bin/claude`, or
-`~/.opencode/bin/opencode`. `grok` is called as
+`~/.claude/local/claude` then `~/.local/bin/claude`,
+`~/.opencode/bin/opencode`, or `~/.kimi-code/bin/kimi` then
+`/opt/homebrew/bin/kimi` and `/usr/local/bin/kimi`. `grok` is called as
 `<bin> -p … --output-format plain`, in auto mode, and its deny list names the
 shell wrappers `sh`, `bash`, `zsh`, `eval`, `xargs` and `env` too: that line is
 added and not measured on grok yet. `opencode` is called as
@@ -70,7 +71,14 @@ autoupdate off and gives the worker only shell, read, edit and write. It
 denies push, merge, rebase, checkout, switch, reset, branch deletion, tag,
 publish, ship, deploy, release, undo, gh, curl, ssh and rm, the wrappers
 `sh`, `bash`, `zsh`, `eval`, `xargs` and `env`, web fetch, and paths outside
-the project.
+the project. `kimi` is called as `kimi -p … --output-format stream-json`,
+and `-m` when `DELEGATE_MODEL` is set. It does not read `WORKER_MODEL` and
+does not climb the ladder. kimi-code 2.4.0 has no per-run config file, and
+`KIMI_CODE_HOME` would move the login, so the same deny list, plus `just carry`,
+is a marked block in the user config, rewritten each run. A machine that is
+not logged in stops with `kimi is not logged in: run kimi login` and leaves
+no branch. The report is the last 15 lines of the assistant text in that
+stream-json log.
 
 ## Pin bumps
 
@@ -87,7 +95,9 @@ The deny list is command text and can be reworded. These hold another way:
 - `DELEGATE_TIMEOUT` and `DELEGATE_IDLE` kill the worker's process group.
   The idle end fires only when the worktree has also been clean for that
   whole window. A quiet log with uncommitted changes keeps the job.
-- opencode cannot read a path outside the project.
+- opencode cannot read a path outside the project. kimi denies reads and
+  writes of `~/.aws`, `~/.appstoreconnect`, `brain/03-stack` and `.env` by
+  pattern. It has no blanket deny of every path outside the project.
 - curl, ssh and gh are denied. A firewall for every outbound call is not this list.
 - The task text has no zero-width character, bidi mark or HTML comment.
 

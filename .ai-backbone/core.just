@@ -1044,15 +1044,15 @@ tools-update:
 
 # Claude Code allow rules for just delegate and its three companions (n-cdb28d).
 # .claude/settings.json is a seed: copied once, then the project's own, so
-# template-update never replaces it. When WORKER is grok, claude or opencode
-# the four rules are added to its allow list. A rule already there stays.
+# template-update never replaces it. When WORKER is grok, claude, opencode
+# or kimi the four rules are added to its allow list. A rule already there stays.
 # Unset, off, or anything else: nothing is written. A broken file is named
 # and left as found. Never a reason for the caller to fail.
 _delegate-allow:
     #!/usr/bin/env bash
     set -euo pipefail
     case "${WORKER-}" in
-      grok|claude|opencode) ;;
+      grok|claude|opencode|kimi) ;;
       *) exit 0 ;;
     esac
     if [ -f .ai-backbone/budget.py ] && { [ -d .claude ] || [ -f .claude/settings.json ]; }; then
@@ -1496,8 +1496,8 @@ delegate task="":
         if [ -z "$worker" ]; then echo "delegation is off (WORKER is unset). This session does the work itself."
         else echo "delegation is off (WORKER=off). This session does the work itself."; fi
         exit 1 ;;
-      grok|claude|opencode) ;;
-      *) echo "refuses: unknown worker '$worker' (known: claude, grok, opencode)"; exit 1 ;;
+      grok|claude|opencode|kimi) ;;
+      *) echo "refuses: unknown worker '$worker' (known: claude, grok, opencode, kimi)"; exit 1 ;;
     esac
     # grok installs itself at ~/.grok/bin/grok and is often left off PATH, so
     # `command -v` alone said it was not installed. WORKER_BIN is a path and
@@ -1526,8 +1526,39 @@ delegate task="":
         opencode)
           if [ -x "$HOME/.opencode/bin/opencode" ]; then worker_bin="$HOME/.opencode/bin/opencode"; fi
           ;;
+        # kimi-code installs the binary as `kimi`. The executor path in the
+        # docs is ~/.kimi-code/bin/kimi; Homebrew puts it on the cellar path
+        # (kimi-code 2.4.0, 2026-10-30). command -v already finds a PATH hit.
+        kimi)
+          if [ -x "$HOME/.kimi-code/bin/kimi" ]; then worker_bin="$HOME/.kimi-code/bin/kimi"
+          elif [ -x /opt/homebrew/bin/kimi ]; then worker_bin=/opt/homebrew/bin/kimi
+          elif [ -x /usr/local/bin/kimi ]; then worker_bin=/usr/local/bin/kimi; fi
+          ;;
       esac
       if [ -z "$worker_bin" ]; then echo "refuses: $worker is not installed"; exit 1; fi
+    fi
+    # kimi-code 2.4.0 (spec 040): `kimi login` polls a device code until it
+    # finishes, so this recipe never calls it. The docs name no status
+    # command. A non-empty credentials/*.json, or a non-empty api_key or
+    # api_key_env in the user config, counts as logged in. Checked before
+    # the branch exists, so a refusal leaves none and writes no config.
+    if [ "$worker" = kimi ]; then
+      kimi_home=${KIMI_CODE_HOME:-$HOME/.kimi-code}
+      kimi_logged=0
+      if [ -d "$kimi_home/credentials" ]; then
+        for kimi_cred in "$kimi_home/credentials"/*.json; do
+          if [ -f "$kimi_cred" ] && [ -s "$kimi_cred" ]; then kimi_logged=1; break; fi
+        done
+      fi
+      if [ "$kimi_logged" -eq 0 ] && [ -f "$kimi_home/config.toml" ]; then
+        if perl -e 'my $ok = 0; while (<>) { next if /^\s*#/; if (/^\s*api_key(?:_env)?\s*=\s*"([^"]*)"/ || /^\s*api_key(?:_env)?\s*=\s*\047([^\047]*)\047/) { $ok = 1 if length($1) } } exit($ok ? 0 : 1);' "$kimi_home/config.toml"; then
+          kimi_logged=1
+        fi
+      fi
+      if [ "$kimi_logged" -eq 0 ]; then
+        echo "kimi is not logged in: run kimi login"
+        exit 1
+      fi
     fi
     git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "refuses: not a git repository"; exit 1; }
     # A live job uses this folder, so the tree is dirty or the branch is not
@@ -1649,8 +1680,9 @@ delegate task="":
     trap 'restore_delegate_hook; if [ -n "$tpid" ]; then kill -TERM -"$tpid" 2>/dev/null || kill -TERM "$tpid" 2>/dev/null || true; fi; if [ -n "$wpid" ]; then kill -TERM -"$wpid" 2>/dev/null || kill -TERM "$wpid" 2>/dev/null || true; fi; rm -rf "$lock"' EXIT
     # opencode climbs WORKER_LADDER (spec 038). The first try of a branch takes
     # the first model; each fix round takes the next. Past the last, the job
-    # stops. WORKER_MODEL pins one model and does not climb. Grok and claude
-    # ignore the ladder. The next index is branch.<name>.delegateRung, the same
+    # stops. WORKER_MODEL pins one model and does not climb. Grok, claude and
+    # kimi ignore the ladder. Kimi passes DELEGATE_MODEL as -m when it is set,
+    # and does not read WORKER_MODEL (spec 040). The next index is branch.<name>.delegateRung, the same
     # kind of record as delegateBase. A new branch starts at the first model
     # even when a dropped branch left a rung behind. Resolved before checkout,
     # so a refusal does not leave a branch.
@@ -1779,6 +1811,84 @@ delegate task="":
     OCJSON
       OPENCODE_CONFIG=$cfg OPENCODE_CONFIG_PROJECT_DISABLE=1 \
         exec "$worker_bin" run --standalone --auto --format json -m "$model" "$1"
+    }
+    # kimi-code 2.4.0, read 2026-10-30 (spec 040). There is no per-run config
+    # file and no env override for permission rules. KIMI_CODE_HOME relocates
+    # credentials too, so the deny list is a marked block in the user config,
+    # rewritten each run. First match wins, so the block is placed before any
+    # other [[permission.rules]]. -p has no approval prompts; these static
+    # denies still apply. Picomatch's * does not cross a slash and a glued
+    # "sh*" matches a longer name, so each command is an exact pattern and a
+    # " **" pattern. The trust env is this process only. The dangerous-command
+    # guard stays on even when the file turns it off: its env is exactly "true".
+    delegate_kimi() {
+      local home cfg block cmd path tool
+      home=${KIMI_CODE_HOME:-$HOME/.kimi-code}
+      cfg="$home/config.toml"
+      mkdir -p "$home"
+      block=$(mktemp)
+      {
+        printf '%s\n' '# BEGIN ai-backbone delegate'
+        printf '%s\n' '# Deny list owned by just delegate (spec 040). Rewritten each run.'
+        for cmd in \
+          "git push" "git merge" "git rebase" "git checkout" "git switch" "git reset" \
+          "git branch -d" "git branch -D" "git tag" \
+          "just publish" "just ship" "just deploy" "just release" "just undo" "just carry" \
+          "gh" "curl" "ssh" "rm" "sh" "bash" "zsh" "eval" "xargs" "env"
+        do
+          printf '%s\n' '[[permission.rules]]' 'decision = "deny"' "pattern = \"Bash($cmd)\"" ''
+          printf '%s\n' '[[permission.rules]]' 'decision = "deny"' "pattern = \"Bash($cmd **)\"" ''
+        done
+        printf '%s\n' '[[permission.rules]]' 'decision = "deny"' 'pattern = "WebSearch"' ''
+        printf '%s\n' '[[permission.rules]]' 'decision = "deny"' 'pattern = "FetchURL"' ''
+        for path in \
+          "~/.aws" "~/.aws/**" \
+          "~/.appstoreconnect" "~/.appstoreconnect/**" \
+          ".env" "**/.env" "**/.env.*" \
+          "brain/03-stack" "brain/03-stack/**" \
+          "**/brain/03-stack" "**/brain/03-stack/**"
+        do
+          for tool in Read Write Edit; do
+            printf '%s\n' '[[permission.rules]]' 'decision = "deny"' "pattern = \"$tool($path)\"" ''
+          done
+        done
+        printf '%s\n' '# END ai-backbone delegate'
+      } > "$block"
+      perl - "$cfg" "$block" << 'KIMIPERL'
+    use strict;
+    use warnings;
+    my ($path, $blockpath) = @ARGV;
+    open my $bf, "<", $blockpath or die "open $blockpath: $!";
+    local $/;
+    my $block = <$bf>;
+    close $bf;
+    $block =~ s/\s+\z/\n/;
+    my $text = "";
+    if (-f $path) {
+      open my $fh, "<", $path or die "open $path: $!";
+      $text = <$fh>;
+      close $fh;
+      $text = "" if !defined $text;
+    }
+    $text =~ s/^# BEGIN ai-backbone delegate\n.*?\n# END ai-backbone delegate\n?//msg;
+    if ($text =~ /\[\[permission\.rules\]\]/) {
+      $text =~ s/\[\[permission\.rules\]\]/$block$&/;
+    } else {
+      $text .= "\n" if length($text) && $text !~ /\n\z/;
+      $text .= $block;
+    }
+    open my $out, ">", $path or die "write $path: $!";
+    print $out $text;
+    close $out;
+    KIMIPERL
+      rm -f "$block"
+      if [ -n "${DELEGATE_MODEL:-}" ]; then
+        KIMI_CODE_TRUST_WORKSPACE=1 KIMI_CODE_DANGEROUS_COMMAND_GUARD=true \
+          exec "$worker_bin" -p "$1" --output-format stream-json -m "$DELEGATE_MODEL"
+      else
+        KIMI_CODE_TRUST_WORKSPACE=1 KIMI_CODE_DANGEROUS_COMMAND_GUARD=true \
+          exec "$worker_bin" -p "$1" --output-format stream-json
+      fi
     }
     preamble=$(printf '%s\n' \
       "You are the worker for this repository. A manager reviews your work. Read AGENTS.md first and follow it. You are on branch ${branch}; stay on it." \
@@ -2095,8 +2205,17 @@ delegate task="":
       printf 'cost: $%s on %s, %s steps\n' "$oc_dollars" "$model" "$oc_steps" >> "$log"
     fi
     # The worker's whole output stays in the log. The last 15 lines are the
-    # report: the preamble tells the worker to end with it.
-    tail -n 15 "$log"
+    # report: the preamble tells the worker to end with it. kimi's log is
+    # stream-json (spec 040, kimi-code 2.4.0). The report is the last 15
+    # lines of assistant content. Tool output is not the report. A log with
+    # no assistant content falls back to the raw tail.
+    if [ "$worker" = kimi ]; then
+      kimi_text=$(perl -MJSON::PP -e 'my $text = ""; while (<>) { my $obj = eval { JSON::PP->new->utf8->decode($_) }; next unless ref($obj) eq "HASH"; next unless ($obj->{role} // "") eq "assistant"; my $c = $obj->{content}; next unless defined $c && $c ne ""; $text .= $c; $text .= "\n" unless $text =~ /\n\z/; } print $text;' "$log" 2>/dev/null || true)
+      if [ -n "$kimi_text" ]; then printf '%s' "$kimi_text" | tail -n 15
+      else tail -n 15 "$log"; fi
+    else
+      tail -n 15 "$log"
+    fi
     echo
     echo "commits on $branch:"
     if git show-ref --verify --quiet "refs/heads/$branch"; then
@@ -2141,7 +2260,15 @@ delegate-status:
       done
     fi
     if [ -n "$latest" ]; then
-      tail -n 15 "$latest"
+      # kimi's log is stream-json. The last report is assistant content, the
+      # same text delegate printed (spec 040). Any other log is tailed as-is.
+      if grep -q '"role":"assistant"' "$latest" 2>/dev/null; then
+        kimi_text=$(perl -MJSON::PP -e 'my $text = ""; while (<>) { my $obj = eval { JSON::PP->new->utf8->decode($_) }; next unless ref($obj) eq "HASH"; next unless ($obj->{role} // "") eq "assistant"; my $c = $obj->{content}; next unless defined $c && $c ne ""; $text .= $c; $text .= "\n" unless $text =~ /\n\z/; } print $text;' "$latest" 2>/dev/null || true)
+        if [ -n "$kimi_text" ]; then printf '%s' "$kimi_text" | tail -n 15
+        else tail -n 15 "$latest"; fi
+      else
+        tail -n 15 "$latest"
+      fi
       # The last cost line is the run's own sum (spec 038). A grok or claude
       # log has none, and then this line is left off.
       cost_line=""

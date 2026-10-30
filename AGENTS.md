@@ -59,7 +59,7 @@ Never mix the two.
   `docs/specs/` (`just spec <name>`). No code until the maintainer says approved.
 - **Docs follow code.** If a change alters something `docs/` describes, update
   `docs/` in the same session. Stale docs are a bug.
-- When `WORKER` is `grok`, `claude` or `opencode`, manage and write no product code. One task with `just delegate`, then the report, then accept, fix or drop. `just publish` and `just ship` stay here. Two failed tries go to the maintainer. Unset, `off`, or not installed: do the work, as before.
+- When `WORKER` is `grok`, `claude`, `opencode` or `kimi`, manage and write no product code. One task with `just delegate`, then the report, then accept, fix or drop. `just publish` and `just ship` stay here. Two failed tries go to the maintainer. Unset, `off`, or not installed: do the work, as before.
 - **Audit at the end of a phase**, with the maintainer's approval, and again
   before publishing or releasing. Many lenses, every finding argued by three
   skeptics before the maintainer reads it (the `audit` skill). Never on a

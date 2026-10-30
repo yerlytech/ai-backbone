@@ -23,7 +23,7 @@ unset CLAUDE_ENV_FILE
 # WORKER themselves (n-cdb28d). DELEGATE_BASE is passed through by the delegate
 # checks, and a job that exported it would point every throwaway project at a
 # branch that project does not have.
-unset WORKER DELEGATE_BASE DELEGATE_IDLE DELEGATE_TIMEOUT DELEGATE_YES
+unset WORKER DELEGATE_BASE DELEGATE_IDLE DELEGATE_TIMEOUT DELEGATE_YES KIMI_CODE_HOME DELEGATE_MODEL
 root="$(cd "$(dirname "$0")/.." && pwd -P)"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -289,9 +289,10 @@ r=$(just --summary 2>/dev/null | wc -w | tr -d ' ')
 check "recipes a new project shows at most 47 (got $r)" "[ $r -le 47 ]"
 b=$(wc -c < AGENTS.md | tr -d ' ')
 # 7080 since the design line (the maintainer, 2026-10-30): code follows the
-# design skill, and a review cites its rule numbers. The session-load ceiling
-# below stays 7100 with the one-line pointer, so this file cannot grow into it.
-check "AGENTS.md at most 7080 bytes (got $b)"         "[ $b -le 7080 ]"
+# design skill, and a review cites its rule numbers. 7088 since spec 040:
+# the worker line names kimi. The session-load ceiling below stays 7100
+# with the one-line pointer, so this file cannot grow into it.
+check "AGENTS.md at most 7088 bytes (got $b)"         "[ $b -le 7088 ]"
 # What a Claude Code session loads, not one file (spec 022): since 2.1.281 its
 # large-instructions notice counts the instruction files together, @-imports
 # included. Read the way the docs say Claude Code reads them (memory.md, read
@@ -537,6 +538,8 @@ PYEOF
 cp "$da/own.json" "$da/off.json"
 check "WORKER unset or off adds no delegation rule and does not rewrite the file" "[ \"\$(env -u WORKER '$py' '$root/.ai-backbone/budget.py' allow '$da/off.json')\" = off ] && [ \"\$(env WORKER=off '$py' '$root/.ai-backbone/budget.py' allow '$da/off.json')\" = off ] && [ \"\$(env WORKER=other '$py' '$root/.ai-backbone/budget.py' allow '$da/off.json')\" = off ] && cmp -s '$da/own.json' '$da/off.json'"
 check "the four delegation rules are added once, behind a rule the project wrote" "[ \"\$(env WORKER=grok '$py' '$root/.ai-backbone/budget.py' allow '$da/own.json')\" = added ] && [ \"\$(env WORKER=claude '$py' '$root/.ai-backbone/budget.py' allow '$da/own.json')\" = 'already there' ] && '$py' -c \"import json,sys; d=json.load(open(sys.argv[1])); a=d['permissions']['allow']; assert a==['Bash(just mine:*)','Bash(just delegate:*)','Bash(just delegate-status:*)','Bash(just delegate-accept:*)','Bash(just delegate-drop:*)'], a; assert d['permissions']['deny']==['Bash(sudo:*)'] and d['kept'] is True\" '$da/own.json'"
+cp "$da/off.json" "$da/kimi.json"
+check "WORKER=kimi adds the same four delegation rules" "[ \"\$(env WORKER=kimi '$py' '$root/.ai-backbone/budget.py' allow '$da/kimi.json')\" = added ] && '$py' -c \"import json,sys; a=json.load(open(sys.argv[1]))['permissions']['allow']; assert a.count('Bash(just delegate:*)')==1 and 'Bash(just delegate-drop:*)' in a\" '$da/kimi.json'"
 printf '{ // comment\n}\n' > "$da/bad.json"
 check "a settings file that is not plain JSON is left alone when the delegation rules are asked for" "! env WORKER=grok '$py' '$root/.ai-backbone/budget.py' allow '$da/bad.json' >/dev/null && grep -q '// comment' '$da/bad.json'"
 printf '{"permissions":{"allow":"Bash(just mine:*)"}}\n' > "$da/str.json"
@@ -2062,6 +2065,7 @@ elif mode == "fresh":
         fail(out)
     behind = [("tool", "1.0.0", "1.2.0")]
     for worker, want in (("grok", "WORKER is grok: hand it over with just delegate"),
+                         ("kimi", "WORKER is kimi: hand it over with just delegate"),
                          ("off", "Do it in this session"), ("", "Do it in this session")):
         u.os.environ["WORKER"] = worker
         if want not in u.first_job(behind, [], []):
@@ -2409,6 +2413,8 @@ check "the backbone watches grok, claude-code, zed and the two ideas" \
   "grep -qx 'source = \"pointer:https://x.ai/cli/stable\"' '$root/docs/upstream.toml' && grep -qx 'source = \"pointer:https://downloads.claude.ai/claude-code-releases/stable\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:zed-industries/zed\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:OrchestratorInc/agent-orchestrator\"' '$root/docs/upstream.toml' && grep -qx 'source = \"ghcommit:jarrodwatts/claude-delegator\"' '$root/docs/upstream.toml' && grep -qx 'look_for = \"a board of every running job across projects\"' '$root/docs/upstream.toml' && grep -qx 'look_for = \"an ask-only mode\"' '$root/docs/upstream.toml'"
 check "the backbone watches opencode on the Homebrew formula it installs from" \
   "grep -qx 'name = \"opencode\"' '$root/docs/upstream.toml' && grep -qx 'source = \"brew:opencode\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"2.1.2\"' '$root/docs/upstream.toml' && ! grep -qx 'source = \"github:anomalyco/opencode\"' '$root/docs/upstream.toml'"
+check "the backbone watches kimi on the Homebrew formula it installs from" \
+  "grep -qx 'name = \"kimi\"' '$root/docs/upstream.toml' && grep -qx 'source = \"brew:kimi-code\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"2.4.0\"' '$root/docs/upstream.toml'"
 check "the two ideas are pinned at what was read on 2026-10-20" \
   "grep -qx 'pin = \"v0.14.3\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"8e2ea57c9b8e6f0790b1596d98e35632ca48a59c\"' '$root/docs/upstream.toml'"
 check "the template says what an idea row is" "grep -q 'kind' '$root/.ai-backbone/templates/upstream.toml' && grep -q 'look_for' '$root/.ai-backbone/templates/upstream.toml'"
@@ -4391,6 +4397,65 @@ case "$mode" in
 esac
 OCEOF
 chmod +x "$dbin/opencode"
+# kimi's argv is `-p <prompt> --output-format stream-json` and `-m` when
+# DELEGATE_MODEL is set. A copy of the grok fake would reject --output-format
+# only after -p, but it also rejects nothing we need; its flag set is not
+# kimi's, and it would not print stream-json. No model is called.
+cat > "$dbin/kimi" << 'KIEOF'
+#!/usr/bin/env bash
+if [ -n "${FAKE_WORKER_BINLOG:-}" ]; then printf '%s\n' "$0" > "$FAKE_WORKER_BINLOG"; fi
+if [ -n "${FAKE_WORKER_PROMPT:-}" ]; then printf '%s\n' "$@" > "$FAKE_WORKER_PROMPT.argv"; fi
+prompt=""
+fmt=""
+model=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -p) prompt=$2; shift 2 ;;
+    --output-format) fmt=$2; shift 2 ;;
+    -m) model=$2; shift 2 ;;
+    --yolo|--auto|--plan) echo "unexpected: $1" >&2; exit 2 ;;
+    *) echo "unexpected: $1" >&2; exit 2 ;;
+  esac
+done
+if [ -z "$prompt" ] || [ "$fmt" != stream-json ]; then
+  echo "unexpected: incomplete" >&2; exit 2
+fi
+if [ -n "${FAKE_WORKER_PROMPT:-}" ]; then
+  printf '%s\n' "$prompt" > "$FAKE_WORKER_PROMPT"
+  printf '%s\n' "$fmt" > "$FAKE_WORKER_PROMPT.fmt"
+  printf '%s\n' "$model" > "$FAKE_WORKER_PROMPT.model"
+  printf '%s\n' "${KIMI_CODE_TRUST_WORKSPACE:-}" > "$FAKE_WORKER_PROMPT.trust"
+  printf '%s\n' "${KIMI_CODE_DANGEROUS_COMMAND_GUARD:-}" > "$FAKE_WORKER_PROMPT.guard"
+  if [ -n "${KIMI_CODE_HOME+x}" ]; then printf '%s\n' "$KIMI_CODE_HOME" > "$FAKE_WORKER_PROMPT.home"
+  else printf '%s\n' unset > "$FAKE_WORKER_PROMPT.home"; fi
+  cfg="${KIMI_CODE_HOME:-$HOME/.kimi-code}/config.toml"
+  printf '%s\n' "$cfg" > "$FAKE_WORKER_PROMPT.configpath"
+  if [ -f "$cfg" ]; then cp "$cfg" "$FAKE_WORKER_PROMPT.config"; else : > "$FAKE_WORKER_PROMPT.config"; fi
+fi
+mode=${FAKE_WORKER_MODE:-ok}
+case "$mode" in
+  ok|fix)
+    perl -MJSON::PP -e '
+      my $content = join("\n", map { sprintf("line-%02d", $_) } 1..20) . "\n";
+      my $j = JSON::PP->new->utf8->canonical;
+      print $j->encode({role => "assistant", content => $content}), "\n";
+      print $j->encode({role => "tool", tool_call_id => "t1", content => "tool-line-should-not-be-the-report\n"}), "\n";
+      print $j->encode({role => "meta", type => "system.version"}), "\n";
+    '
+    if [ "$mode" = ok ]; then
+      printf 'done\n' > worker-did.txt
+      git add worker-did.txt
+      git commit -qm "chore: worker did the task" --no-verify
+    else
+      printf 'fixed\n' >> worker-did.txt
+      git add worker-did.txt
+      git commit -qm "chore: worker fixed the task" --no-verify
+    fi
+    ;;
+  *) echo "unknown mode $mode" >&2; exit 2 ;;
+esac
+KIEOF
+chmod +x "$dbin/kimi"
 d_new() {
   dproj="$tmp/delegate-$1"
   rm -rf "$dproj"
@@ -4405,7 +4470,8 @@ d_new() {
   rm -f "$dgo" "$dprompt" "$dprompt.fmt" "$dprompt.model" \
     "$dprompt.standalone" "$dprompt.auto" "$dprompt.configpath" \
     "$dprompt.config" "$dprompt.projectdisable" "$dprompt.models" \
-    "$dprompt.argv" "$dprompt.perm" "$dprompt.bgwait"
+    "$dprompt.argv" "$dprompt.perm" "$dprompt.bgwait" \
+    "$dprompt.trust" "$dprompt.guard" "$dprompt.home"
 }
 # d_run MODE WORKER WORKER_MODEL -- just args. An empty WORKER is unset.
 d_run() {
@@ -4413,6 +4479,7 @@ d_run() {
   # shellcheck disable=SC2086
   d_out=$(env -u WORKER -u WORKER_MODEL -u DELEGATE_TIMEOUT -u DELEGATE_IDLE -u WORKER_BIN -u DELEGATE_BASE -u DELEGATE_YES -u FAKE_WORKER_TARGET \
     -u WORKER_LADDER -u OPENCODE_CONFIG -u OPENCODE_CONFIG_PROJECT_DISABLE \
+    -u DELEGATE_MODEL -u KIMI_CODE_HOME -u KIMI_CODE_TRUST_WORKSPACE -u KIMI_CODE_DANGEROUS_COMMAND_GUARD \
     HOME="$dhome" PATH="$dbin:$PATH" \
     FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE="$mode" FAKE_WORKER_GO="$dgo" \
     ${worker:+WORKER=$worker} ${model:+WORKER_MODEL=$model} \
@@ -4421,6 +4488,7 @@ d_run() {
     ${DELEGATE_YES:+DELEGATE_YES=$DELEGATE_YES} \
     ${FAKE_WORKER_TARGET:+FAKE_WORKER_TARGET=$FAKE_WORKER_TARGET} \
     ${WORKER_LADDER+WORKER_LADDER="$WORKER_LADDER"} \
+    ${DELEGATE_MODEL+DELEGATE_MODEL="$DELEGATE_MODEL"} \
     just -f "$root/Justfile" -d "$dproj" "$@" 2>&1) && d_rc=0 || d_rc=$?
 }
 d_one() {
@@ -4436,7 +4504,7 @@ check "with WORKER unset, delegate says so in one line and makes no branch" "[ \
 d_run ok off "" delegate "add a line"
 check "with WORKER=off, delegate says so and makes no branch" "[ \$d_rc -ne 0 ] && grep -q 'delegation is off (WORKER=off)' <<<\"\$d_out\" && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ]"
 d_run ok glm "" delegate "add a line"
-check "an unknown worker is refused with the list this recipe knows" "[ \$d_rc -ne 0 ] && d_one && grep -qx \"refuses: unknown worker 'glm' (known: claude, grok, opencode)\" <<<\"\$d_out\""
+check "an unknown worker is refused with the list this recipe knows" "[ \$d_rc -ne 0 ] && d_one && grep -qx \"refuses: unknown worker 'glm' (known: claude, grok, opencode, kimi)\" <<<\"\$d_out\""
 d_plain="$(dirname "$(command -v just)"):$(dirname "$(command -v git)"):/usr/bin:/bin"
 d_out=$(env -u WORKER -u WORKER_BIN HOME="$dhome" PATH="$d_plain" \
   WORKER=grok just -f "$root/Justfile" -d "$dproj" delegate "add a line" 2>&1) && d_rc=0 || d_rc=$?
@@ -5081,6 +5149,145 @@ d_run ok opencode "" delegate "add a line"
 dst=$(env -u WORKER HOME="$dhome" just -f "$root/Justfile" -d "$dproj" delegate-status 2>&1 || true)
 check "delegate-status shows the model and the cost of the last opencode run" \
   "grep -qx 'job: none' <<<\"\$dst\" && grep -qx 'last run: cost: \$0.03 on opencode-go/deepseek-v4.1-flash, 2 steps' <<<\"\$dst\""
+
+# kimi (spec 040). The fake never calls a model. Login is a file in the
+# temporary home: this suite must not read or write the real ~/.kimi-code.
+kimi_login_files() {
+  mkdir -p "$dhome/.kimi-code/credentials"
+  printf '%s\n' '{"access_token":"fixture"}' > "$dhome/.kimi-code/credentials/oauth.json"
+}
+kimi_seed_config() {
+  mkdir -p "$dhome/.kimi-code"
+  cat > "$dhome/.kimi-code/config.toml" << 'EOF'
+# user keep
+[permission]
+dangerous_command_guard = false
+
+[[permission.rules]]
+decision = "allow"
+pattern = "Bash(echo *)"
+
+# BEGIN ai-backbone delegate
+[[permission.rules]]
+decision = "deny"
+pattern = "Bash(stale-should-go)"
+# END ai-backbone delegate
+EOF
+}
+kimi_rules_ok() {
+  local cfg="$dhome/.kimi-code/config.toml"
+  [ -f "$cfg" ] || return 1
+  [ "$(grep -c '^# BEGIN ai-backbone delegate$' "$cfg")" -eq 1 ] || return 1
+  [ "$(grep -c '^# END ai-backbone delegate$' "$cfg")" -eq 1 ] || return 1
+  grep -qxF 'pattern = "Bash(git push)"' "$cfg" || return 1
+  grep -qxF 'pattern = "Bash(git push **)"' "$cfg" || return 1
+  grep -qxF 'pattern = "Bash(just carry)"' "$cfg" || return 1
+  grep -qxF 'pattern = "Bash(just publish)"' "$cfg" || return 1
+  grep -qxF 'pattern = "Bash(git merge)"' "$cfg" || return 1
+  grep -qxF 'pattern = "Bash(sh)"' "$cfg" || return 1
+  grep -qxF 'pattern = "Bash(sh **)"' "$cfg" || return 1
+  grep -qxF 'pattern = "WebSearch"' "$cfg" || return 1
+  grep -qxF 'pattern = "FetchURL"' "$cfg" || return 1
+  grep -qxF 'pattern = "Read(~/.aws/**)"' "$cfg" || return 1
+  grep -qxF 'pattern = "Write(.env)"' "$cfg" || return 1
+  grep -qxF 'pattern = "Edit(**/.env)"' "$cfg" || return 1
+  grep -qxF 'pattern = "Read(brain/03-stack/**)"' "$cfg" || return 1
+  grep -qx 'decision = "deny"' "$cfg" || return 1
+  ! grep -q 'stale-should-go' "$cfg" || return 1
+  ! grep -qF 'Bash(sh*)' "$cfg" || return 1
+  grep -qx 'dangerous_command_guard = false' "$cfg" || return 1
+  [ "$(grep -c '^\[permission\]$' "$cfg")" -eq 1 ] || return 1
+  awk '
+    $0 == "pattern = \"Bash(git push)\"" && !p { p = NR }
+    $0 == "pattern = \"Bash(echo *)\"" { e = NR }
+    END { exit !(p && e && p < e) }
+  ' "$cfg" || return 1
+  awk '
+    /^# BEGIN ai-backbone delegate$/ { inb = 1; next }
+    /^# END ai-backbone delegate$/ { inb = 0; next }
+    $0 == "pattern = \"Bash(echo *)\"" { if (inb) bad = 1; else keep = 1 }
+    inb && $0 == "decision = \"allow\"" { bad = 1 }
+    END { exit !(keep && !bad) }
+  ' "$cfg"
+}
+kimi_log() {
+  local f
+  dlog=""
+  for f in "$dhome/.cache/ai-backbone/delegate/$(basename "$dproj")"/*.log; do
+    [ -f "$f" ] || continue
+    dlog=$f
+  done
+  [ -n "$dlog" ] || return 1
+  case "$dlog" in
+    "$dhome/.cache/ai-backbone/delegate/"*) ;;
+    *) return 1 ;;
+  esac
+  [ -z "$(find "$dproj" -name '*.log' -type f)" ]
+}
+rm -rf "$dhome/.kimi-code"
+d_new kiminone
+d_run ok kimi "" delegate "add a line"
+check "kimi that is not logged in is refused in one line, and no branch or config is written" \
+  "[ \$d_rc -ne 0 ] && d_one && grep -qx 'kimi is not logged in: run kimi login' <<<\"\$d_out\" && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ] && [ ! -e \"\$dhome/.kimi-code/config.toml\" ] && [ ! -f \"\$dprompt\" ]"
+mkdir -p "$dhome/.kimi-code"
+printf '%s\n' 'api_key = ""' > "$dhome/.kimi-code/config.toml"
+d_new kimiemptykey
+d_run ok kimi "" delegate "add a line"
+check "an empty kimi api_key is not a login, and the config is left untouched" \
+  "[ \$d_rc -ne 0 ] && grep -qx 'kimi is not logged in: run kimi login' <<<\"\$d_out\" && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ] && [ ! -f \"\$dprompt\" ] && grep -qx 'api_key = \"\"' \"\$dhome/.kimi-code/config.toml\" && ! grep -q 'BEGIN ai-backbone delegate' \"\$dhome/.kimi-code/config.toml\""
+rm -rf "$dhome/.kimi-code"
+mkdir -p "$dhome/.kimi-code"
+printf '%s\n' 'api_key = "fixture-key"' > "$dhome/.kimi-code/config.toml"
+d_new kimikey
+d_run ok kimi "" delegate "add a line"
+check "a non-empty kimi api_key counts as logged in" \
+  "[ \$d_rc -eq 0 ] && [ -f \"\$dprompt\" ] && [ -n \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ]"
+rm -rf "$dhome/.kimi-code"
+d_new kimirun
+kimi_login_files
+kimi_seed_config
+rules_before=0
+DELEGATE_MODEL=k2 WORKER_LADDER='opencode-go/one,opencode-go/two' d_run ok kimi "should-not-pass" delegate "add a line"
+dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+rung=$(git -C "$dproj" config --get "branch.${dbr}.delegateRung" 2>/dev/null || true)
+rules_before=$(grep -c '^\[\[permission.rules\]\]$' "$dhome/.kimi-code/config.toml")
+check "kimi runs headless with the preamble, passes DELEGATE_MODEL as -m, and ignores the ladder and WORKER_MODEL" \
+  "[ \$d_rc -eq 0 ] && [ -f \"\$dproj/worker-did.txt\" ] && [ \"\$(cat \"\$dprompt.fmt\")\" = stream-json ] && [ \"\$(cat \"\$dprompt.model\")\" = k2 ] && [ \"\$(cat \"\$dprompt.trust\")\" = 1 ] && [ \"\$(cat \"\$dprompt.guard\")\" = true ] && [ \"\$(cat \"\$dprompt.home\")\" = unset ] && [ \"\$(cat \"\$dprompt.configpath\")\" = \"\$dhome/.kimi-code/config.toml\" ] && grep -q 'Read AGENTS.md' \"\$dprompt\" && grep -q \"You are on branch \$dbr; stay on it.\" \"\$dprompt\" && grep -q 'just save' \"\$dprompt\" && grep -q 'just publish' \"\$dprompt\" && grep -q 'at most 15 lines' \"\$dprompt\" && [ \"\$(tail -n 1 \"\$dprompt\")\" = 'add a line' ] && [ -z \"\$rung\" ] && ! grep -q should-not-pass \"\$dprompt.argv\""
+check "the kimi rules deny a publish and a push, keep the user's rule first-match behind them, and drop the stale block" \
+  "kimi_rules_ok"
+check "the kimi report is the last 15 lines of assistant text, and the stream-json log stays outside the repo" \
+  "kimi_log && grep -q 'tool-line-should-not-be-the-report' \"\$dlog\" && grep -q '\"role\":\"assistant\"' \"\$dlog\" && grep -qx 'line-06' <<<\"\$d_out\" && grep -qx 'line-20' <<<\"\$d_out\" && ! grep -qx 'line-05' <<<\"\$d_out\" && ! grep -qx 'line-01' <<<\"\$d_out\" && ! grep -q 'tool-line-should-not-be-the-report' <<<\"\$d_out\""
+d_run fix kimi "" delegate "fix the line"
+rules_after=$(grep -c '^\[\[permission.rules\]\]$' "$dhome/.kimi-code/config.toml")
+check "a second kimi run rewrites the deny block once and does not pass -m when DELEGATE_MODEL is unset" \
+  "[ \$d_rc -eq 0 ] && [ \"\$rules_after\" = \"\$rules_before\" ] && kimi_rules_ok && [ -z \"\$(cat \"\$dprompt.model\")\" ] && ! grep -qx -- '-m' \"\$dprompt.argv\""
+dst=$(env -u WORKER -u KIMI_CODE_HOME -u DELEGATE_MODEL HOME="$dhome" just -f "$root/Justfile" -d "$dproj" delegate-status 2>&1 || true)
+check "delegate-status reads the kimi report from assistant content" \
+  "grep -qx 'line-20' <<<\"\$dst\" && ! grep -qx 'line-01' <<<\"\$dst\" && ! grep -q 'tool-line-should-not-be-the-report' <<<\"\$dst\""
+d_new kimibin
+kimi_login_files
+mkdir -p "$dhome/.kimi-code/bin" "$tmp/delegate-plain"
+cp "$dbin/kimi" "$dhome/.kimi-code/bin/kimi"
+chmod +x "$dhome/.kimi-code/bin/kimi"
+for tool in just git perl; do
+  src=$(command -v "$tool")
+  printf '#!/bin/sh\nexec "%s" "$@"\n' "$src" > "$tmp/delegate-plain/$tool"
+  chmod +x "$tmp/delegate-plain/$tool"
+  if command -v cygpath >/dev/null 2>&1; then
+    printf '@echo off\r\n"%s" %%*\r\n' "$(cygpath -w "$src")" > "$tmp/delegate-plain/$tool.cmd"
+  fi
+done
+rm -f "$tmp/delegate-binlog"
+# This path has no kimi. Homebrew's real binary is not on it, so the fallback
+# is the only one, and a live `kimi -p` is never started.
+d_out=$(env -u WORKER -u WORKER_BIN -u WORKER_MODEL -u DELEGATE_MODEL -u KIMI_CODE_HOME \
+  -u KIMI_CODE_TRUST_WORKSPACE -u KIMI_CODE_DANGEROUS_COMMAND_GUARD \
+  HOME="$dhome" PATH="$tmp/delegate-plain:/usr/bin:/bin" \
+  FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE=ok FAKE_WORKER_BINLOG="$tmp/delegate-binlog" \
+  WORKER=kimi just -f "$root/Justfile" -d "$dproj" delegate "use kimi" 2>&1) && d_rc=0 || d_rc=$?
+check "a kimi that lives only at ~/.kimi-code/bin/kimi is the binary the adapter runs" \
+  "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$tmp/delegate-binlog\")\" = \"\$dhome/.kimi-code/bin/kimi\" ] && [ \"\$(cat \"\$dprompt.fmt\")\" = stream-json ]"
+rm -f "$dhome/.kimi-code/bin/kimi"
 
 section "a GitHub repository the backbone creates (n-baecb7)"
 # A stub gh on PATH records every call and makes a bare repository where the

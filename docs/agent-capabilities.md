@@ -46,7 +46,7 @@ command), subagent limits (cap before spawning).
 
 - SessionStart runs `just session-start`. PreToolUse runs `agent-cap.sh` for
   `Agent|Workflow`. Allow/deny lists in `.claude/settings.json`. When `WORKER`
-  is `grok`, `claude` or `opencode`, a new project and `just template-update`
+  is `grok`, `claude`, `opencode` or `kimi`, a new project and `just template-update`
   add allow rules for `just delegate`, `just delegate-status`,
   `just delegate-accept` and `just delegate-drop`. A rule the project wrote
   stays. With `WORKER` unset or `off`, nothing is added.
