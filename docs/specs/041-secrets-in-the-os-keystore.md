@@ -1,6 +1,7 @@
 ---
-status: draft
+status: approved
 date: 2026-10-31
+approved: the maintainer, 2026-10-31, every recommended answer but the first one's ssh part (below)
 ---
 
 # 041 — Secrets in the operating system's keystore
@@ -83,9 +84,16 @@ this spec adds deny text on that same unmeasured mechanism.
 - Closing n-fc65ca, or the network half of n-5b9b58.
 - Editing spec 036 before this spec is approved.
 
-## Questions
+## Answers
 
-Approval waits until these are answered. Each one carries the answer to give.
+The maintainer, 2026-10-31: every recommended answer below, with one change to
+the first. An ssh private key stays a file opened by path, but its passphrase
+lives in Keychain through macOS's own ssh (`UseKeychain yes` and
+`AddKeysToAgent yes` in `~/.ssh/config`, `ssh-add --apple-use-keychain`), the key
+file is encrypted with that passphrase, and workers stay denied `~/.ssh`, `ssh-add`
+and the agent's socket; a key without a passphrase is reported by the migration
+recipe, never silently left. Facts about Apple's ssh options are checked against
+`man ssh_config` on the machine before they are relied on.
 
 1. **Which files move, and which stay files?** Recommended: move token files
    the reader can hand to a command on standard input: `.env` (not
