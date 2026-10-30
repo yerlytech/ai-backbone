@@ -52,6 +52,9 @@
 #               the file that pins it, with {major}, {minor} and {patch}:
 #               tag = "REL_{major}_{minor}" reads PostgreSQL's REL_18_6 as 18.6,
 #               so pin = "18.6" and pinned_in a compose file that says 18.6.
+#               {even} and {odd} are that minor, and only that half of the
+#               line: tag = "release-{major}.{even}.{patch}" keeps nginx's
+#               stable 1.28 and leaves mainline 1.29 out.
 #               It reads numbers only: a tag like REL_18_RC1 is never matched,
 #               so prereleases = true does nothing on such a row
 #   filter      optional: a regex. Only versions it matches are compared, so a

@@ -16,6 +16,13 @@ entries below are the record of every version.
 
 ## [Unreleased]
 
+**A tag pattern can keep every even or odd minor (n-e7b7ff).** `{major}`,
+`{minor}` and `{patch}` already read a source's own tag spelling. `{even}`
+and `{odd}` are the minor, and only that half:
+`release-{major}.{even}.{patch}` keeps nginx's stable 1.28 and leaves
+mainline 1.29 out. A `filter` still follows one named line. Nothing to do
+until `just template-update`.
+
 **Session start finds npm on Windows.** The check runs `npm` with
 CreateProcess and `shell=False`. That appends `.exe` only and will not start
 a `.cmd`, so a machine whose npm is `npm.cmd` — the normal install, and the
@@ -45,9 +52,10 @@ still `delegate/<date>-<slug>`. A `Title:` line is the slug. The same slug
 on the same day is `-2`, then `-3`.
 
 **Accept does not switch the main worktree onto a lane (n-67267f).**
-`just delegate-accept` fast-forwards the recorded base in the worktree that
-has the delegate branch, and deletes the branch. A worktree that is on main
-stays there.
+`just delegate-accept` fast-forwards the recorded base where that base is
+checked out, and deletes the branch. A worktree that is on main stays there.
+When the base is already checked out, the worktree that still has the
+delegate branch is detached at the base, and then the branch is deleted.
 
 **A merge is refused at the ref (n-683f69).** The deny list is command text
 and was stepped around. For the length of the job, a branch tip moves only

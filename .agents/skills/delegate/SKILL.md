@@ -47,9 +47,11 @@ the last report, the model and cost of the last opencode run when the log has
 one, and the open `delegate/*` branches. `DELEGATE_TIMEOUT` is
 minutes for one job (180 if unset). `DELEGATE_BASE` is a long-lived branch to
 start from instead of the default. The branch records it, accept
-fast-forwards onto it, and drop returns to it. Accept does that in the
-worktree that has the delegate branch checked out, and does not switch a
-worktree that is on main onto the lane. `WORKER_MODEL` pins one model.
+fast-forwards onto it, and drop returns to it. Accept fast-forwards the base
+where it is checked out, and does not switch a worktree that is on main onto
+the lane. When the base is already checked out, the worktree that still has
+the delegate branch is detached there, and then the branch is deleted.
+`WORKER_MODEL` pins one model.
 For `claude` it is passed through. For `opencode` it is used on every round
 instead of the ladder. `WORKER_LADDER` is that ladder, comma-separated
 `opencode-go/<id>`. Unset, it is
@@ -96,9 +98,9 @@ changed the branch list prints `BREACH:` first and exits non-zero. A fetch
 that moves a remote ref, or someone else pushing a commit this branch does
 not contain, is not a breach. A branch another worktree of the same
 repository has checked out is not this run's change: a parallel lane that
-creates or drops its own branch during the run is not a breach. A branch the
-worker creates and leaves unchecked still is. Do not accept a branch that
-breached.
+creates or drops its own branch during the run is not a breach. A `lane/`
+name alone does not skip the branch. A branch the worker creates and leaves
+unchecked still is. Do not accept a branch that breached.
 
 The harness this session runs in may stop a command after two hours (Claude
 Code's limit for a background command, measured on claude-code 2.1.296), and

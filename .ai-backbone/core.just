@@ -2154,7 +2154,8 @@ delegate-status:
     if [ -n "$branches" ]; then printf '%s\n' "$branches"; else echo none; fi
 
 # Fast-forward the default branch onto a delegate branch, then delete it.
-# Refuses when that is not a fast-forward, and leaves the branch.
+# Refuses when that is not a fast-forward, and leaves the branch. A worktree
+# on main is not switched onto a lane. A busy base detaches the lane (n-67267f).
 [group('session')]
 [no-exit-message]
 [positional-arguments]
@@ -2196,7 +2197,8 @@ delegate-accept branch="":
     here=$(git symbolic-ref -q --short HEAD || echo "no branch")
     here_top=$(git rev-parse --show-toplevel)
     # n-67267f: fast-forward the base where it lives. Do not switch a worktree
-    # that is on main onto a lane another worktree holds.
+    # that is on main onto a lane. When the base is already checked out, detach
+    # the worktree that holds the delegate branch so the branch can be deleted.
     canon() { if [ -z "$1" ]; then return 0; fi; (cd "$1" && pwd -P); }
     worktree_of() {
       # The assignment has to sit on perl. On the git command it never reaches
@@ -2209,34 +2211,46 @@ delegate-accept branch="":
     onto_wt=$(canon "$(worktree_of "$onto")")
     branch_wt=$(canon "$(worktree_of "$branch")")
     here_top=$(canon "$here_top")
+    if [ -n "$branch_wt" ] && [ -n "$(git -C "$branch_wt" status --porcelain)" ]; then
+      echo "refuses: the worktree on $branch is not clean"; exit 1
+    fi
+    if [ -n "$onto_wt" ] && [ "$onto_wt" != "$branch_wt" ] && [ -n "$(git -C "$onto_wt" status --porcelain)" ]; then
+      echo "refuses: the worktree on $onto is not clean"; exit 1
+    fi
     ff_there() {
       if ! git -C "$1" merge --ff-only "$branch" >/dev/null 2>&1; then
         echo "refuses: $branch is not a fast-forward of $onto"; exit 1
       fi
     }
-    if [ -n "$branch_wt" ] && [ "$branch_wt" != "$here_top" ]; then
-      if [ -n "$(git -C "$branch_wt" status --porcelain)" ]; then
-        echo "refuses: the worktree on $branch is not clean"; exit 1
-      fi
-      if [ -n "$onto_wt" ] && [ "$onto_wt" != "$branch_wt" ]; then
-        echo "refuses: $onto is checked out in another worktree"; exit 1
-      fi
-      git -C "$branch_wt" checkout -q "$onto"
-      ff_there "$branch_wt"
-    elif [ -n "$onto_wt" ] && [ "$onto_wt" != "$here_top" ]; then
-      if [ -n "$(git -C "$onto_wt" status --porcelain)" ]; then
-        echo "refuses: the worktree on $onto is not clean"; exit 1
-      fi
+    if [ -n "$onto_wt" ]; then
       ff_there "$onto_wt"
-    else
+    elif [ "$branch_wt" = "$here_top" ] || [ "$here" = "$onto" ]; then
       if [ "$here" != "$onto" ]; then git checkout -q "$onto"; fi
       if ! git merge --ff-only "$branch" >/dev/null 2>&1; then
         echo "refuses: $branch is not a fast-forward of $onto"; exit 1
       fi
+    elif [ -n "$branch_wt" ]; then
+      git -C "$branch_wt" checkout -q "$onto"
+      ff_there "$branch_wt"
+    else
+      git update-ref "refs/heads/$onto" "$(git rev-parse "refs/heads/$branch")"
     fi
-    # -d compares with HEAD. The base just fast-forwarded may be another
-    # worktree, so HEAD does not contain the branch yet (n-67267f).
-    if ! git branch -d "$branch" >/dev/null 2>&1; then
+    # The lane may still hold the branch. Move it onto a free base, or detach
+    # it there when the base is busy, and then the branch can be deleted.
+    branch_wt=$(canon "$(worktree_of "$branch")")
+    if [ -n "$branch_wt" ]; then
+      onto_wt=$(canon "$(worktree_of "$onto")")
+      if [ -z "$onto_wt" ] || [ "$onto_wt" = "$branch_wt" ]; then
+        git -C "$branch_wt" checkout -q "$onto"
+      else
+        git -C "$branch_wt" checkout -q --detach "$onto"
+      fi
+    fi
+    # -d compares with HEAD. Run it where the base is checked out (n-67267f).
+    onto_wt=$(canon "$(worktree_of "$onto")")
+    if [ -n "$onto_wt" ]; then
+      git -C "$onto_wt" branch -d "$branch" >/dev/null
+    elif ! git branch -d "$branch" >/dev/null 2>&1; then
       if ! git merge-base --is-ancestor "$branch" "$onto" 2>/dev/null \
         || ! git branch -D "$branch" >/dev/null 2>&1; then
         echo "refuses: $branch is still checked out in another worktree"; exit 1

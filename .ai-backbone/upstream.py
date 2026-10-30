@@ -598,24 +598,31 @@ def tagged(entry, releases):
     """A source that spells its versions its own way, read the way the pin is
     written. PostgreSQL tags REL_18_6 while a compose file says postgres:18.6:
     with `tag = "REL_{major}_{minor}"` the row keeps its pinned_in, and every tag
-    of that shape reads as 18.6. A tag of another shape is another thing, and
+    of that shape reads as 18.6. `{even}` and `{odd}` are the minor, and only
+    that half of the line (n-e7b7ff): `release-{major}.{even}.{patch}` keeps
+    1.28.0 and leaves 1.29.1 out. A tag of another shape is another thing, and
     is left out. Without `tag`, the releases are as the source listed them."""
     pattern = str(entry.get("tag") or "")
     if not pattern:
         return releases
-    names = re.findall(r"\{(major|minor|patch)\}", pattern)
+    names = re.findall(r"\{(major|minor|patch|even|odd)\}", pattern)
     if not names:
-        raise ValueError(f"tag = \"{pattern}\" names no {{major}}, {{minor}} or {{patch}}")
+        raise ValueError(f"tag = \"{pattern}\" names no {{major}}, {{minor}}, {{patch}}, {{even}} or {{odd}}")
     regex = re.compile("^" + "".join(
-        r"(\d+)" if re.fullmatch(r"\{(major|minor|patch)\}", piece) else re.escape(piece)
-        for piece in re.split(r"(\{(?:major|minor|patch)\})", pattern) if piece) + "$")
+        r"(\d+)" if re.fullmatch(r"\{(major|minor|patch|even|odd)\}", piece) else re.escape(piece)
+        for piece in re.split(r"(\{(?:major|minor|patch|even|odd)\})", pattern) if piece) + "$")
     out = []
     for release in releases:
         found = regex.match(release["version"])
         if not found:
             continue
         got = dict(zip(names, found.groups()))
-        version = ".".join(got[k] for k in ("major", "minor", "patch") if k in got)
+        # {even} and {odd} are a minor with a parity (n-e7b7ff).
+        if "even" in got and int(got["even"]) % 2 != 0:
+            continue
+        if "odd" in got and int(got["odd"]) % 2 != 1:
+            continue
+        version = ".".join(got[k] for k in ("major", "minor", "even", "odd", "patch") if k in got)
         out.append({**release, "version": version, "tag": release["version"]})
     # A pattern no tag fits is a typo in the list, not a source with nothing
     # published: said, with the pattern, so the reader can fix it.
@@ -652,9 +659,10 @@ def tag_of(entry, version):
     if not pattern:
         return version
     numbers = str(version).lstrip("vV").split(".")
-    keys = ("major", "minor", "patch")
-    return re.sub(r"\{(major|minor|patch)\}",
-                  lambda m: numbers[keys.index(m.group(1))] if keys.index(m.group(1)) < len(numbers) else "0",
+    # {even} and {odd} are written from the minor (n-e7b7ff).
+    index = {"major": 0, "minor": 1, "even": 1, "odd": 1, "patch": 2}
+    return re.sub(r"\{(major|minor|patch|even|odd)\}",
+                  lambda m: numbers[index[m.group(1)]] if index[m.group(1)] < len(numbers) else "0",
                   pattern)
 
 

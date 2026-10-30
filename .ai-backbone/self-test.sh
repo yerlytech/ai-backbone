@@ -20,8 +20,10 @@ unset $(git rev-parse --local-env-vars 2>/dev/null) 2>/dev/null || true
 unset CLAUDE_ENV_FILE
 # Nor this machine's delegation choice. A runner with WORKER set would write
 # allow rules into every throwaway project. The checks that want them set
-# WORKER themselves (n-cdb28d).
-unset WORKER
+# WORKER themselves (n-cdb28d). DELEGATE_BASE is passed through by the delegate
+# checks, and a job that exported it would point every throwaway project at a
+# branch that project does not have.
+unset WORKER DELEGATE_BASE DELEGATE_IDLE DELEGATE_TIMEOUT DELEGATE_YES
 root="$(cd "$(dirname "$0")/.." && pwd -P)"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -1853,6 +1855,8 @@ check "a major row is answered by any release of its major" "upy 'u.same_major(\
 # A source that spells its versions its own way (REL_18_6) is read through the
 # row's tag pattern, and a tag of another shape is left out (spec 026).
 check "a tag pattern reads REL_18_7 as 18.7, newer than 18.6, and leaves REL9_6_24 out" "upy '[r[\"version\"] for r in u.newer_than(\"18.6\", u.tagged({\"tag\": \"REL_{major}_{minor}\"}, [{\"version\": v, \"prerelease\": False} for v in (\"REL_18_7\", \"REL_18_6\", \"REL9_6_24\")]), False)] == [\"18.7\"] and u.tag_of({\"tag\": \"REL_{major}_{minor}\"}, \"18.6\") == \"REL_18_6\"'"
+check "a tag pattern's {even} keeps the stable line and leaves odd minors out" "upy '[r[\"version\"] for r in u.newer_than(\"1.26.3\", u.tagged({\"tag\": \"release-{major}.{even}.{patch}\"}, [{\"version\": v, \"prerelease\": False} for v in (\"release-1.29.1\", \"release-1.28.1\", \"release-1.28.0\", \"release-1.27.4\", \"release-1.26.3\")]), False)] == [\"1.28.1\", \"1.28.0\"] and u.tag_of({\"tag\": \"release-{major}.{even}.{patch}\"}, \"1.28.0\") == \"release-1.28.0\" and [r[\"version\"] for r in u.tagged({\"tag\": \"release-{major}.{odd}.{patch}\"}, [{\"version\": v, \"prerelease\": False} for v in (\"release-1.29.1\", \"release-1.28.0\")])] == [\"1.29.1\"]'"
+check "the template says a tag pattern can keep one minor line" "grep -q '{even}' '$root/.ai-backbone/templates/upstream.toml'"
 check "a filter keeps one stable line and leaves mainline out" "upy '[r[\"version\"] for r in u.newer_than(\"release-1.30.2\", u.matched({\"filter\": \"release-1\\\\.30\\\\.\"}, [{\"version\": v, \"prerelease\": False} for v in (\"release-1.31.8\", \"release-1.30.4\", \"release-1.30.2\")]), False)] == [\"release-1.30.4\"]'"
 check "a filter that matches nothing the source lists says so" "says 'matches filter' \"\$(just _py)\" -c 'import importlib.util as i; s=i.spec_from_file_location(\"u\", \".ai-backbone/upstream.py\"); u=i.module_from_spec(s); s.loader.exec_module(u); u.matched({\"filter\": \"release-1\\\\.30\\\\.\"}, [{\"version\": \"release-1.31.8\"}])'"
 check "the upstream template names a filter for one stable line" "grep -q 'follow one stable line' '$root/.ai-backbone/templates/upstream.toml'"
@@ -4798,6 +4802,18 @@ side_now=$(git -C "$side" symbolic-ref --short HEAD)
 check "accept from the main worktree fast-forwards the lane and does not switch main" \
   "[ \$d_rc -eq 0 ] && [ \"\$main_now\" = main ] && [ \"\$side_now\" = migration ] && git -C \"\$dproj\" cat-file -e migration:worker-did.txt && ! git -C \"\$dproj\" cat-file -e main:worker-did.txt && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ] && grep -qx \"accepted \$dbr onto migration\" <<<\"\$d_out\""
 git -C "$dproj" worktree remove --force "$side" 2>/dev/null || true
+d_new busybase
+d_run ok grok "" delegate "add a line"
+dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+mainwt="$tmp/delegate-busy-main"
+rm -rf "$mainwt"
+git -C "$dproj" worktree add -q "$mainwt" main
+d_out=$(env -u WORKER -u DELEGATE_BASE HOME="$dhome" just -f "$root/Justfile" -d "$dproj" delegate-accept 2>&1) && d_rc=0 || d_rc=$?
+lane_branch=$(git -C "$dproj" symbolic-ref -q --short HEAD || echo detached)
+main_now=$(git -C "$mainwt" symbolic-ref --short HEAD)
+check "accept detaches the lane when the base is checked out elsewhere, and main stays" \
+  "[ \$d_rc -eq 0 ] && [ \"\$main_now\" = main ] && [ \"\$lane_branch\" = detached ] && git -C \"\$mainwt\" cat-file -e main:worker-did.txt && git -C \"\$dproj\" cat-file -e HEAD:worker-did.txt && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ] && grep -qx \"accepted \$dbr onto main\" <<<\"\$d_out\""
+git -C "$dproj" worktree remove --force "$mainwt" 2>/dev/null || true
 d_migration basedrop
 DELEGATE_BASE=migration d_run ok grok "" delegate "add a line"
 nbr=$(git -C "$dproj" symbolic-ref --short HEAD)
