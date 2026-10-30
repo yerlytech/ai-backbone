@@ -1834,7 +1834,10 @@ delegate task="":
           "git push" "git merge" "git rebase" "git checkout" "git switch" "git reset" \
           "git branch -d" "git branch -D" "git tag" \
           "just publish" "just ship" "just deploy" "just release" "just undo" "just carry" \
-          "gh" "curl" "ssh" "rm" "sh" "bash" "zsh" "eval" "xargs" "env"
+          "just server-bootstrap" "just ssh-allow" "just box-keys" "just live" "just live-trust" "just live-retry" \
+          "just ghcr-login" "just backup-pull" "just restore-drill" "just disk-grow" "just aws-key-rotate" \
+          "gh" "curl" "ssh" "scp" "sftp" "rsync" "aws" "security" "secret-tool" \
+          "rm" "sh" "bash" "zsh" "eval" "xargs" "env"
         do
           printf '%s\n' '[[permission.rules]]' 'decision = "deny"' "pattern = \"Bash($cmd)\"" ''
           printf '%s\n' '[[permission.rules]]' 'decision = "deny"' "pattern = \"Bash($cmd **)\"" ''
@@ -1846,7 +1849,12 @@ delegate task="":
           "~/.appstoreconnect" "~/.appstoreconnect/**" \
           ".env" "**/.env" "**/.env.*" \
           "brain/03-stack" "brain/03-stack/**" \
-          "**/brain/03-stack" "**/brain/03-stack/**"
+          "**/brain/03-stack" "**/brain/03-stack/**" \
+          "brain/secrets" "brain/secrets/**" "**/brain/secrets" "**/brain/secrets/**" \
+          "~/.ssh" "~/.ssh/**" "~/.config" "~/.config/**" \
+          "~/.local/share/opencode" "~/.local/share/opencode/**" \
+          "~/.kimi-code/credentials" "~/.kimi-code/credentials/**" \
+          "~/.grok" "~/.grok/**" "~/.claude" "~/.claude/**"
         do
           for tool in Read Write Edit; do
             printf '%s\n' '[[permission.rules]]' 'decision = "deny"' "pattern = \"$tool($path)\"" ''
