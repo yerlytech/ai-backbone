@@ -16,6 +16,13 @@ entries below are the record of every version.
 
 ## [Unreleased]
 
+**Idle ends a job only when the tree stayed clean (n-025473).** `grok -p`
+prints nothing until it ends, so a quiet log is not a finished worker.
+`DELEGATE_IDLE` fires only when the worktree has had no uncommitted change
+for that whole window, the log was quiet, the branch has a new commit, and
+nothing is running in the worker's process group. A dirty tree keeps the
+job. 0 still turns it off.
+
 **A tag pattern can keep every even or odd minor (n-e7b7ff).** `{major}`,
 `{minor}` and `{patch}` already read a source's own tag spelling. `{even}`
 and `{odd}` are the minor, and only that half:

@@ -85,6 +85,8 @@ The deny list is command text and can be reworded. These hold another way:
 - A merge, a rebase or a reset does not move the branch. The ref update is
   refused unless the new tip's first parent is the old tip.
 - `DELEGATE_TIMEOUT` and `DELEGATE_IDLE` kill the worker's process group.
+  The idle end fires only when the worktree has also been clean for that
+  whole window. A quiet log with uncommitted changes keeps the job.
 - opencode cannot read a path outside the project.
 - curl, ssh and gh are denied. A firewall for every outbound call is not this list.
 - The task text has no zero-width character, bidi mark or HTML comment.

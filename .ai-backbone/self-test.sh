@@ -4263,6 +4263,20 @@ case "$mode" in
     echo report
     exec perl -e 'sleep 60'
     ;;
+  idledirty)
+    printf 'done\n' > worker-did.txt
+    git add worker-did.txt
+    git commit -qm "chore: worker did the task" --no-verify
+    echo x > left-dirty.txt
+    exec perl -e 'sleep 18'
+    ;;
+  idlewindow)
+    printf 'done\n' > worker-did.txt
+    git add worker-did.txt
+    git commit -qm "chore: worker did the task" --no-verify
+    echo x > left-dirty.txt
+    exec perl -e 'sleep 8; unlink "left-dirty.txt"; sleep 40'
+    ;;
   quiet)
     echo report
     exec perl -e 'sleep 12'
@@ -4601,6 +4615,22 @@ if ps -A -o pid=,pgid= 2>/dev/null | awk 'NF == 2 { ok = 1 } END { exit !ok }'; 
   elapsed=$((SECONDS - t0))
   check "a worker quiet after its commit, with nothing running, is stopped as finished (DELEGATE_IDLE)" \
     "[ \$d_rc -eq 0 ] && [ \$elapsed -lt 40 ] && grep -q 'went quiet after its last commit' <<<\"\$d_out\" && grep -qx 'exit status: 0' <<<\"\$d_out\" && grep -q 'worker did the task' <<<\"\$d_out\""
+  git -C "$dproj" checkout -q main
+  d_new idledirty
+  t0=$SECONDS
+  d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=idledirty FAKE_WORKER_PROMPT="$dprompt" \
+    WORKER=grok DELEGATE_TIMEOUT=5 DELEGATE_IDLE=0.05 just -f "$root/Justfile" -d "$dproj" delegate "idle dirty" 2>&1) && d_rc=0 || d_rc=$?
+  elapsed=$((SECONDS - t0))
+  check "a dirty tree is not ended by DELEGATE_IDLE" \
+    "[ \$d_rc -eq 0 ] && [ \$elapsed -ge 15 ] && ! grep -q 'went quiet' <<<\"\$d_out\" && grep -qx 'exit status: 0' <<<\"\$d_out\" && [ -f \"\$dproj/left-dirty.txt\" ]"
+  git -C "$dproj" checkout -q main
+  d_new idlewindow
+  t0=$SECONDS
+  d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=idlewindow FAKE_WORKER_PROMPT="$dprompt" \
+    WORKER=grok DELEGATE_TIMEOUT=2 DELEGATE_IDLE=0.25 just -f "$root/Justfile" -d "$dproj" delegate "idle window" 2>&1) && d_rc=0 || d_rc=$?
+  elapsed=$((SECONDS - t0))
+  check "the idle end waits until the tree has been clean for the whole window" \
+    "[ \$d_rc -eq 0 ] && [ \$elapsed -ge 18 ] && [ \$elapsed -lt 50 ] && grep -q 'went quiet after its last commit' <<<\"\$d_out\" && grep -qx 'exit status: 0' <<<\"\$d_out\" && [ ! -f \"\$dproj/left-dirty.txt\" ]"
   git -C "$dproj" checkout -q main
 fi
 d_new quiet

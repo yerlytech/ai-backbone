@@ -1956,9 +1956,12 @@ delegate task="":
     # new commit on the branch and nothing running in the worker's process
     # group, the job ends as finished. 0 turns this off. Where ps shows no
     # process groups (Git Bash on Windows) it never fires.
+    # n-025473: grok -p prints nothing until it ends, so a quiet log is not
+    # finished work. The idle end also waits out a clean worktree.
     idle_secs=$(LC_ALL=C awk -v t="$idle_min" 'BEGIN { printf "%d", t * 60 }')
     start_tip=$(git rev-parse -q --verify "refs/heads/$branch" 2>/dev/null || echo none)
     rm -f "$dir/${id}.idle"
+    idle_clean_since=$(date +%s)
     set +e
     ( delegate_"$worker" "$prompt" ) </dev/null >"$log" 2>&1 &
     wpid=$!
@@ -1969,10 +1972,13 @@ delegate task="":
         while kill -0 "$wpid" 2>/dev/null && [ "$(date +%s)" -lt "$t_end" ]; do
           sleep 5
           [ "$idle_secs" -gt 0 ] || continue
+          porcelain=$(git status --porcelain 2>/dev/null) || porcelain=x
+          if [ -n "$porcelain" ]; then idle_clean_since=$(date +%s); fi
           quiet=$(( $(date +%s) - $(perl -e 'print((stat shift)[9] // 0)' "$log") ))
           [ "$quiet" -ge "$idle_secs" ] || continue
           tip=$(git rev-parse -q --verify "refs/heads/$branch" 2>/dev/null || echo none)
           [ "$tip" != "$start_tip" ] || continue
+          [ "$(( $(date +%s) - idle_clean_since ))" -ge "$idle_secs" ] || continue
           busy=$(ps -A -o pid=,pgid= 2>/dev/null | awk -v g="$wpid" '$2 == g && $1 != g { n++ } END { print n + 0 }')
           ps -A -o pid=,pgid= 2>/dev/null | awk 'NF == 2 { ok = 1 } END { exit !ok }' || continue
           [ "$busy" -eq 0 ] || continue
