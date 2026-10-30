@@ -37,9 +37,11 @@ both at the end of a phase; the rehearsal is step 7 below.
 ## Steps
 
 1. **Read the lenses.** `docs/audit-lenses.md` lists them. If the file is not
-   there, run `just audit-lenses` and fill it in: five are given, the rest come
-   from this project's own seams. A lens is a question about this codebase, not
-   a category like "security".
+   there, run `just audit-lenses` and fill it in: five are given, and design
+   beside them. The design lens reads the code against the design skill
+   (`.agents/skills/design/SKILL.md`) and its Rust review checklist. The rest
+   come from this project's own seams. A lens is a question about this
+   codebase, not a category like "security".
 2. **Write the ground rules once** and give the same block to every agent: what
    the project is, where its parts live, the rules it holds itself to, that
    reviewers may run commands but must never edit a file, and the commands they
@@ -121,7 +123,8 @@ list of their own, after the findings, never mixed into them.
 
 ## A Rust lens
 
-When the project is Rust, that lens reads this list. A hit is a finding only
+When the project is Rust, the design lens reads the review checklist in the
+design skill. The hazards below sit beside that list. A hit is a finding only
 with a verdict, the same as any other lens.
 
 - `unwrap` or `expect` on a path a user can reach

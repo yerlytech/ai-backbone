@@ -83,7 +83,7 @@ Do not read the whole codebase. Use the map.
 | `src/` | product code. Rename or restructure it to fit the project, then update §0. |
 | `docs/` | public documentation, in `code_lang`. Agents keep it current. |
 | `docs/specs/` | one page per idea, written before the code. `just spec <name>`. |
-| `.agents/skills/` | reusable agent skills, team roles too (SKILL.md standard). `.claude/skills/` holds generated copies of them. |
+| `.agents/skills/` | reusable agent skills, the design skill, and team roles (SKILL.md standard). `.claude/skills/` holds generated copies of them. |
 | `brain/` | private vault, in `brain_lang`, never committed |
 | `.ai-backbone/` | **owned by the backbone.** `just template-update` writes here and to nothing of yours. Never edit. |
 | `.references/` | **READ ONLY.** Other people's repos and old versions of yours. Never write. `just ref-add <url> "why"` adds one. |
@@ -135,3 +135,4 @@ If you need a new repeatable command, add a recipe.
 - Do not use a pinned version's feature from memory. Your training ended on
   a day: read `just upstream <name>` or its source, or measure it. An ADR
   writes `measured on <name> <version>`.
+- Code follows the design skill. A review cites its rule numbers.

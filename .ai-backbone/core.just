@@ -2376,7 +2376,7 @@ audit-lenses:
       printf '# Audit lenses\n\nOne question per lens, about this codebase.\n' > "$f"
     fi
     echo "Created $f"
-    echo "Four lenses are in it already. Add this project's own from docs/adr and docs/specs."
+    echo "The five are in it, and design beside them. Add this project's own from docs/adr and docs/specs."
     echo "Then ask your agent to run the audit skill, at the end of a phase."
 
 # Record a design decision: docs/adr/NNNN-<name>.md. One that changes an earlier one: just adr <name> --amends NNNN "what changed"

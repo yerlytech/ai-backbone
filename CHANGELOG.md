@@ -16,6 +16,16 @@ entries below are the record of every version.
 
 ## [Unreleased]
 
+**Code follows the design skill.** `.agents/skills/design/SKILL.md` holds the
+design rules and the Rust review checklist. The manifest lists it, so the
+next `just template-update` copies it, and `just sync-rules` writes the
+Claude copy. The audit's given lenses gain design beside the five:
+`just audit-lenses` writes that lens, and it reads the skill and its
+checklist. A finding cites the rule's number. `AGENTS.md` gained that one
+line; a project adds it by hand, because that file is its own. The short
+Rust hazard list already in the audit skill stays beside the checklist
+(n-e28eea).
+
 **Idle ends a job only when the tree stayed clean (n-025473).** `grok -p`
 prints nothing until it ends, so a quiet log is not a finished worker.
 `DELEGATE_IDLE` fires only when the worktree has had no uncommitted change

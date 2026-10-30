@@ -262,7 +262,9 @@ n=$(git ls-files | wc -l | tr -d ' ')
 # 2026-10-19, when that task was started.
 # 63 since spec 034: the delegate skill and the Claude Code copy sync-rules
 # writes. The maintainer approved that spec on 2026-10-20.
-check "tracked files at most 63 (got $n)"             "[ $n -le 63 ]"
+# 65 since the design skill: the skill and the Claude Code copy sync-rules
+# writes. The maintainer approved that skill on 2026-10-30.
+check "tracked files at most 65 (got $n)"             "[ $n -le 65 ]"
 # Two more ceilings, set at what a new project measured on 2026-09-19 (spec 012).
 # An agent nobody watches works on this backbone every day and builds ideas it
 # read about; every one of them is small and sensible, and a hundred of them are
@@ -286,7 +288,10 @@ r=$(just --summary 2>/dev/null | wc -w | tr -d ' ')
 # the spec the maintainer approved on 2026-10-21.
 check "recipes a new project shows at most 47 (got $r)" "[ $r -le 47 ]"
 b=$(wc -c < AGENTS.md | tr -d ' ')
-check "AGENTS.md at most 7000 bytes (got $b)"         "[ $b -le 7000 ]"
+# 7080 since the design line (the maintainer, 2026-10-30): code follows the
+# design skill, and a review cites its rule numbers. The session-load ceiling
+# below stays 7100 with the one-line pointer, so this file cannot grow into it.
+check "AGENTS.md at most 7080 bytes (got $b)"         "[ $b -le 7080 ]"
 # What a Claude Code session loads, not one file (spec 022): since 2.1.281 its
 # large-instructions notice counts the instruction files together, @-imports
 # included. Read the way the docs say Claude Code reads them (memory.md, read
@@ -345,6 +350,18 @@ role_parts() {
 }
 check "every role skill has the seven parts, and the team skill lists it" "role_parts"
 check "a new project gets the team, copied for Claude Code, and a place for marketing" "[ -f .claude/skills/team/SKILL.md ] && [ -f .claude/skills/marketing/references/launch.md ] && [ -d brain/06-marketing ]"
+# The design skill ships with the backbone. Front matter is the block between
+# the first two lines that are exactly ---; name and description must both parse.
+design_front() {
+  awk '
+    NR == 1 { if ($0 != "---") bad = 1; next }
+    $0 == "---" { closed = 1; exit }
+    /^name:/ { sub(/^name:[ \t]*/, ""); gsub(/["\r]/, ""); sub(/[ \t]+$/, ""); name = $0; next }
+    /^description:/ { sub(/^description:[ \t]*/, ""); sub(/^[ \t]+/, ""); sub(/[ \t]+$/, ""); desc = $0; next }
+    END { if (bad || !closed || name != "design" || length(desc) == 0) exit 1 }
+  ' .agents/skills/design/SKILL.md
+}
+check "the design skill is present, its front matter parses, and a new project receives it" "[ -f '$root/.agents/skills/design/SKILL.md' ] && [ -f .agents/skills/design/SKILL.md ] && [ -f .claude/skills/design/SKILL.md ] && cmp -s '$root/.agents/skills/design/SKILL.md' .agents/skills/design/SKILL.md && cmp -s .agents/skills/design/SKILL.md .claude/skills/design/SKILL.md && design_front && grep -q '^design ' .claude/skills/.ai-backbone-owned && grep -qx -- '- Code follows the design skill. A review cites its rule numbers.' AGENTS.md"
 # OpenSpec 1.13.2 (PR #1955): each task group lands the tests and docs its own
 # work calls for, and no final group gathers them. Ours adds the lesson of spec
 # 012, whose last box also waited for a radar day: a step that waits on
@@ -712,6 +729,7 @@ printf '{\n\t// See https://go.microsoft.com/fwlink/?LinkId=827846 to learn abou
 check "a save is not refused for the file VS Code writes, comments and all" "just save 'chore: editor recommendations' && says '^chore: editor recommendations' git log -1 --format=%s"
 git reset -q --hard
 check "the second-day lens asks about any toolchain, with Rust and Flutter as its examples" "grep -q 'Dockerfile' .ai-backbone/templates/audit-lenses.md && grep -q 'pubspec.yaml' .ai-backbone/templates/audit-lenses.md"
+check "just audit-lenses writes the design lens beside the five" "rm -f docs/audit-lenses.md && says 'design beside them' just audit-lenses && grep -q '### Design' docs/audit-lenses.md && grep -F -q '.agents/skills/design/SKILL.md' docs/audit-lenses.md && grep -F -q 'Rust review checklist' .agents/skills/audit/SKILL.md && rm -f docs/audit-lenses.md"
 check "the audit skill gives every finding a verdict, anchors severity, and keeps a flag apart" "grep -q '^## Verdicts' .agents/skills/audit/SKILL.md && grep -q 'Needs validation' .agents/skills/audit/SKILL.md && grep -q 'The severity never exceeds the impact shown' .agents/skills/audit/SKILL.md && grep -q '^## A flag is not a finding' .agents/skills/audit/SKILL.md && grep -q 'security-audit-skill/blob/c1c8a8c/' .agents/skills/audit/SKILL.md"
 check "the audit skill's Rust lens names the production hazards" "grep -q '^## A Rust lens' .agents/skills/audit/SKILL.md && grep -q '\`unsafe\` without a \`SAFETY\` comment' .agents/skills/audit/SKILL.md && grep -q 'canonicalize' .agents/skills/audit/SKILL.md && grep -q 'size or depth' .agents/skills/audit/SKILL.md"
 check "the delegate skill says a pin bump is fetched by the desk, and names the ref guard" "grep -q 'The worker has no network' .agents/skills/delegate/SKILL.md && grep -q 'release notes into \`target/\`' .agents/skills/delegate/SKILL.md && grep -q 'first parent is the old tip' .agents/skills/delegate/SKILL.md && grep -q 'zero-width character' .agents/skills/delegate/SKILL.md"

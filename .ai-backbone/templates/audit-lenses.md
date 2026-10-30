@@ -70,6 +70,15 @@ For each pair, say which one the code actually obeys. That is the honest answer
 to which rule is real, and it is usually the older one, because the newer one
 was never enforced anywhere.
 
+## Beside the five
+
+### Design
+
+Given in every project, beside the five above. Read the code against the
+design skill, `.agents/skills/design/SKILL.md`, and when the code is Rust
+against the review checklist at the end of that file. A finding cites the
+rule's number. A rule set aside on purpose says why in the code's comment.
+
 ## When the product has one
 
 Three lenses that are true of many products and not of all. Keep the ones that

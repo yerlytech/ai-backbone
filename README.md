@@ -152,7 +152,7 @@ supported until it has been tried on a real Windows machine with Claude Code.
 | | |
 |---|---|
 | `README.md` | what this project is |
-| `AGENTS.md` | the rules every agent follows. Section 0 holds your language |
+| `AGENTS.md` | the rules every agent follows. Code follows the design skill. Section 0 holds your language |
 | `Justfile` | the commands. Type `just` to see the four you type yourself |
 | `docs/` | the project's documentation, kept current by the agent |
 | `src/` | the code |
