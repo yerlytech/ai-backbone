@@ -3,7 +3,11 @@ status: draft
 date: 2026-10-31
 ---
 
-# 040 — Secrets in the operating system's keystore
+# 041 — Secrets in the operating system's keystore
+
+The number is 041. Spec 040 is the kimi worker, already on its own branch
+(`040-kimi-worker.md`, 2026-10-31). This file took the next free number so
+the two do not collide.
 
 ## What
 
