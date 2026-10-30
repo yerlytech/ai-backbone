@@ -32,8 +32,8 @@ Where just comes from differs by machine. On a Mac it is Homebrew's. On Linux
 it arrives through uv as `rust-just` from PyPI, which is somebody else's
 repackaging of just and not its author's own release. That is on purpose: it
 installs where `just.systems` cannot be reached, a cloud sandbox for one. The
-backbone's watch list follows the author's releases (`github:casey/just`), not
-the package; the header of `.ai-backbone/setup.sh` says why no row watches it.
+watch list follows that package (`pypi:rust-just` in `docs/upstream.toml`),
+which is what `just tools-update` moves on Linux.
 
 Afterwards, and any time later, `just doctor` says what is missing. If a tool
 cannot be installed, the script shows what the installer answered and asks you
@@ -324,7 +324,7 @@ and used for a day in one pilot project, a security fix the same day. A
 project past the mark hears "ahead", never "broken", and is never moved
 down; `just template-update newest` goes past the mark when one is needed.
 
-The backbone's own scheduled agent is a Claude Code routine, once a day. It
+The backbone's own scheduled agent is a Claude Code routine, every third day. It
 pushes to the branch `cloud`, never to `main`. Every push there is tested by
 GitHub on a clean Linux and a clean Mac (`checks.yml`); those two decide the
 carry (spec 037). The same push runs the suite on a clean Windows machine

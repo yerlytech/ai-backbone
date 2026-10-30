@@ -1,6 +1,6 @@
 ---
-status: approved
-date: 2026-10-20
+status: done
+date: 2026-10-30
 ---
 
 # 035 — Fresh every day: the watch list read at session start
@@ -65,13 +65,19 @@ first job the update, ideas watched in the same list, the scan on request.
       behind makes the update the first job; an idea to read goes to the
       worker for a ten-line note, and to the maintainer only when it is worth
       a decision.
-- [~] Tests cover the cache's age rule, a shared lookup across two fixture
+- [x] Tests cover the cache's age rule, a shared lookup across two fixture
       projects, offline and rate-limited runs, and an idea entry. They pass on
       macOS and Linux.
-      macOS green (903 ok). Linux waits for the checks of the first publish.
-      Walked 2026-10-20 by the manager: `just upstream` and `just session-start`
-      on this machine show the block, the shared cache, the new entries and the
-      ideas pinned at today's release and commit.
+      macOS green (903 ok, 2026-10-20). Linux green on f64c84d (2026-10-20
+      routine log; it contains 5f52dfd) and again on 477af32 (2026-10-30,
+      green on Linux and macOS; it contains eabb1f4). Checks: "a shared copy
+      under a day old is not asked again", "a shared copy a day old is asked
+      again", "two projects share one lookup of one source", "offline, with
+      no copy, says so and does not ask", "a rate limit keeps the last result
+      and is not asked again", "an idea's newer release is to read, never
+      behind". Walked 2026-10-20 by the manager: `just upstream` and
+      `just session-start` on this machine show the block, the shared cache,
+      the new entries and the ideas pinned at that day's release and commit.
 
 ## Tasks
 
@@ -79,7 +85,9 @@ first job the update, ideas watched in the same list, the scan on request.
 - [x] FRESHNESS block in session-start, offline and slow paths, tests.
 - [x] `kind = "idea"`, its listing and tests; the backbone's list brought up to
       date (just, prek, graphify, uv, the two MOVED pins) and the new entries.
-- [ ] Rules, session skill, docs and changelog. Release with 034's, or after it.
+- [x] Rules, session skill, docs and changelog. Released with 034 as 3.45.0
+      (e766feb). The rules and the session skill name the FRESHNESS first job
+      (c92bc2e, f91c5f2, eabb1f4, 5f52dfd).
 
 ## Notes
 

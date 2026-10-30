@@ -14,6 +14,10 @@ squash that follows that version on the maintainer's machine takes the tags
 before it with the history. A newcomer reads a repository, not a diary. The
 entries below are the record of every version.
 
+## [Unreleased]
+
+**The scheduled agent runs every third day, and the watch list follows the package Linux installs.** The getting-started page and the how-it-works picture said the backbone's own routine runs once a day, and that `just` is watched on the author's GitHub. The brief has run every third day since 2026-10-07, and `docs/upstream.toml` watches `pypi:rust-just`. A backlog line that is built is ticked and names its commit.
+
 ## 26.10.1 — 2026-10-30
 
 **Code follows the design skill.** `.agents/skills/design/SKILL.md` holds the

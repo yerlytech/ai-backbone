@@ -21,8 +21,8 @@
 # Homebrew, so its formula says what `brew upgrade` would install; its GitHub
 # release pages stopped before 2.x. Zed publishes GitHub releases.
 #
-# Pins dated 2026-10-20. just 1.59.0, prek 0.5.6, graphify 0.9.92 and uv 0.13.3
-# are the newest releases. gitleaks v8.30.1 and actions/checkout v7 are what
+# The pin on each row is the version this file holds, not the newest.
+# gitleaks v8.30.1 and actions/checkout v7 are what
 # the files named in pinned_in hold. grok 1.0.62 is what `~/.grok/bin/grok
 # version` printed. claude-code 2.1.304 is the running version `claude doctor`
 # printed, on its stable auto-update channel. zed v1.24.3 is what

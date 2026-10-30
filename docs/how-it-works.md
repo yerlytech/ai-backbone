@@ -31,7 +31,7 @@ flowchart TD
     gate -->|"carried to main"| hub
     hub --> todo
     news -->|"every second run: the radar"| todo
-    todo -->|"one item a day"| agent
+    todo -->|"one item every third day"| agent
     agent -->|"pushes to cloud"| gate
     gate -->|"green code: waits for your yes"| ask
     you -->|"yes: just carry"| ver
@@ -56,7 +56,7 @@ the line carries an id and never a project's name: the backbone knows no project
 comes from one keeps the lesson and drops the project: no quote from its documents, no decision or
 spec number, no commit hash, no test name or log line from its CI, no list of its plans or defects,
 no set of its pins). A scheduled agent takes one item from that list every
-day, builds it, tests it and pushes it to the branch `cloud`. A gate on GitHub
+third day, builds it, tests it and pushes it to the branch `cloud`. A gate on GitHub
 tests that push again on a clean Linux, a clean Mac and a clean Windows
 machine. Linux and macOS decide the carry (spec 037); Windows reports, and a
 carry no longer waits for it. Green docs (a note, a

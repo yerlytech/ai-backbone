@@ -110,11 +110,19 @@ its own worker.
       task, one report, review, then accept, fix or drop; the publish and ship
       gates unchanged; two failures go to the maintainer. They also say what to
       do when no worker is installed: the session works as before.
-- [~] Tests with a fake worker (a script) cover each refusal, a clean run, a
+- [x] Tests with a fake worker (a script) cover each refusal, a clean run, a
       timeout, a worker that pushes or moves the default branch (BREACH), and
       accept and drop. They pass on macOS and Linux.
-      macOS green (delegate section 42 ok, full suite); Linux waits for the
-      checks of the first publish.
+      macOS green (delegate section, full suite, 2026-10-20). Linux green on
+      f64c84d (2026-10-20 routine log; it contains f978d71) and again on
+      477af32 (2026-10-30, green on Linux and macOS). Checks: "a dirty tree is
+      refused in one line, before any branch", "a clean run makes
+      delegate/<date>-<slug>, commits, and prints the report", "the run stops
+      when DELEGATE_TIMEOUT passes and says timeout", "a worker that pushes is
+      a breach, said first", "a worker that moves the default branch is a
+      breach, said first", "accept fast-forwards the default branch and
+      deletes the delegate branch", "drop asks once: no keeps the branch, yes
+      deletes it".
 - [x] A real run in a fixture project with Grok finishes with a report and an
       accepted branch. Missing Grok leaves this line pending, not failed.
       2026-10-20, grok 1.0.62 off PATH (~/.grok/bin): a throwaway repo, one
@@ -128,5 +136,8 @@ its own worker.
 - [x] The BREACH check and the timeout, with their tests.
 - [x] The manager rules in the core instructions, the skill text (team or a new
       `delegate` skill), `docs/`, and the changelog.
-- [ ] A real Grok run in a fixture. Release, and then each project's
-      `just template-update`.
+- [x] A real Grok run in a fixture. 2026-10-20, grok 1.0.62, recorded in
+      df9708d: a throwaway repo, exit 0 (the acceptance line above).
+- [x] Released with 035 as 3.45.0 (e766feb). Later CalVer through 26.10.1
+      (e7c3348).
+- [ ] Each project's `just template-update`. Not done from this repository.

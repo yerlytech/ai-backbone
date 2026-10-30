@@ -58,14 +58,31 @@ publication and audit spending retain their existing approval gates.
   generated copies are detected; modified or ownership-unknown copies are named
   and preserved. Project-owned skills and unrelated settings survive.
   3.41.3, in the suite's new-project section.
-- [ ] Registered local roots supplement existing project discovery: duplicate
+- [x] Registered local roots supplement existing project discovery: duplicate
   real paths appear once; missing roots are reported; private paths stay local.
-- [ ] Release tests establish whether n-0d2d4a still reproduces with the existing
+  0518700, kept in 3672b1f (3.42.0). Tests: "local roots add a project once,
+  and a missing root is said", "a local root's name is one the backbone
+  refuses to commit", "the rust project list includes a local root once".
+  Paths live in `brain/project-roots.txt`; `brain/` is gitignored. Linux and
+  macOS green on 477af32.
+- [x] Release tests establish whether n-0d2d4a still reproduces with the existing
   version setter; package version, changelog and annotated tag agree after a
   release, and a failed check leaves no completed release tag.
-- [ ] A VM build can retain its queue turn until exit and releases it on failure;
+  3672b1f (3.42.0); the version line's current text is 7506f81 (CalVer).
+  Tests: "the release commit carries the version the layer set, under an
+  annotated tag", "a release the checks refuse leaves no tag and no
+  half-written changelog", "an annotated tag, on a release commit".
+- [x] A VM build can retain its queue turn until exit and releases it on failure;
   a blocked credential helper returns within a tested bound without printing
   credentials or claiming an unseen dialog is a proven cause.
+  3672b1f (3.42.0); `BUILD_WAIT_HOLD` also in af94e7a. Tests:
+  "BUILD_WAIT_HOLD=whole keeps a minute-old turn while its holder lives",
+  "and lets that turn go when the holder ends". Credential: "a Docker
+  credential helper that does not answer is named within a few seconds",
+  "a Docker credential helper that answers is not a warning", "a Docker
+  credsStore whose helper is missing is named". The helper's stdout goes to a
+  temp file that is deleted (`core.just`); the warning says the keychain may
+  be waiting, not that a dialog was seen.
 - [ ] Device tests select an explicit emulator identity, stop silent hangs with
   a failure, preserve logs and handle a busy machine within a bounded wait.
   macOS launch behaviour is rehearsed, not inferred from shell fixtures.
