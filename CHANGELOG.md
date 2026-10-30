@@ -14,7 +14,7 @@ squash that follows that version on the maintainer's machine takes the tags
 before it with the history. A newcomer reads a repository, not a diary. The
 entries below are the record of every version.
 
-## [Unreleased]
+## 26.10.1 — 2026-10-30
 
 **Code follows the design skill.** `.agents/skills/design/SKILL.md` holds the
 design rules and the Rust review checklist. The manifest lists it, so the
