@@ -103,7 +103,7 @@ skill to follow, and say how many before starting them.
 
 ## When a worker builds
 
-With `WORKER` set to `grok`, `claude` or `opencode`, the session manages and writes no
+With `WORKER` set to `grok`, `claude`, `opencode` or `kimi`, the session manages and writes no
 product code. One task goes out with `just delegate`, then the report, then
 accept, fix or drop. The steps are the `delegate` skill. `just publish` and
 `just ship` stay with the session. Two failed tries at one job go to the

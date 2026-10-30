@@ -34,6 +34,8 @@
 # 2026-10-12. A later commit is to read. opencode 2.1.2 is what `opencode
 # --version` printed, and the Homebrew formula builds that same version on
 # 2026-10-22: its GitHub tags stopped at v1.19.3. No registry was asked.
+# kimi-code 2.4.0 is what `kimi --version` printed on 2026-10-30. Homebrew
+# installs it as the formula kimi-code; the binary is `kimi`.
 
 [[watch]]
 name = "just"
@@ -100,6 +102,13 @@ source = "brew:opencode"
 pin = "2.1.2"
 why = "the worker CLI a delegated job is handed to, when WORKER is opencode"
 check = "what a headless run accepts, and whether the binary still answers `opencode --version`"
+
+[[watch]]
+name = "kimi"
+source = "brew:kimi-code"
+pin = "2.4.0"
+why = "the worker CLI a delegated job is handed to, when WORKER is kimi"
+check = "what a headless run accepts, and whether the binary still answers `kimi --version`"
 
 [[watch]]
 name = "zed"

@@ -134,7 +134,7 @@ before code reaches `main`, and `brain/` never leaving your machine.
 
 The file is a seed. A new project gets a copy, and after that the file is the
 project's. `just template-update` does not replace it. When `WORKER` is
-`grok`, `claude` or `opencode`, a new project and `just template-update` add
+`grok`, `claude`, `opencode` or `kimi`, a new project and `just template-update` add
 four allow rules, so Claude Code may run `just delegate`, `just delegate-status`,
 `just delegate-accept` and `just delegate-drop` without asking. A rule the
 project wrote stays. With `WORKER` unset or `off`, nothing is added. The same

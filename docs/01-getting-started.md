@@ -203,7 +203,7 @@ just secrets-back                       # put each secret back and empty brain/s
 just --list          # everything
 ```
 
-When `WORKER` is `grok`, `claude` or `opencode`, the session manages. It sends one task,
+When `WORKER` is `grok`, `claude`, `opencode` or `kimi`, the session manages. It sends one task,
 reads the report, and accepts, fixes or drops. A fix is another `just delegate`
 on that same `delegate/*` branch, so the first round's commits stay. A line
 `Title:` in the task names the branch; the same name on the same day gets
@@ -214,7 +214,9 @@ is the default on a new machine, and then the session does the work as before,
 including when the named worker is not installed. The binary is `WORKER_BIN`
 when that is set, otherwise the name on `PATH`, otherwise `~/.grok/bin/grok`
 (Claude looks in `~/.claude/local/claude`, then `~/.local/bin/claude`;
-opencode looks in `~/.opencode/bin/opencode`).
+opencode looks in `~/.opencode/bin/opencode`; kimi looks in
+`~/.kimi-code/bin/kimi`, then `/opt/homebrew/bin/kimi`, then
+`/usr/local/bin/kimi`).
 `DELEGATE_TIMEOUT` is how many minutes one job may run (180 if you do not set
 it). `DELEGATE_BASE` is a long-lived branch to start from instead of the
 default, when you set one. `just delegate-drop --yes`, or `DELEGATE_YES=1`,
@@ -224,6 +226,14 @@ one. For opencode, `WORKER_LADDER` is the ladder. Unset, it is
 `opencode-go/kimi-k3`. The first try uses the first; each fix round the next;
 past the last, the job refuses. The report ends with what that run cost, and
 `just delegate-status` shows the model and the cost of the last run.
+Grok, claude and kimi do not climb that ladder. For kimi, `DELEGATE_MODEL`
+is passed as `-m` when it is set, and `WORKER_MODEL` is not read. A run that
+is not logged in stops with `kimi is not logged in: run kimi login` and
+leaves no branch. kimi-code 2.4.0 has no per-run config file, and pointing
+`KIMI_CODE_HOME` at one would move the login, so the deny list is a marked
+block in the user config (`~/.kimi-code/config.toml`, or `$KIMI_CODE_HOME`
+when that is already set), rewritten each run. The report is the last 15
+lines of the assistant text. The stream-json log stays outside the repo.
 A new project, and `just template-update` on one already there, add Claude
 Code allow rules for those four commands when `WORKER` is set. A rule the
 project already wrote stays. With `WORKER` unset or `off`, that file is left
