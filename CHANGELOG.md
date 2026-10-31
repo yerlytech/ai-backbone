@@ -16,6 +16,8 @@ entries below are the record of every version.
 
 ## [Unreleased]
 
+**Secrets move into the operating system's keystore.** `just secrets-to-keystore` moves a token file out of the project and the home directory and leaves no copy, including a spec 036 link. An account that already holds different bytes is refused. `just with-secret` passes one account on the command's standard input and prints nothing of the value. An ssh private key stays a file; a key with no passphrase is reported, and on Apple ssh the recipe adds `UseKeychain yes` and `AddKeysToAgent yes` only where that line is missing. Workers are denied the keystore commands, `ssh-add`, the agent socket, and the secret paths. The suite uses a fake store and never calls the real keychain.
+
 **`WORKER=kimi` is a fourth delegate worker.** Kimi Code CLI 2.4.0 runs headless as `kimi -p` with `--output-format stream-json`, beside grok, claude and opencode. There is no per-run config file, and `KIMI_CODE_HOME` would move the login, so the deny list is a marked block in the user config, rewritten each run. A machine that is not logged in stops with `kimi is not logged in: run kimi login` and leaves no branch. `DELEGATE_MODEL` is passed as `-m`. The report is the last 15 lines of the assistant text; the stream-json log stays outside the repo.
 
 **The scheduled agent runs every third day, and the watch list follows the package Linux installs.** The getting-started page and the how-it-works picture said the backbone's own routine runs once a day, and that `just` is watched on the author's GitHub. The brief has run every third day since 2026-10-07, and `docs/upstream.toml` watches `pypi:rust-just`.

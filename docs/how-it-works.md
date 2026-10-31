@@ -82,7 +82,10 @@ the answer to the agent in any project, and it travels back as a note that
 begins `decision:`. And `brain/`, your private notebook, never goes to GitHub.
 It stays on your computer, and after every session a second copy of it is left
 in the place you named once for this machine. Secrets live in `brain/secrets/`,
-inside that copy.
+inside that copy, until `just secrets-to-keystore` moves a token file into the
+operating system's keystore. `just with-secret` reads one account onto a
+command's standard input at the moment of use. A night step that needs a secret is skipped and named in the morning.
+CI does not call the reader; the key stays in the platform's own store.
 
 ## The life of one idea
 

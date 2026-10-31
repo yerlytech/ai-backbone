@@ -101,9 +101,15 @@ The deny list is command text and can be reworded. These hold another way:
 - curl, ssh and gh are denied. A firewall for every outbound call is not this list.
 - The task text has no zero-width character, bidi mark or HTML comment.
 
-A grok rule that denies reads of `~/.aws`, `~/.appstoreconnect`, `brain/03-stack`
-and `.env` is not here: that syntax was not measured. opencode's rule above
-covers a path outside the project.
+Grok's delegate run denies `Read` of the secret paths and the keystore
+commands, `ssh-add`, and the agent socket, and writes a sandbox profile
+`ai-backbone-delegate` whose `deny` lists the same paths. The guide says a
+non-empty `deny` is kernel-enforced; that enforcement is not measured yet
+(n-fc65ca). opencode denies the same commands after the shell allow, and
+denies the same paths in its `read` object; the per-path `read` schema was
+not in the checkout on 2026-10-31 (pin 2.1.2). Claude's denies are merged
+into `.claude/settings.json` when `WORKER` is set. The command list is still
+not a security boundary. opencode's rule above covers a path outside the project.
 
 A run that pushed, moved the default branch (or the base, when one is set), or
 changed the branch list prints `BREACH:` first and exits non-zero. A fetch

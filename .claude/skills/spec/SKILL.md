@@ -95,6 +95,9 @@ mark one on your own.
   Before a risky step, write the handover first.
 - **Never in the backbone itself.** What the backbone publishes reaches every
   project the next morning: a night there runs unattended in all of them.
+- **Secrets.** A night step that needs a secret is skipped and named in the morning.
+  It does not run, and it does not call `just with-secret`. CI does not call the reader
+  either; the key stays in the platform's own store (spec 041).
 
 ## Rules
 
