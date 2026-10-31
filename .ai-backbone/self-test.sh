@@ -2261,6 +2261,7 @@ import io
 import json
 import os
 import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -2715,8 +2716,23 @@ elif mode.startswith("npm-"):
         (tree / "web" / "package-lock.json").write_text("{}", encoding="utf-8")
         (tree / "node_modules" / "dep").mkdir(parents=True, exist_ok=True)
         (tree / "node_modules" / "dep" / "package.json").write_text("{}", encoding="utf-8")
+    if mode == "npm-ignored":
+        # cargo's target/ is gitignored and still holds a package.json. The
+        # empty .git above is not a repository until init, so check-ignore can match.
+        (tree / "target" / "web").mkdir(parents=True, exist_ok=True)
+        (tree / "target" / "web" / "package.json").write_text("{}", encoding="utf-8")
+        (tree / "target" / "web" / "package-lock.json").write_text("{}", encoding="utf-8")
+        (tree / ".gitignore").write_text("target/\n", encoding="utf-8")
+        init = subprocess.run(
+            ["git", "init", "-q"], cwd=tree,
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+        if init.returncode != 0:
+            fail("git init failed: " + (init.stderr or ""))
     if mode == "npm-missing":
         os.environ["PATH"] = str(tree / "no-bin")
+    elif mode == "npm-ignored":
+        # The stand-in npm stays first. git has to be found too, or check-ignore cannot match.
+        os.environ["PATH"] = str(bindir) + os.pathsep + os.environ.get("PATH", "")
     else:
         os.environ["PATH"] = str(bindir)
     os.environ["FAKE_NPM_OUTDATED"] = (
@@ -2757,6 +2773,24 @@ elif mode.startswith("npm-"):
             fail("audit was not asked of the folder with a lock file: " + repr(calls))
         if sum(1 for c in calls if c.endswith(" audit")) != 1:
             fail("audit was asked of a folder with no lock file: " + repr(calls))
+    elif mode == "npm-ignored":
+        probe = subprocess.run(
+            ["git", "check-ignore", "-q", "--", "target/web/package.json"],
+            cwd=tree, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if probe.returncode != 0:
+            fail("fixture target/web/package.json is not ignored")
+        if rc != 0 or "=== NPM PACKAGES (2) ===" not in out:
+            fail(f"rc={rc}\n{out}")
+        if "target" in out or any("target" in c for c in calls):
+            fail("an ignored package.json was counted: " + repr(calls) + "\n" + out)
+        if "2 outdated (react 18.0.0 → 18.3.1, vite 5.0.0 → 5.4.0)" not in out:
+            fail(out)
+        if "3 vulnerabilities (2 high, 1 moderate) -> npm audit" not in out:
+            fail(out)
+        if sum(1 for c in calls if c.endswith(" outdated")) != 2:
+            fail("outdated was asked of an ignored folder: " + repr(calls))
+        if sum(1 for c in calls if c.endswith(" audit")) != 1:
+            fail("audit was asked of an ignored folder: " + repr(calls))
     elif mode == "npm-slow":
         if rc != 0 or "could not check outdated (slow)" not in out or took > 3:
             fail(f"rc={rc} took={took:.1f}\n{out}")
@@ -2799,6 +2833,7 @@ check "a worker CLI is compared with the channel it was installed on" "fresh035 
 check "a Homebrew formula says the stable version brew would install" "fresh035 brew"
 check "Windows runs npm.cmd through cmd, and npm.exe as itself"    "fresh035 npm-win"
 check "npm outdated and audit are read for every package.json, node_modules skipped" "fresh035 npm-report"
+check "a package.json inside a gitignored target/ is not outdated or vulnerable" "fresh035 npm-ignored"
 check "no package.json means no npm call and no line"                "fresh035 npm-none"
 check "a slow npm is one line, and the session goes on"              "fresh035 npm-slow"
 check "a failing npm is a could-not-check line"                      "fresh035 npm-fail"
@@ -5051,6 +5086,8 @@ check "a clean run makes delegate/<date>-<slug>, commits, and prints the report,
   "[ \$d_rc -eq 0 ] && case \"\$dbr\" in delegate/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-add-a-line) ;; *) false ;; esac && grep -qx 'tree: clean' <<<\"\$d_out\" && grep -qx 'exit status: 0' <<<\"\$d_out\" && grep -q 'worker-did.txt' <<<\"\$d_out\" && grep -q 'line-20' <<<\"\$d_out\" && grep -q 'line-06' <<<\"\$d_out\" && ! grep -q 'line-01' <<<\"\$d_out\" && grep -q \"commits on \$dbr\" <<<\"\$d_out\" && ! grep -q '^BREACH:' <<<\"\$d_out\" && [ -n \"\$dlog\" ] && grep -q 'line-01' \"\$dlog\" && [ -z \"\$(find \"\$dproj\" -name '*.log' -type f)\" ] && [ -z \"\$(git -C \"\$dproj\" status --porcelain)\" ] && ! grep -q '^cost:' <<<\"\$d_out\""
 check "the worker's prompt is the preamble, then the task, and grok is called headless" \
   "grep -q 'Read AGENTS.md' \"\$dprompt\" && grep -q \"You are on branch \$dbr; stay on it.\" \"\$dprompt\" && grep -q 'just save' \"\$dprompt\" && grep -q 'just publish' \"\$dprompt\" && grep -q 'git push' \"\$dprompt\" && grep -q 'just ship' \"\$dprompt\" && grep -q 'just deploy' \"\$dprompt\" && grep -q 'server or GitHub' \"\$dprompt\" && grep -q 'merge, rebase, or delete a branch' \"\$dprompt\" && grep -q 'Never start a sub-agent or a parallel task' \"\$dprompt\" && grep -q 'at most 15 lines' \"\$dprompt\" && [ \"\$(tail -n 1 \"\$dprompt\")\" = 'add a line' ] && [ \"\$(cat \"\$dprompt.fmt\")\" = plain ] && [ -z \"\$(cat \"\$dprompt.model\")\" ] && [ \"\$(cat \"\$dprompt.perm\")\" = auto ] && grep -qx 'Bash(git push:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(just ship:\*)' \"\$dprompt.deny\""
+check "the preamble grok receives says never begin a command with a variable assignment" \
+  "grep -Fq 'Never begin a command with a variable assignment; put multi-step logic in a recipe or a test file.' \"\$dprompt\""
 check "grok's deny list also names the shell wrappers that step around rm (added, not measured on grok)" \
   "grep -qx 'Bash(sh:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(bash:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(zsh:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(eval:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(xargs:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(env:\*)' \"\$dprompt.deny\""
 check "grok's argv denies the keystore commands, ssh-add and the secret paths, and the sandbox profile names the same paths" \
@@ -5076,6 +5113,8 @@ check "grok's background tasks are allowed the job's timeout, and the preamble s
 d_new model
 d_run ok claude cheap delegate "use claude"
 check "the claude adapter calls claude -p with WORKER_MODEL" "[ \$d_rc -eq 0 ] && grep -q 'Read AGENTS.md' \"\$dprompt\" && [ -z \"\$(cat \"\$dprompt.fmt\")\" ] && [ \"\$(cat \"\$dprompt.model\")\" = cheap ]"
+check "the preamble claude receives says never begin a command with a variable assignment" \
+  "grep -Fq 'Never begin a command with a variable assignment; put multi-step logic in a recipe or a test file.' \"\$dprompt\""
 d_new running
 env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE=slow FAKE_WORKER_GO="$dgo" \
   WORKER=grok just -f "$root/Justfile" -d "$dproj" delegate "wait here" > "$tmp/delegate-bg.out" 2>&1 &
@@ -5563,6 +5602,8 @@ dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
 rung=$(git -C "$dproj" config --get "branch.${dbr}.delegateRung" 2>/dev/null || true)
 check "opencode's first try runs the first ladder model, with the preamble, and the report ends on the summed cost" \
   "[ \$d_rc -eq 0 ] && oc_argv_is 'opencode-go/deepseek-v4.1-flash' && [ \"\$(cat \"\$dprompt.model\")\" = 'opencode-go/deepseek-v4.1-flash' ] && [ \"\$(cat \"\$dprompt.fmt\")\" = json ] && [ \"\$(cat \"\$dprompt.standalone\")\" = 1 ] && [ \"\$(cat \"\$dprompt.auto\")\" = 1 ] && grep -q 'Read AGENTS.md' \"\$dprompt\" && grep -q \"You are on branch \$dbr; stay on it.\" \"\$dprompt\" && grep -q 'just save' \"\$dprompt\" && grep -q 'just publish' \"\$dprompt\" && grep -q 'at most 15 lines' \"\$dprompt\" && [ \"\$(tail -n 1 \"\$dprompt\")\" = 'add a line' ] && [ \"\$rung\" = 1 ] && oc_events_ok 'cost: \$0.03 on opencode-go/deepseek-v4.1-flash, 2 steps'"
+check "the preamble opencode receives says never begin a command with a variable assignment" \
+  "grep -Fq 'Never begin a command with a variable assignment; put multi-step logic in a recipe or a test file.' \"\$dprompt\""
 check "the config the fake receives denies the grok list and the shell wrappers, turns autoupdate off, and blocks web fetch and outside paths" \
   "oc_config_ok && [ \"\$(cat \"\$dprompt.projectdisable\")\" = 1 ]"
 d_run fix opencode "" delegate "fix the line"
@@ -5766,6 +5807,8 @@ rung=$(git -C "$dproj" config --get "branch.${dbr}.delegateRung" 2>/dev/null || 
 rules_before=$(grep -c '^\[\[permission.rules\]\]$' "$dhome/.kimi-code/config.toml")
 check "kimi runs headless with the preamble, passes DELEGATE_MODEL as -m, and ignores the ladder and WORKER_MODEL" \
   "[ \$d_rc -eq 0 ] && [ -f \"\$dproj/worker-did.txt\" ] && [ \"\$(cat \"\$dprompt.fmt\")\" = stream-json ] && [ \"\$(cat \"\$dprompt.model\")\" = k2 ] && [ \"\$(cat \"\$dprompt.trust\")\" = 1 ] && [ \"\$(cat \"\$dprompt.guard\")\" = true ] && [ \"\$(cat \"\$dprompt.home\")\" = unset ] && [ \"\$(cat \"\$dprompt.configpath\")\" = \"\$dhome/.kimi-code/config.toml\" ] && grep -q 'Read AGENTS.md' \"\$dprompt\" && grep -q \"You are on branch \$dbr; stay on it.\" \"\$dprompt\" && grep -q 'just save' \"\$dprompt\" && grep -q 'just publish' \"\$dprompt\" && grep -q 'at most 15 lines' \"\$dprompt\" && [ \"\$(tail -n 1 \"\$dprompt\")\" = 'add a line' ] && [ -z \"\$rung\" ] && ! grep -q should-not-pass \"\$dprompt.argv\""
+check "the preamble kimi receives says never begin a command with a variable assignment" \
+  "grep -Fq 'Never begin a command with a variable assignment; put multi-step logic in a recipe or a test file.' \"\$dprompt\""
 check "the kimi rules deny a publish and a push, keep the user's rule first-match behind them, and drop the stale block" \
   "kimi_rules_ok"
 check "the kimi report is the last 15 lines of assistant text, and the stream-json log stays outside the repo" \

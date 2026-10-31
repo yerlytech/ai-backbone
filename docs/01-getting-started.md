@@ -476,8 +476,9 @@ with a spec and a test that proves what it might have broken still holds.
 a project with a language has no watch list yet.
 
 Each session also reads the project's own dependencies: every `Cargo.lock`
-against the RustSec advisories, and every `package.json` (node_modules skipped)
-with `npm outdated` and `npm audit`. Only findings and could-not-check lines are
+against the RustSec advisories, and every `package.json` (node_modules
+skipped, and a path `git check-ignore` matches skipped) with `npm outdated`
+and `npm audit`. Only findings and could-not-check lines are
 shown. A slow or failing npm is one such line and the session goes on; with no
 `package.json` there is no line and nothing is asked.
 
