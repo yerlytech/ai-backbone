@@ -1808,6 +1808,9 @@ delegate task="":
     delegate_grok() {
       # spec 041: a sandbox profile beside the command deny. Enforcement is not
       # measured yet (n-fc65ca). Do not deny all of ~ or all of ~/.grok.
+      # Nor grok's own auth.json: the profile binds the grok process itself,
+      # which then says "Not signed in" (n-4d1e6a, 2026-10-31). The Read deny
+      # below keeps the worker's tools off it.
       local gfile="$HOME/.grok/sandbox.toml" gblock
       mkdir -p "$HOME/.grok"
       gblock=$(mktemp)
@@ -1820,10 +1823,8 @@ delegate task="":
         for gpath in \
           "~/.ssh" "~/.aws" "~/.appstoreconnect" \
           "~/.config/gh/hosts.yml" \
-          "~/.grok/auth.json" "~/.grok/mcp_credentials.json" \
           "**/.aws/**" "**/.appstoreconnect/**" "**/.ssh/**" \
           "**/.config/gh/hosts.yml" \
-          "**/.grok/auth.json" "**/.grok/mcp_credentials.json" \
           "**/brain/secrets/**" "**/brain/03-stack/**" \
           "**/.env" "**/.envrc" "**/ai-backbone/keystore/**" \
           "**/ssh-agent.sock"
