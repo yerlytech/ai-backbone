@@ -92,12 +92,84 @@ publication and audit spending retain their existing approval gates.
   The task above names the suite checks. On 2026-10-31 ruff 0.17.3 read
   `.ai-backbone/upstream.py` clean and basedpyright 1.40.2 reported 0 errors,
   0 warnings, 0 notes.
-- [ ] All ten reports below have evidence-backed dispositions. A disproved report
+- [x] All ten reports below have evidence-backed dispositions. A disproved report
   records its reason; missing validation remains pending, never silently closed.
+  Dispositions recorded 2026-10-31 in Reports below. `just self-test` that day:
+  1067 ok, 0 failed. n-ae82d7 and the live half of n-fe290b stay pending; they
+  are not called fixed.
 - [ ] Each implementation step includes regression tests and affected docs.
   The final candidate passes the suite on Linux/macOS/Windows and an attended
   install/update rehearsal preserves project-owned files. Before a stable mark,
   031's pilot-use requirement holds. Audit requires a separately approved count.
+
+## Reports
+
+Each report is kept from `docs/backlog.md` beside its disposition. On 2026-10-31
+`just self-test` printed every check named here as `ok` and ended `1067 ok,
+0 failed`.
+
+- **n-0d2d4a, 2026-10-15 — `just release`:** set the package version in the
+  release commit (a released build still printed the old `CARGO_PKG_VERSION`)
+  and make an annotated tag; today it only tagged and wrote `CHANGELOG.md`.
+  **Fixed** in 3.42.0 (3672b1f). Tests: "the release commit carries the version
+  the layer set, under an annotated tag", "the Rust layer writes the version
+  into [workspace.package]", "and into [package] when there is no workspace
+  version"; "a release the checks refuse leaves no tag and no half-written
+  changelog" covers the failure side.
+- **n-03ddaa, 2026-10-15 — `_build-wait`:** a Docker build in a macOS VM is
+  invisible to `ps`, so its queue ticket held the turn only 30 seconds; add
+  `BUILD_WAIT_HOLD=whole` to hold until the holder ends.
+  **Fixed** in 3.42.0 (3672b1f). Tests: "BUILD_WAIT_HOLD=whole keeps a
+  minute-old turn while its holder lives", "and lets that turn go when the
+  holder ends".
+- **n-7a63e5, 2026-10-18 — `doctor` credential helper:** where Docker's config
+  names a `credsStore`, check that the helper answers within a few seconds;
+  otherwise name the likely keychain wait instead of a silent `DeadlineExceeded`.
+  **Fixed** in 3.42.0 (3672b1f). Tests: "a Docker credential helper that
+  answers is not a warning", "a Docker credential helper that does not answer
+  is named within a few seconds", "a Docker credsStore whose helper is missing
+  is named".
+- **n-20a330, 2026-10-15 — done spec's open lines:** the spec skill says close
+  only when every line holds, while session-start stayed quiet about `[~]`
+  lines in a done spec; list them as waiting for the owner, or let the skill
+  close with them. **Fixed** in 3.42.0 (3672b1f) by listing them. Test: "and a
+  `[~]` line is named as waiting for the owner".
+- **n-3140d5, 2026-10-15 — advisory label:** label a finding "(only tests, by
+  Cargo.toml)" without running cargo, from the dependency tables and renames;
+  a label to speed triage, never a silencer. **Fixed** in 3.43.0 (5f96dba).
+  Tests: "a dev-dependency is labelled only-tests and still warned", "a renamed
+  dep and a target dep are not called test-only", "an edge the reader does not
+  understand gets no test-only label".
+- **n-259b1e, 2026-10-18 — `upstream.py` editor findings:** Zed opened
+  basedpyright and ruff on the file with two type errors and fourteen warnings.
+  **Fixed** in b1d2ec8 (Unreleased). Tests: "upstream.py has none of the editor
+  findings n-259b1e named, and no blanket ignore", "and ruff reads it clean".
+- **n-f79b86, 2026-10-14 — device choice:** choose an Android emulator by its
+  AVD name or a fixed port, never the first line of `adb devices`; several
+  projects share one machine and adb's order is not stable. **Fixed** in 3.44.0
+  (2aeb8d0, 3672b1f). Tests: "a device is chosen by its AVD name, never by
+  being listed first", "with no name and no port, the first adb line is
+  refused", "test-device asks flutter test for that emulator".
+- **n-445708, 2026-10-14 — silence watchdog:** a `flutter test -d <device>` run
+  that writes nothing for N minutes should stop and count as failed, because a
+  hung emulator run blocks every run queued after it. **Fixed** in 3.44.0
+  (2aeb8d0, 3672b1f). Test: "a device test that writes nothing is stopped, and
+  the log is kept".
+- **n-ae82d7, 2026-10-16 — launchd emulator start:** start the emulator through
+  a one-shot launchd agent (`KeepAlive` false, `ProcessType Interactive`, the
+  Android and Java environment), never as a child of a niced recipe; a niced
+  shell cannot renice back and lost adbd on a busy Mac. **Pending.** The plist
+  is written and fixture-tested ("the emulator plist is a one-shot interactive
+  agent and starts nothing"), but no live `launchctl bootstrap gui/<uid>` or
+  busy-Mac device run was made here. Needs an attended Mac device run under
+  load; the backlog line stays open.
+- **n-fe290b, 2026-10-16 — busy-machine correction:** starting the emulator and
+  adb at nice 0 is still not enough on a busy Mac; the device was lost after
+  install, so wait for a calm machine or say it is busy, and keep each failed
+  try's log. **Fixed in fixtures; live confirmation pending.** Tests: "a busy
+  machine is said, and flutter is not asked", "a device test that writes nothing
+  is stopped, and the log is kept". The busy-Mac device loss itself was not
+  observed again here, so the cause is not claimed closed.
 
 ## Tasks
 
