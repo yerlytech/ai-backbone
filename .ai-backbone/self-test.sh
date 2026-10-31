@@ -2113,6 +2113,51 @@ check "the tenth release candidate is after the ninth"  "upy 'p(\"2.0.0-rc.8\") 
 check "a build of a version is that version"            "upy 'p(\"1.2.3+build.5\") == p(\"1.2.3\")'"
 check "a release is dated by the day it existed"        "upy 'u.release_day({\"published_at\": \"2026-08-17T13:28:19Z\", \"created_at\": \"2026-08-03T11:33:28Z\"}) == \"2026-08-03\"'"
 check "a project that tags without releasing is read without gh too" "upy '[setattr(u, \"shutil_which\", lambda n: None), setattr(u, \"fetch_json\", lambda url, headers=None: [] if \"releases\" in url else [{\"name\": \"v0.9\"}])] and [r[\"version\"] for r in u.from_github(\"a/b\")] == [\"v0.9\"]'"
+# n-259b1e: Zed opened basedpyright and ruff on this file. Each finding was
+# fixed where it was, never hidden: a blanket noqa or ignore would hide the
+# next one. The two type errors were a TextIO without reconfigure and an
+# extractfile member that may be None. ruff reads the whole file where it is
+# installed; the suite's runners have no ruff, so the named patterns are also
+# checked here with the Python every runner has.
+cat > "$tmp/diag259.py" <<'PY'
+import ast
+import re
+import sys
+
+path = sys.argv[1]
+text = open(path, encoding="utf-8").read()
+bad = []
+for n, line in enumerate(text.splitlines(), 1):
+    if re.search(r"#\s*(ruff:\s*noqa|noqa\s*$|type:\s*ignore\s*$)", line):
+        bad.append(f"{n}: a blanket ignore")
+    if "datetime.timezone.utc" in line:
+        bad.append(f"{n}: datetime.timezone.utc")
+    if re.search(r"startswith\([\"']\./[\"']\)", line) and "[2:]" in line:
+        bad.append(f"{n}: a prefix taken with a slice")
+    if re.search(r"extractfile\([^)]*\)\.read\(", line):
+        bad.append(f"{n}: an extractfile member read without a None check")
+if not re.search(r"if isinstance\([^\n]+, io\.TextIOWrapper\):\n\s+[^\n]*\.reconfigure\(", text):
+    bad.append("reconfigure is not behind its TextIOWrapper check")
+tree = ast.parse(text)
+for node in ast.walk(tree):
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+        run = (isinstance(node.func.value, ast.Name) and node.func.value.id == "subprocess"
+               and node.func.attr == "run")
+        if run and not any(k.arg == "check" for k in node.keywords):
+            bad.append(f"{node.lineno}: subprocess.run without check=")
+    if isinstance(node, ast.JoinedStr):
+        for value in node.values:
+            if (isinstance(value, ast.FormattedValue) and isinstance(value.value, ast.Call)
+                    and isinstance(value.value.func, ast.Name) and value.value.func.id == "str"):
+                bad.append(f"{node.lineno}: str() inside an f-string")
+if bad:
+    print("\n".join(bad))
+    raise SystemExit(1)
+PY
+check "upstream.py has none of the editor findings n-259b1e named, and no blanket ignore" "\"\$py\" '$tmp/diag259.py' '$root/.ai-backbone/upstream.py'"
+if command -v ruff >/dev/null 2>&1; then
+  check "and ruff reads it clean" "ruff check --isolated '$root/.ai-backbone/upstream.py'"
+fi
 # A watch list as people really write it (3.20.0): a pin without quotes is a number to
 # TOML and was a traceback; one bracket instead of two was another; a long prerelease
 # ran into the next column; and a network that does not answer cost one wait per row,

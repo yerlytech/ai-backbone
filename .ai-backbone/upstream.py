@@ -953,12 +953,12 @@ def _parse_time(text):
     except ValueError:
         return None
     if when.tzinfo is None:
-        when = when.replace(tzinfo=datetime.timezone.utc)
+        when = when.replace(tzinfo=datetime.UTC)
     return when
 
 
 def _now_iso():
-    return datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.datetime.now(datetime.UTC).replace(microsecond=0).isoformat()
 
 
 def share_read(key):
@@ -1008,7 +1008,7 @@ def share_recent(record, now=None):
     moments = [t for t in (_parse_time(record.get("failed_at")), _parse_time(record.get("fetched"))) if t]
     if not moments:
         return False
-    now = now or datetime.datetime.now(datetime.timezone.utc)
+    now = now or datetime.datetime.now(datetime.UTC)
     return (now - max(moments)).total_seconds() < SHARE_DAY
 
 
@@ -1030,7 +1030,7 @@ def age_phrase(record):
     when = _parse_time((record or {}).get("fetched"))
     if when is None:
         return "no earlier result"
-    hours = int((datetime.datetime.now(datetime.timezone.utc) - when).total_seconds() // 3600)
+    hours = int((datetime.datetime.now(datetime.UTC) - when).total_seconds() // 3600)
     if hours < 1:
         return "less than an hour ago"
     if hours == 1:
@@ -1839,7 +1839,7 @@ def git_ignored(path):
     try:
         done = subprocess.run(
             ["git", "check-ignore", "-q", "--", path],
-            stdout=subprocess.DEVNULL,
+            check=False, stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
     except OSError:
@@ -1912,7 +1912,7 @@ def npm_call(folder, args, seconds):
                 "npm_config_audit": "false"})
     with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as out, \
             tempfile.TemporaryFile(mode="w+", encoding="utf-8") as err:
-        done = subprocess.run(npm_argv(args, env), cwd=folder, stdout=out, stderr=err,
+        done = subprocess.run(npm_argv(args, env), check=False, cwd=folder, stdout=out, stderr=err,
                               text=True, timeout=max(seconds, 0.05), env=env,
                               shell=False)
         out.seek(0)
@@ -1938,7 +1938,7 @@ def npm_check():
     deadline = time.monotonic() + NPM_BUDGET
     lines, missing = [], False
     for folder in folders:
-        where = "." if folder == "." else folder[2:] if folder.startswith("./") else folder
+        where = "." if folder == "." else folder.removeprefix("./")
         if time.monotonic() >= deadline:
             lines.append(f"npm: {where}: could not check (slow: the npm check ran out of time)")
             continue
@@ -1965,8 +1965,8 @@ def npm_check():
                 elif data:
                     names = sorted(data)
                     shown = ", ".join(
-                        f"{n} {str((data[n] or {}).get('current') or '?')} →"
-                        f" {str((data[n] or {}).get('latest') or '?')}" for n in names[:3])
+                        f"{n} {(data[n] or {}).get('current') or '?'} →"
+                        f" {(data[n] or {}).get('latest') or '?'}" for n in names[:3])
                     more = f" and {len(names) - 3} more" if len(names) > 3 else ""
                     lines.append(f"npm: {where}: {len(names)} outdated ({shown}{more})")
         lock = Path(folder) / "package-lock.json"
@@ -2222,7 +2222,7 @@ def survey(watched, refresh, deadline, only=""):
 def fresh_header(live_any, held_ok, stale, whynot=None):
     """When the block was checked. A copy under a day old is that time. A run
     that could not check says how old the last answer is, and why."""
-    now = datetime.datetime.now(datetime.timezone.utc)
+    now = datetime.datetime.now(datetime.UTC)
     reasons = []
     for _name, reason, _record in stale:
         if reason and reason not in reasons:

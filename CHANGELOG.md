@@ -16,6 +16,13 @@ entries below are the record of every version.
 
 ## [Unreleased]
 
+**`upstream.py` stays quiet in the editor (n-259b1e).** The findings Zed's
+basedpyright and ruff reported had come back with newer code: a timezone
+constant, two `subprocess.run` calls without a stated check, a prefix taken
+with a slice, and `str()` inside an f-string. Each is fixed where it was; no
+blanket ignore hides the next. The suite checks those patterns everywhere and
+runs `ruff check` where ruff is installed.
+
 **A worker never starts a command with an assignment (n-73c3f2).** The preamble every worker gets says never to begin a command with a variable assignment, and to put multi-step logic in a recipe or a test file. Grok in auto mode asks a permission a headless run cannot give when a command starts that way.
 
 **Session start skips a gitignored package.json (n-a65306).** The NPM PACKAGES block no longer counts a `package.json` whose path `git check-ignore` matches. A file inside cargo's `target/` is build output, not a package the project holds.

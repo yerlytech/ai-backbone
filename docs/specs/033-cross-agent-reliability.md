@@ -86,9 +86,12 @@ publication and audit spending retain their existing approval gates.
 - [ ] Device tests select an explicit emulator identity, stop silent hangs with
   a failure, preserve logs and handle a busy machine within a bounded wait.
   macOS launch behaviour is rehearsed, not inferred from shell fixtures.
-- [ ] Pending acceptance items remain visible in session entry; advisory usage
+- [x] Pending acceptance items remain visible in session entry; advisory usage
   labels stay conservative on ambiguous dependency graphs and never silence a
   finding; confirmed upstream.py diagnostics are fixed without blanket ignores.
+  The task above names the suite checks. On 2026-10-31 ruff 0.17.3 read
+  `.ai-backbone/upstream.py` clean and basedpyright 1.40.2 reported 0 errors,
+  0 warnings, 0 notes.
 - [ ] All ten reports below have evidence-backed dispositions. A disproved report
   records its reason; missing validation remains pending, never silently closed.
 - [ ] Each implementation step includes regression tests and affected docs.
@@ -122,11 +125,17 @@ independent reports may be investigated together, never combined to hide a failu
   holding (n-03ddaa), and credential-helper readiness (n-7a63e5), separately.
   3.42.0: release commit carries `_set-version`; `BUILD_WAIT_HOLD=whole`;
   doctor bounds the credsStore helper and prints none of its output.
-- [~] Investigate and resolve pending-spec visibility (n-20a330), conservative
+- [x] Investigate and resolve pending-spec visibility (n-20a330), conservative
   dependency-use labels (n-3140d5), and upstream.py diagnostics (n-259b1e), separately.
-  3.42.0: a done spec's `[~]` acceptance lines are named at session-start.
-  3.43.0: a test-only crate is labelled and still reported. n-259b1e has no
-  report text anywhere but this line, so it stays open.
+  3.42.0: a done spec's `[~]` acceptance lines are named at session-start
+  ("and a [~] line is named as waiting for the owner"). 3.43.0: a test-only
+  crate is labelled and still reported ("a dev-dependency is labelled only-tests
+  and still warned", "an edge the reader does not understand gets no test-only
+  label"). 2026-10-31: the report text and its first fix are in the history
+  (3.41.1); the diagnostics that had come back with newer code are fixed one by
+  one, and the suite now refuses a blanket ignore ("upstream.py has none of the
+  editor findings n-259b1e named, and no blanket ignore", "and ruff reads it
+  clean"). ruff 0.17.3 read it clean; basedpyright 1.40.2 said 0 errors.
 - [~] Implement and fixture-test explicit device selection (n-f79b86), silence
   timeout (n-445708), and safe macOS emulator startup/busy-machine handling
   (n-ae82d7, corrected by n-fe290b); keep the correction in the diagnosis.
