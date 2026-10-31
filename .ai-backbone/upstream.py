@@ -1831,15 +1831,36 @@ def advisories(mode, locks):
     return 0
 
 
+def git_ignored(path):
+    """True when `git check-ignore` matches this path. A build folder such as
+    cargo's target/ holds a package.json the project did not write (n-a65306).
+    Exit 0 is a match. Not ignored, not a repository, or no git: the file stays
+    in the check. A tracked file is not a match, which is what check-ignore does."""
+    try:
+        done = subprocess.run(
+            ["git", "check-ignore", "-q", "--", path],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        return False
+    return done.returncode == 0
+
+
 def package_dirs():
     """Every folder the project holds a package.json in, node_modules and the
     folders that are not the project's own left out. os.walk, not glob: a
-    dependency tree is tens of thousands of folders and must not be entered."""
+    dependency tree is tens of thousands of folders and must not be entered.
+    A package.json git ignores is left out the same way (n-a65306)."""
     out = []
     for base, dirs, files in os.walk("."):
         dirs[:] = sorted(d for d in dirs if d not in NPM_SKIP)
-        if "package.json" in files:
-            out.append(os.path.normpath(base))
+        if "package.json" not in files:
+            continue
+        rel = Path(os.path.normpath(os.path.join(base, "package.json"))).as_posix()
+        if git_ignored(rel):
+            continue
+        out.append(os.path.normpath(base))
     return out
 
 

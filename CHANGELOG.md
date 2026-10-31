@@ -16,6 +16,10 @@ entries below are the record of every version.
 
 ## [Unreleased]
 
+**A worker never starts a command with an assignment (n-73c3f2).** The preamble every worker gets says never to begin a command with a variable assignment, and to put multi-step logic in a recipe or a test file. Grok in auto mode asks a permission a headless run cannot give when a command starts that way.
+
+**Session start skips a gitignored package.json (n-a65306).** The NPM PACKAGES block no longer counts a `package.json` whose path `git check-ignore` matches. A file inside cargo's `target/` is build output, not a package the project holds.
+
 **Upstream keeps uv's Python when the uv cache cannot be locked.** `just upstream` asks `uv python find` for 3.11 or newer. A cache directory that refuses a lock made that find fail, and the recipe then ran the system python3, which on a Mac has no tomllib. The find is asked once more with no cache before that fallback.
 
 **Nginx's stable tags stay on the even minor (n-73d3f2).** `tag = "release-{major}.{even}.{patch}"` reads `release-1.30.6` as 1.30.6. `release-1.32.0` is newer. Mainline `release-1.31.8` is left out. There is no `track` key.
