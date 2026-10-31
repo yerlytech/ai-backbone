@@ -16,6 +16,8 @@ entries below are the record of every version.
 
 ## [Unreleased]
 
+**Upstream keeps uv's Python when the uv cache cannot be locked.** `just upstream` asks `uv python find` for 3.11 or newer. A cache directory that refuses a lock made that find fail, and the recipe then ran the system python3, which on a Mac has no tomllib. The find is asked once more with no cache before that fallback.
+
 **Nginx's stable tags stay on the even minor (n-73d3f2).** `tag = "release-{major}.{even}.{patch}"` reads `release-1.30.6` as 1.30.6. `release-1.32.0` is newer. Mainline `release-1.31.8` is left out. There is no `track` key.
 
 **A delegate job locks hooks in its own worktree (n-154b76).** `core.hooksPath` is set with `extensions.worktreeConfig` and `git config --worktree`, so a sibling worktree can merge and push while the job runs. The extension stays on after the job.

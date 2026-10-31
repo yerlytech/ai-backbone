@@ -33,9 +33,11 @@ trap 'rm -rf "$tmp"' EXIT
 # A home that is writable is left where it is, so an ordinary run copies nothing.
 # Opening either cache to test it prints "Operation not permitted" here, which
 # is the noise a failed redirect makes before any redirect can hide it. uv's
-# lock lives in its cache: without a writable one, `uv python find` fails and
-# upstream falls back to the system python3, which has no tomllib.
-if [ -z "${UV_CACHE_DIR:-}" ] && [ -d "$HOME/.cache/uv" ] && ! python3 -c 'import os,sys; raise SystemExit(0 if os.access(sys.argv[1], os.W_OK) else 1)' "$HOME/.cache/uv"; then
+# lock lives in UV_CACHE_DIR, or in ~/.cache/uv when that is unset. A variable
+# that already names a directory that cannot be locked is the same failure:
+# `uv python find` exits and upstream used to fall back to system python3.
+uv_cache="${UV_CACHE_DIR:-$HOME/.cache/uv}"
+if [ -d "$uv_cache" ] && ! python3 -c 'import os,sys; raise SystemExit(0 if os.access(sys.argv[1], os.W_OK) else 1)' "$uv_cache"; then
   export UV_CACHE_DIR="$tmp/uv-cache"
   mkdir -p "$UV_CACHE_DIR"
 fi

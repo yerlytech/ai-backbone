@@ -6287,10 +6287,12 @@ _manifest file section:
 
 # Print the Python that runs upstream.py. It reads TOML with tomllib, which came
 # in Python 3.11, and a Mac's own python3 is 3.9. uv already keeps a newer one for
-# prek and graphify, and finds it without downloading anything; python3 is the
-# fallback, and upstream.py says plainly when that one is too old.
+# prek and graphify, and finds it without downloading anything. A cache directory
+# that refuses its lock is not a missing interpreter: the same find is asked once
+# more with no cache. python3 is the fallback after that, and upstream.py says
+# plainly when that one is too old.
 _py:
-    @uv python find '>=3.11' --no-project --no-python-downloads 2>/dev/null || command -v python3 || echo python3
+    @uv python find '>=3.11' --no-project --no-python-downloads 2>/dev/null || UV_NO_CACHE=1 uv python find '>=3.11' --no-project --no-python-downloads 2>/dev/null || command -v python3 || echo python3
 
 # The tools row of AGENTS.md section 0 (default: all)
 _tools:
