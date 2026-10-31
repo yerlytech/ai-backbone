@@ -415,6 +415,31 @@ DELEGATE_ALLOWS = (
     "Bash(just delegate-accept:*)",
     "Bash(just delegate-drop:*)",
 )
+# spec 041. The same strings as the seed. No home directory and no account name.
+# **/.env is not **/.env*, so .env.example stays allowed.
+KEYSTORE_DENIES = (
+    "Bash(security find-generic-password:*)",
+    "Bash(security find-internet-password:*)",
+    "Bash(/usr/bin/security find-generic-password:*)",
+    "Bash(/usr/bin/security find-internet-password:*)",
+    "Bash(secret-tool lookup:*)",
+    "Bash(/usr/bin/secret-tool lookup:*)",
+    "Bash(just with-secret:*)",
+    "Bash(ssh-add:*)",
+    "Bash(/usr/bin/ssh-add:*)",
+    "Read(**/.aws/**)",
+    "Read(**/.appstoreconnect/**)",
+    "Read(**/.ssh/**)",
+    "Read(**/.config/gh/hosts.yml)",
+    "Read(**/.grok/auth.json)",
+    "Read(**/.grok/mcp_credentials.json)",
+    "Read(**/brain/secrets/**)",
+    "Read(**/brain/03-stack/**)",
+    "Read(**/.env)",
+    "Read(**/.envrc)",
+    "Read(**/ai-backbone/keystore/**)",
+    "Read(**/ssh-agent.sock)",
+)
 
 
 def _mine(group):
@@ -477,6 +502,48 @@ def allow_delegate(path, quiet=False):
         return 0
     allow.extend(missing)
     perms["allow"] = allow
+    data["permissions"] = perms
+    _save_settings(path, data)
+    if not quiet:
+        say("added")
+    return 0
+
+
+def deny_keystore(path, quiet=False):
+    """Add the keystore Bash and Read denies (spec 041). A rule already in the
+    file stays, and a rule is never added twice. WORKER does not gate this:
+    the paths are denied whether or not a session delegates."""
+    try:
+        data = _load_settings(path)
+    except (OSError, ValueError):
+        if not quiet:
+            say("not-json")
+        return 1
+    if not isinstance(data, dict):
+        if not quiet:
+            say("not-object")
+        return 1
+    perms = data.get("permissions")
+    if perms is None:
+        perms = {}
+    if not isinstance(perms, dict):
+        if not quiet:
+            say("not-object")
+        return 1
+    deny = perms.get("deny")
+    if deny is None:
+        deny = []
+    if not isinstance(deny, list):
+        if not quiet:
+            say("not-list")
+        return 1
+    missing = [rule for rule in KEYSTORE_DENIES if rule not in deny]
+    if not missing:
+        if not quiet:
+            say("already there")
+        return 0
+    deny.extend(missing)
+    perms["deny"] = deny
     data["permissions"] = perms
     _save_settings(path, data)
     if not quiet:
@@ -558,6 +625,10 @@ def main():
         if len(argv) > 2:
             say("budget.py allow [.claude/settings.json]"); return 2
         return allow_delegate(argv[1] if len(argv) > 1 else os.path.join(".claude", "settings.json"))
+    if argv[:1] == ["secrets"]:
+        if len(argv) > 2:
+            say("budget.py secrets [.claude/settings.json]"); return 2
+        return deny_keystore(argv[1] if len(argv) > 1 else os.path.join(".claude", "settings.json"))
     if argv[:1] == ["hook"]:
         action = argv[1] if len(argv) > 1 else "add"
         if action not in ("add", "remove", "check", "health"):

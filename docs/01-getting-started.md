@@ -200,6 +200,8 @@ just delegate-accept [branch]           # fast-forward the default branch, or th
 just delegate-drop [branch]             # ask once (--yes skips it), then delete the branch and return to that base
 just secrets-to-brain                   # move git-ignored secrets into brain/secrets/, leave a link at the old path
 just secrets-back                       # put each secret back and empty brain/secrets/
+just secrets-to-keystore                # move token files into the operating system's keystore; an ssh key stays a file
+just with-secret <account> -- <command> # that account's secret on the command's standard input only
 just --list          # everything
 ```
 

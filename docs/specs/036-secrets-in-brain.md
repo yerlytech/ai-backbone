@@ -13,6 +13,7 @@ into `brain/secrets/<the same path>`. At the old path a relative link stays, so
 every tool still finds the file where it looked before. `just secrets-to-brain`
 does the move, file by file, and says each one. `just secrets-back` undoes it.
 After the move the second copy holds brain/ alone: the secrets are in it.
+Files that spec 041 moves leave this link and live in the operating system's keystore; a certificate, a private key, and a provisioning profile stay here.
 
 ## Why
 

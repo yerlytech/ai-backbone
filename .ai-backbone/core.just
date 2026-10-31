@@ -492,6 +492,15 @@ doctor:
       done <<< "$needs"
       echo
     fi
+    # spec 041: a secret file still on this machine, named with ~/, never read.
+    if [ -f .ai-backbone/keystore.sh ]; then
+      hpend=$(bash .ai-backbone/keystore.sh pending-home 2>/dev/null || true)
+      if [ -n "$hpend" ]; then
+        hone=$(printf '%s' "$hpend" | tr '\n' ' ' | sed 's/ *$//')
+        echo "  warn  $(just _doctor-msg secret-file) $hone"
+        echo "        $(just _doctor-msg secret-where)"
+      fi
+    fi
     echo "Repo:"
     # A warn and not a MISS, and it never sets `missing`. MISS means a tool
     # setup.sh installs, and the ending that `missing` chooses says to run
@@ -636,6 +645,15 @@ doctor:
     fi
     if [ -n "$dangling" ]; then
       echo "  warn  $(just _doctor-msg key-missing)$dangling"
+    fi
+    # spec 041: a token file still in the project. Home files are said above.
+    if [ -f .ai-backbone/keystore.sh ]; then
+      spend=$(bash .ai-backbone/keystore.sh pending 2>/dev/null || true)
+      if [ -n "$spend" ]; then
+        sone=$(printf '%s' "$spend" | tr '\n' ' ' | sed 's/ *$//')
+        echo "  warn  $(just _doctor-msg secret-file) $sone"
+        echo "        $(just _doctor-msg secret-where)"
+      fi
     fi
     # The build folder, where the language layer names one in `_build-info`
     # (spec 015): how big it has grown, and whether other projects build into
@@ -894,6 +912,50 @@ secrets-back:
       find brain/secrets -depth -type d -empty -delete 2>/dev/null || true
     fi
 
+# One account, on the command's standard input only (spec 041). The value is
+# not an argument, not in the environment, and not left in a file.
+[group('setup')]
+[no-exit-message]
+[positional-arguments]
+with-secret account *cmd:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    account=$1
+    shift
+    if [ "${1-}" = -- ]; then shift; fi
+    if [ "$#" -eq 0 ]; then
+      printf '%s\n' "$account: no command" >&2
+      exit 1
+    fi
+    if [ ! -f .ai-backbone/keystore.sh ]; then
+      printf '%s\n' "$account: absent" >&2
+      exit 1
+    fi
+    secret=$(mktemp)
+    chmod 0600 "$secret"
+    trap 'rm -f "$secret"' EXIT
+    if ! bash .ai-backbone/keystore.sh get "$account" >"$secret"; then
+      exit 1
+    fi
+    set +e
+    "$@" <"$secret"
+    rc=$?
+    set -e
+    exit "$rc"
+
+# Move token files into the keystore and leave no copy (spec 041). An ssh
+# private key stays a file; a key with no passphrase is only reported.
+[group('setup')]
+[no-exit-message]
+secrets-to-keystore:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ ! -f .ai-backbone/keystore.sh ]; then
+      echo "keystore.sh is not in this project yet"
+      exit 1
+    fi
+    bash .ai-backbone/keystore.sh migrate
+
 # Add the command layer for a language: just stack <language>  (just stack alone lists the ready ones)
 [group('setup')]
 [positional-arguments]
@@ -1051,11 +1113,15 @@ tools-update:
 _delegate-allow:
     #!/usr/bin/env bash
     set -euo pipefail
+    # The same gate as the allow rules (n-cdb28d). Keystore denies are merged
+    # then, and a rule already in the file stays (spec 041). WORKER unset
+    # writes nothing: the seed's own denies are added by hand.
     case "${WORKER-}" in
       grok|claude|opencode|kimi) ;;
       *) exit 0 ;;
     esac
     if [ -f .ai-backbone/budget.py ] && { [ -d .claude ] || [ -f .claude/settings.json ]; }; then
+      "$(just _py)" .ai-backbone/budget.py secrets >/dev/null 2>&1 || true
       if said=$("$(just _py)" .ai-backbone/budget.py allow 2>/dev/null); then
         case "$said" in
           added) echo "Delegation: .claude/settings.json may run just delegate, delegate-status, delegate-accept and delegate-drop without asking. A rule already in the file was left there." ;;
@@ -1740,8 +1806,60 @@ delegate task="":
     # here too. The line is added; whether grok 1.0.62 is stepped around the
     # same way is not measured yet (n-fc65ca, 2026-10-22).
     delegate_grok() {
+      # spec 041: a sandbox profile beside the command deny. Enforcement is not
+      # measured yet (n-fc65ca). Do not deny all of ~ or all of ~/.grok.
+      local gfile="$HOME/.grok/sandbox.toml" gblock
+      mkdir -p "$HOME/.grok"
+      gblock=$(mktemp)
+      {
+        printf '%s\n' '# BEGIN ai-backbone delegate'
+        printf '%s\n' '# Sandbox deny owned by just delegate (spec 041). Rewritten each run.'
+        printf '%s\n' '[profiles.ai-backbone-delegate]'
+        printf '%s\n' 'extends = "workspace"'
+        printf '%s\n' 'deny = ['
+        for gpath in \
+          "~/.ssh" "~/.aws" "~/.appstoreconnect" \
+          "~/.config/gh/hosts.yml" \
+          "~/.grok/auth.json" "~/.grok/mcp_credentials.json" \
+          "**/.aws/**" "**/.appstoreconnect/**" "**/.ssh/**" \
+          "**/.config/gh/hosts.yml" \
+          "**/.grok/auth.json" "**/.grok/mcp_credentials.json" \
+          "**/brain/secrets/**" "**/brain/03-stack/**" \
+          "**/.env" "**/.envrc" "**/ai-backbone/keystore/**" \
+          "**/ssh-agent.sock"
+        do
+          printf '  "%s",\n' "$gpath"
+        done
+        printf '%s\n' ']'
+        printf '%s\n' '# END ai-backbone delegate'
+      } > "$gblock"
+      perl - "$gfile" "$gblock" << 'GROKPERL'
+    use strict;
+    use warnings;
+    my ($path, $blockpath) = @ARGV;
+    open my $bf, "<", $blockpath or die "open $blockpath: $!";
+    local $/;
+    my $block = <$bf>;
+    close $bf;
+    $block =~ s/\s+\z/\n/;
+    my $text = "";
+    if (-f $path) {
+      open my $fh, "<", $path or die "open $path: $!";
+      $text = <$fh>;
+      close $fh;
+      $text = "" if !defined $text;
+    }
+    $text =~ s/^# BEGIN ai-backbone delegate\n.*?\n# END ai-backbone delegate\n?//msg;
+    $text .= "\n" if length($text) && $text !~ /\n\z/;
+    $text .= $block;
+    open my $out, ">", $path or die "write $path: $!";
+    print $out $text;
+    close $out;
+    GROKPERL
+      rm -f "$gblock"
       exec "$worker_bin" -p "$1" --output-format plain --permission-mode auto \
         --background-wait-timeout "$background_wait" \
+        --sandbox ai-backbone-delegate \
         --allow 'Bash(just:*)' --allow 'Bash(git:*)' --allow 'Bash(cargo:*)' --allow 'Bash(npm:*)' \
         --allow 'Bash(npx:*)' --allow 'Bash(flutter:*)' --allow 'Bash(dart:*)' --allow 'Bash(uv:*)' \
         --deny 'Bash(git push:*)' --deny 'Bash(git merge:*)' --deny 'Bash(git rebase:*)' \
@@ -1751,7 +1869,21 @@ delegate task="":
         --deny 'Bash(just release:*)' --deny 'Bash(just undo:*)' --deny 'Bash(gh:*)' \
         --deny 'Bash(curl:*)' --deny 'Bash(ssh:*)' --deny 'Bash(rm:*)' \
         --deny 'Bash(sh:*)' --deny 'Bash(bash:*)' --deny 'Bash(zsh:*)' \
-        --deny 'Bash(eval:*)' --deny 'Bash(xargs:*)' --deny 'Bash(env:*)'
+        --deny 'Bash(eval:*)' --deny 'Bash(xargs:*)' --deny 'Bash(env:*)' \
+        --deny 'Bash(security find-generic-password:*)' \
+        --deny 'Bash(security find-internet-password:*)' \
+        --deny 'Bash(/usr/bin/security find-generic-password:*)' \
+        --deny 'Bash(/usr/bin/security find-internet-password:*)' \
+        --deny 'Bash(secret-tool lookup:*)' \
+        --deny 'Bash(/usr/bin/secret-tool lookup:*)' \
+        --deny 'Bash(just with-secret:*)' \
+        --deny 'Bash(ssh-add:*)' --deny 'Bash(/usr/bin/ssh-add:*)' \
+        --deny 'Read(**/.aws/**)' --deny 'Read(**/.appstoreconnect/**)' \
+        --deny 'Read(**/.ssh/**)' --deny 'Read(**/.config/gh/hosts.yml)' \
+        --deny 'Read(**/.grok/auth.json)' --deny 'Read(**/.grok/mcp_credentials.json)' \
+        --deny 'Read(**/brain/secrets/**)' --deny 'Read(**/brain/03-stack/**)' \
+        --deny 'Read(**/.env)' --deny 'Read(**/.envrc)' \
+        --deny 'Read(**/ai-backbone/keystore/**)' --deny 'Read(**/ssh-agent.sock)'
     }
     delegate_claude() {
       if [ -n "${WORKER_MODEL:-}" ]; then exec "$worker_bin" -p "$1" --model "$WORKER_MODEL"
@@ -1773,7 +1905,21 @@ delegate task="":
       "update": "disable",
       "permission": {
         "*": "deny",
-        "read": "allow",
+        "read": {
+          "*": "allow",
+          "**/.aws/**": "deny",
+          "**/.appstoreconnect/**": "deny",
+          "**/.ssh/**": "deny",
+          "**/.config/gh/hosts.yml": "deny",
+          "**/.grok/auth.json": "deny",
+          "**/.grok/mcp_credentials.json": "deny",
+          "**/brain/secrets/**": "deny",
+          "**/brain/03-stack/**": "deny",
+          "**/.env": "deny",
+          "**/.envrc": "deny",
+          "**/ai-backbone/keystore/**": "deny",
+          "**/ssh-agent.sock": "deny"
+        },
         "edit": "allow",
         "write": "allow",
         "webfetch": "deny",
@@ -1804,7 +1950,16 @@ delegate task="":
           "zsh *": "deny",
           "eval *": "deny",
           "xargs *": "deny",
-          "env *": "deny"
+          "env *": "deny",
+          "security find-generic-password *": "deny",
+          "security find-internet-password *": "deny",
+          "/usr/bin/security find-generic-password *": "deny",
+          "/usr/bin/security find-internet-password *": "deny",
+          "secret-tool lookup *": "deny",
+          "/usr/bin/secret-tool lookup *": "deny",
+          "just with-secret *": "deny",
+          "ssh-add *": "deny",
+          "/usr/bin/ssh-add *": "deny"
         }
       }
     }
@@ -1837,6 +1992,10 @@ delegate task="":
           "just server-bootstrap" "just ssh-allow" "just box-keys" "just live" "just live-trust" "just live-retry" \
           "just ghcr-login" "just backup-pull" "just restore-drill" "just disk-grow" "just aws-key-rotate" \
           "gh" "curl" "ssh" "scp" "sftp" "rsync" "aws" "security" "secret-tool" \
+          "security find-generic-password" "security find-internet-password" \
+          "/usr/bin/security find-generic-password" "/usr/bin/security find-internet-password" \
+          "secret-tool lookup" "/usr/bin/secret-tool lookup" \
+          "just with-secret" "ssh-add" "/usr/bin/ssh-add" \
           "rm" "sh" "bash" "zsh" "eval" "xargs" "env"
         do
           printf '%s\n' '[[permission.rules]]' 'decision = "deny"' "pattern = \"Bash($cmd)\"" ''
@@ -1852,6 +2011,10 @@ delegate task="":
           "**/brain/03-stack" "**/brain/03-stack/**" \
           "brain/secrets" "brain/secrets/**" "**/brain/secrets" "**/brain/secrets/**" \
           "~/.ssh" "~/.ssh/**" "~/.config" "~/.config/**" \
+          "**/.config/gh/hosts.yml" \
+          "~/.grok/auth.json" "~/.grok/mcp_credentials.json" \
+          "**/.envrc" "**/ai-backbone/keystore" "**/ai-backbone/keystore/**" \
+          "**/ssh-agent.sock" "~/.ssh/agent.sock" \
           "~/.local/share/opencode" "~/.local/share/opencode/**" \
           "~/.kimi-code/credentials" "~/.kimi-code/credentials/**" \
           "~/.grok" "~/.grok/**" "~/.claude" "~/.claude/**"
@@ -5532,6 +5695,8 @@ _doctor-msg key a="" b="":
         key-outside)      echo "brain/ dışında bir anahtar ya da sertifika dosyası var:"; exit 0 ;;
         key-where)        echo "yeri brain/secrets/ (AGENTS.md bölüm 7); just secrets-to-brain taşır ve eski yerinde bir bağ bırakır"; exit 0 ;;
         key-missing)      echo "bir bağlantının dosyası yok:"; exit 0 ;;
+        secret-file)      echo "gizli bir dosya hâlâ diskte:"; exit 0 ;;
+        secret-where)     echo "just secrets-to-keystore işletim sisteminin anahtarlığına taşır"; exit 0 ;;
         settings-not-json)    echo ".claude/settings.json bozuk (bir yorum, sonda bir virgül?): Claude Code bu dosyayı okumaz, bu projenin oturum ayarları da onunla devre dışı kalır -> ajanın dosyayı düzeltir"; exit 0 ;;
         settings-not-object)  echo ".claude/settings.json JSON ama Claude Code'un beklediği biçimde değil ({ ile başlamalı): bu projenin oturum ayarları devre dışı kalır -> ajanın dosyayı düzeltir"; exit 0 ;;
         settings-attribution) echo '.claude/settings.json içindeki "attribution" ayarı yüzünden eski Claude Code sürümleri bu dosyayı hiç okumaz, bu projenin oturum ayarları da onunla devre dışı kalır -> ajanın onu şu biçime çevirir: "attribution": {"commit": "", "pr": "", "sessionUrl": false}'; exit 0 ;;
@@ -5551,6 +5716,8 @@ _doctor-msg key a="" b="":
       key-outside)      echo "a key or certificate sits outside brain/:" ;;
       key-where)        echo "it belongs in brain/secrets/ (AGENTS.md section 7); just secrets-to-brain moves it and leaves a link at the old path" ;;
       key-missing)      echo "a link whose file is missing:" ;;
+      secret-file)      echo "a secret file is still on disk:" ;;
+      secret-where)     echo "just secrets-to-keystore moves it into the operating system's keystore" ;;
       settings-not-json)    echo ".claude/settings.json is broken (a comment, a trailing comma?): Claude Code does not read it, and this project's session settings are off with it -> your agent fixes the file" ;;
       settings-not-object)  echo ".claude/settings.json is JSON, but not the object Claude Code expects (it starts with {): this project's session settings are off -> your agent fixes the file" ;;
       settings-attribution) echo '.claude/settings.json sets "attribution" to true or false, so older Claude Code versions do not read the file at all, and this project'"'"'s session settings are off with it -> your agent changes it to: "attribution": {"commit": "", "pr": "", "sessionUrl": false}' ;;

@@ -118,7 +118,7 @@ If you need a new repeatable command, add a recipe.
 - Ask first before: deleting files, force pushing, rewriting history, installing anything globally.
 - Never commit secrets. `.env` is ignored. `.env.example` is its template, created
   together with the first secret, not before.
-- Secrets live in `brain/secrets/`. Never print, copy or quote one, and read one only to move it.
+- Secrets live in `brain/secrets/` until `just secrets-to-keystore` moves a token file into the operating system's keystore. Never print, copy or quote one, and read one only to move it. An ssh private key stays a file.
 - Account IDs, API keys, signing certificates and customer data live in `brain/`, never in a tracked file.
 - `just undo` throws away uncommitted work. Warn before suggesting it.
 - Never send the maintainer's name or e-mail to a third-party service, a

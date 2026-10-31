@@ -152,58 +152,64 @@ recipe, never silently left. Facts about Apple's ssh options are checked against
 
 ## Acceptance
 
-- [ ] `just secrets-to-keystore` stores each file question 1 moves, deletes
+- [x] `just secrets-to-keystore` stores each file question 1 moves, deletes
       the file and a spec 036 link at the old path, prints `moved <path>` and
       never the bytes, and leaves no copy. Run twice, it changes nothing.
       A store that fails leaves the file where it was. An account that already
       holds different bytes is refused, and the file stays.
-- [ ] `just with-secret <account> -- <command>` runs the command with the
+- [x] `just with-secret <account> -- <command>` runs the command with the
       secret on its standard input. The command's output is the recipe's
       output. The value is not an argument, not in the environment, and not
       in a file afterwards. A missing account, or a fake that says nobody is
       there to approve, exits non-zero with one line and no value.
-- [ ] With `AI_BACKBONE_KEYSTORE` set to a temp directory, neither recipe
+- [x] With `AI_BACKBONE_KEYSTORE` set to a temp directory, neither recipe
       executes `security` or `secret-tool`. The suite's PATH has a fake of
       each that exits 99 if called, and the tests do not exit 99. No test
       calls `/usr/bin/security`.
-- [ ] Grok's delegate argv and opencode's generated config deny
+- [x] Grok's delegate argv and opencode's generated config deny
       `security find-generic-password`, `security find-internet-password`,
       the same two with `/usr/bin/security`, `secret-tool lookup`,
       `/usr/bin/secret-tool lookup`, and `just with-secret`. A fake worker
       records the argv and the config. The opencode denies come after the
       shell allow, which is the order spec 038 measured as the one that wins.
-- [ ] `.claude/settings.json` denies those same commands and denies `Read` on
+- [~] `.claude/settings.json` denies those same commands and denies `Read` on
       `**/.aws/**`, `**/.appstoreconnect/**`, `**/.ssh/**`,
       `**/.config/gh/hosts.yml`, `**/.grok/auth.json`,
       `**/.grok/mcp_credentials.json`, `**/brain/secrets/**`,
       `**/brain/03-stack/**`, `**/.env`, `**/.envrc`, and
       `**/ai-backbone/keystore/**`. The merge leaves a rule that was already
       in the file. The committed file contains no home directory and no
-      account name. `.env.example` is not in the deny list.
-- [ ] doctor warns when a regular file is still at a path this spec denies,
+      account name. `.env.example` is not in the deny list. The merge is
+      tested on a temp file and on a throwaway project's template-update.
+      This run does not edit the seed: the desk adds the rules. The committed
+      seed still has no home directory and no account name.
+- [x] doctor warns when a regular file is still at a path this spec denies,
       and is quiet when that path is gone because the account is in the fake
       store.
-- [ ] The night-chain rule and the CI rule are in the spec skill and
+- [x] The night-chain rule and the CI rule are in the spec skill and
       `docs/how-it-works.md`: a night step that needs a secret is skipped and
       named in the morning; CI does not call the reader.
-- [ ] Spec 036 gains one line pointing here for the files that moved, once
+- [x] Spec 036 gains one line pointing here for the files that moved, once
       this spec is approved and the move exists. Until then 036 stays as it
       is.
 
 ## Tasks
 
-- [ ] The fake store, `just with-secret`, and its tests. The recipe calls
+- [x] The fake store, `just with-secret`, and its tests. The recipe calls
       `security` and `secret-tool` by name on `PATH` only when
       `AI_BACKBONE_KEYSTORE` is unset; the suite always sets a temp directory.
-- [ ] `just secrets-to-keystore` for the files question 1 settles, with the
+- [x] `just secrets-to-keystore` for the files question 1 settles, with the
       refusal cases, the second run, and the deleted link. Docs for both
       recipes.
-- [ ] The delegate denies for grok and opencode, the Claude `Read` and `Bash`
+- [~] The delegate denies for grok and opencode, the Claude `Read` and `Bash`
       denies merged into settings, and the fake-worker tests. The opencode
       path rule is copied from the pinned opencode's permission schema on the
       day it is written (pin 2.1.2; the schema was not in the 2.2.3 cellar
-      files read on 2026-10-31), and the spec records that page and date.
-- [ ] doctor's warning, the night-chain paragraph, the CI paragraph, and the
+      files read on 2026-10-31, and it was not in this checkout either, so the
+      nested `read` object is unverified). The denies and the fake-worker
+      tests are in. Claude's seed file is not edited by this run; the desk
+      adds the rules. The spec records that gap and the date 2026-10-31.
+- [x] doctor's warning, the night-chain paragraph, the CI paragraph, and the
       one line on spec 036.
 - [ ] An attended measurement, after approval, with a throwaway item whose
       value is the word `fake`: create it with `-T ""` and `-w` at the end of

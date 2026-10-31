@@ -38,6 +38,12 @@ export AI_BACKBONE_BUDGET_PROJECTS="$tmp/no-projects" AI_BACKBONE_BUDGET_METER="
 export AI_BACKBONE_UPSTREAM_CACHE="$tmp/upstream-cache"
 mkdir -p "$AI_BACKBONE_UPSTREAM_CACHE"
 mkdir -p "$tmp/T"; export TMPDIR="$tmp/T"
+# spec 041: no check calls the real keychain, Secret Service, DPAPI, or this
+# machine's secret files. Recipes see a fake store and an empty home.
+export AI_BACKBONE_KEYSTORE="$tmp/keystore"
+mkdir -p "$AI_BACKBONE_KEYSTORE/items" "$AI_BACKBONE_KEYSTORE/reason"
+export AI_BACKBONE_SECRET_HOME="$tmp/secret-home"
+mkdir -p "$AI_BACKBONE_SECRET_HOME"
 # Nor the projects next to the real backbone: doctor adds up their build caps,
 # and a build's trim may go into their folders (spec 032).
 export AI_BACKBONE_PROJECTS="$tmp/no-projects"
@@ -264,7 +270,9 @@ n=$(git ls-files | wc -l | tr -d ' ')
 # writes. The maintainer approved that spec on 2026-10-20.
 # 65 since the design skill: the skill and the Claude Code copy sync-rules
 # writes. The maintainer approved that skill on 2026-10-30.
-check "tracked files at most 65 (got $n)"             "[ $n -le 65 ]"
+# 66 since spec 041: keystore.sh reaches every project. The maintainer
+# approved that spec on 2026-10-31.
+check "tracked files at most 66 (got $n)"             "[ $n -le 66 ]"
 # Two more ceilings, set at what a new project measured on 2026-09-19 (spec 012).
 # An agent nobody watches works on this backbone every day and builds ideas it
 # read about; every one of them is small and sensible, and a hundred of them are
@@ -286,13 +294,18 @@ r=$(just --summary 2>/dev/null | wc -w | tr -d ' ')
 # `delegate-drop`, named in the spec the maintainer approved on 2026-10-20.
 # 47 since spec 036: `just secrets-to-brain` and `just secrets-back`, named in
 # the spec the maintainer approved on 2026-10-21.
-check "recipes a new project shows at most 47 (got $r)" "[ $r -le 47 ]"
+# 49 since spec 041: `just with-secret` and `just secrets-to-keystore`, named
+# in the spec the maintainer approved on 2026-10-31.
+check "recipes a new project shows at most 49 (got $r)" "[ $r -le 49 ]"
 b=$(wc -c < AGENTS.md | tr -d ' ')
 # 7080 since the design line (the maintainer, 2026-10-30): code follows the
 # design skill, and a review cites its rule numbers. 7088 since spec 040:
-# the worker line names kimi. The session-load ceiling below stays 7100
-# with the one-line pointer, so this file cannot grow into it.
-check "AGENTS.md at most 7088 bytes (got $b)"         "[ $b -le 7088 ]"
+# the worker line names kimi. 7210 since spec 041: the secrets rule names
+# the keystore. The maintainer approved that spec on 2026-10-31. The
+# session-load ceiling below is this file in a new project (the name
+# Deneme Projesi is three bytes longer than ai-backbone) plus the 11-byte
+# CLAUDE.md pointer.
+check "AGENTS.md at most 7210 bytes (got $b)"         "[ $b -le 7210 ]"
 # What a Claude Code session loads, not one file (spec 022): since 2.1.281 its
 # large-instructions notice counts the instruction files together, @-imports
 # included. Read the way the docs say Claude Code reads them (memory.md, read
@@ -312,7 +325,7 @@ loaded() { perl -MCwd=abs_path -e '
     while ($u =~ /(?:^|\s)@([^\s`]+)/g) { my $p = $1; next if $p =~ m{^~}; load($p =~ m{^/} ? $p : "$dir/$p", $d + 1) } }
   load($_, 0) for @ARGV; print "$bytes $lines $files\n";' "$@"; }
 read -r lb ll lf <<<"$(loaded CLAUDE.md AGENTS.md)"
-check "what a session loads through CLAUDE.md, AGENTS.md once: at most 7100 bytes and 200 lines (got $lb bytes, $ll lines, $lf files)" "[ '$lf' = 2 ] && [ $lb -le 7100 ] && [ $ll -le 200 ]"
+check "what a session loads through CLAUDE.md, AGENTS.md once: at most 7221 bytes and 200 lines (got $lb bytes, $ll lines, $lf files)" "[ '$lf' = 2 ] && [ $lb -le 7221 ] && [ $ll -le 200 ]"
 # spec 013, docs: sentences an agent acts on, held where the agent reads them: in
 # the new project for what a project carries, in the backbone ($root) for what
 # lives only there. A sentence is not behaviour, so each check asks for the few
@@ -546,7 +559,7 @@ printf '{"permissions":{"allow":"Bash(just mine:*)"}}\n' > "$da/str.json"
 check "an allow value that is not a list is left alone" "! env WORKER=grok '$py' '$root/.ai-backbone/budget.py' allow '$da/str.json' >/dev/null && grep -q 'Bash(just mine:' '$da/str.json' && ! grep -q 'just delegate:' '$da/str.json'"
 check "the seed does not list the delegation rules" "! grep -qF 'Bash(just delegate:*)' '$root/.claude/settings.json' && grep -q 'just delegate-drop' '$root/docs/how-it-works.md' && grep -q n-cdb28d '$root/CHANGELOG.md' && ! grep -q n-cdb28d '$root/docs/backlog.md'"
 if ( cd "$root" && env -u WORKER just new-project "$tmp/deleg-old" ) >/dev/null 2>&1; then ok "a project made with delegation off"; else bad "a project made with delegation off"; fi
-check "that project has no delegation allow rule yet" "! grep -qF 'Bash(just delegate:*)' '$tmp/deleg-old/.claude/settings.json' && grep -qF 'Bash(just:*)' '$tmp/deleg-old/.claude/settings.json'"
+check "that project has no delegation allow rule yet" "! grep -qF 'Bash(just delegate:*)' '$tmp/deleg-old/.claude/settings.json' && grep -qF 'Bash(just:*)' '$tmp/deleg-old/.claude/settings.json' && ! grep -qF 'find-generic-password' '$tmp/deleg-old/.claude/settings.json'"
 "$py" - "$tmp/deleg-old/.claude/settings.json" <<'PYEOF'
 import json, sys
 p = sys.argv[1]
@@ -556,6 +569,7 @@ json.dump(d, open(p, "w"), indent=2)
 open(p, "a").write("\n")
 PYEOF
 check "template-update with WORKER set adds the four rules and keeps the project's" "upd=\$(cd '$tmp/deleg-old' && env WORKER=opencode just template-update 2>&1) && grep -q 'may run just delegate' <<<\"\$upd\" && '$py' -c \"import json,sys; d=json.load(open(sys.argv[1])); a=d['permissions']['allow']; assert a[0]=='Bash(just mine:*)', a; assert a.count('Bash(just delegate:*)')==1; assert 'Bash(just delegate-status:*)' in a and 'Bash(just delegate-accept:*)' in a and 'Bash(just delegate-drop:*)' in a; assert 'Bash(just:*)' in a; assert 'Bash(sudo:*)' in d['permissions']['deny']\" '$tmp/deleg-old/.claude/settings.json' && upd2=\$(cd '$tmp/deleg-old' && env WORKER=grok just template-update 2>&1) && ! grep -q 'may run just delegate' <<<\"\$upd2\" && '$py' -c \"import json,sys; a=json.load(open(sys.argv[1]))['permissions']['allow']; assert a.count('Bash(just delegate:*)')==1 and a.count('Bash(just mine:*)')==1\" '$tmp/deleg-old/.claude/settings.json'"
+check "that update also merges the keystore denies once and keeps the rule already there" "'$py' -c \"import json,sys; d=json.load(open(sys.argv[1])); n=d['permissions']['deny']; assert n.count('Bash(sudo:*)')==1; assert n.count('Bash(security find-generic-password:*)')==1; assert n.count('Bash(ssh-add:*)')==1; assert n.count('Read(**/.env)')==1; assert n.count('Read(**/ssh-agent.sock)')==1; assert 'Read(**/.env.example)' not in n; blob=open(sys.argv[1]).read(); assert '/Users/' not in blob and 'home/' not in blob\" '$tmp/deleg-old/.claude/settings.json'"
 if ( cd "$root" && env WORKER=claude just new-project "$tmp/deleg-fresh" ) >/dev/null 2>&1; then ok "a fresh project with WORKER set"; else bad "a fresh project with WORKER set"; fi
 check "a fresh project gets the four rules and keeps the seed's" "'$py' -c \"import json,sys; d=json.load(open(sys.argv[1])); a=d['permissions']['allow']; assert 'Bash(just:*)' in a and a.count('Bash(just delegate:*)')==1 and 'Bash(just delegate-status:*)' in a and 'Bash(just delegate-accept:*)' in a and 'Bash(just delegate-drop:*)' in a; assert 'Bash(sudo:*)' in d['permissions']['deny']\" '$tmp/deleg-fresh/.claude/settings.json'"
 # Claude Code's skills are copies, never links: Git for Windows checks a link out
@@ -1685,6 +1699,283 @@ else
   rm -f .env
 fi
 rm -f "$tmp/lp-target" "$tmp/lp"
+
+# spec 041. A directory stands in for the keychain. security, secret-tool,
+# powershell.exe and ssh-add on PATH exit 99 if a recipe calls them. Nothing
+# here reads this machine's keychain, secret files, or ~/.ssh.
+section "secrets in the os keystore (spec 041)"
+ks041_note() { ks041_bad=1; ks041_notes="${ks041_notes:-}$1"$'\n'; }
+# The kind is an argument, and the format does not start with a dash: bash
+# printf would read that as an option, and a PEM header on one line is a
+# private key to the hook (spec 041).
+ks041_pem_begin() { printf '%s\n' "-----BEGIN $1-----"; }
+ks041_pem_end() { printf '%s\n' "-----END $1-----"; }
+ks041_main() {
+  local ks="$tmp/ks041" kstore="$tmp/ks041-store" khome="$tmp/ks041-home"
+  local kbin="$tmp/ks041-bin" kout="$tmp/ks041-out" kcalled="$tmp/ks041-called"
+  local fix="$tmp/ks041-fix" folder out out2
+  ks041_bad=0
+  rm -rf "$ks" "$kstore" "$khome" "$kbin" "$kout" "$fix"
+  mkdir -p "$kstore/items" "$kstore/reason" "$khome/.ssh" "$kbin" "$kout" "$fix"
+  : > "$kcalled"
+  cat > "$kbin/security" << 'EOF'
+#!/bin/sh
+printf '%s\n' "$0" >> "${KS_CALLED:-/dev/null}"
+exit 99
+EOF
+  cp "$kbin/security" "$kbin/secret-tool"
+  cp "$kbin/security" "$kbin/ssh-add"
+  cp "$kbin/security" "$kbin/powershell.exe"
+  cat > "$kbin/take" << 'EOF'
+#!/bin/sh
+out=${KS_TAKE_OUT:?}
+mkdir -p "$out"
+: > "$out/ran"
+printf '%s\n' "$@" > "$out/argv"
+env > "$out/env"
+cat > "$out/stdin"
+EOF
+  chmod +x "$kbin/security" "$kbin/secret-tool" "$kbin/ssh-add" "$kbin/powershell.exe" "$kbin/take"
+  if ! ( cd "$root" && just new-project "$ks" en ) >"$tmp/ks041-new.txt" 2>&1; then
+    printf '%s\n' "new-project failed" >&2
+    tail -n 30 "$tmp/ks041-new.txt" >&2
+    return 1
+  fi
+  folder=$(basename "$ks")
+  printf '%s\n' 'ks041-fixture-value' > "$fix/token"
+  printf '%s\n' 'ks041-other-bytes' > "$fix/other"
+  printf '%s\n' 'ks041-hosts' > "$fix/hosts"
+  printf '%s\n' 'ks041-aws' > "$fix/aws"
+  printf '%s\n' 'ks041-asc' > "$fix/asc"
+  mkdir -p "$ks/a/b" "$ks/brain/secrets/.config/gh" "$ks/brain/03-stack/.aws" "$ks/node_modules" "$ks/ios" \
+    "$khome/.grok" "$khome/.aws" "$khome/.appstoreconnect" "$khome/.config/gh"
+  cp "$fix/token" "$ks/brain/secrets/.env"
+  ln -s brain/secrets/.env "$ks/.env"
+  cp "$fix/token" "$ks/a/b/.env"
+  printf '%s\n' 'example' > "$ks/.env.example"
+  cp "$fix/token" "$ks/node_modules/.env"
+  printf '%s\n' 'notes' > "$ks/brain/03-stack/notes.txt"
+  cp "$fix/token" "$ks/brain/03-stack/.env"
+  cp "$fix/token" "$ks/brain/03-stack/.aws/credentials"
+  cp "$fix/token" "$ks/.envrc"
+  printf '%s\n' 'stay' > "$ks/ios/dist.p12"
+  cp "$fix/hosts" "$ks/brain/secrets/.config/gh/hosts.yml"
+  ln -s "$ks/brain/secrets/.config/gh/hosts.yml" "$khome/.config/gh/hosts.yml"
+  cp "$fix/token" "$khome/.grok/auth.json"
+  cp "$fix/aws" "$khome/.aws/credentials"
+  cp "$fix/asc" "$khome/.appstoreconnect/config.env"
+  chmod 555 "$khome/.appstoreconnect"
+  env AI_BACKBONE_KEYSTORE="$kstore" bash "$root/.ai-backbone/keystore.sh" put "$folder/.envrc" < "$fix/other" >/dev/null
+  mkdir -p "$kstore/reason/home/.aws"
+  printf 'locked' > "$kstore/reason/home/.aws/credentials"
+  { ks041_pem_begin "RSA PRIVATE KEY"; printf '%s\n' 'clear'; ks041_pem_end "RSA PRIVATE KEY"; } > "$khome/.ssh/id_clear"
+  { ks041_pem_begin "RSA PRIVATE KEY"; printf '%s\n' 'Proc-Type: 4,ENCRYPTED' 'DEK-Info: AES-128-CBC,00' '' 'cipher'; ks041_pem_end "RSA PRIVATE KEY"; } > "$khome/.ssh/id_enc"
+  { ks041_pem_begin "RSA PRIVATE KEY"; printf '%s\n' 'pub'; ks041_pem_end "RSA PRIVATE KEY"; } > "$khome/.ssh/id_clear.pub"
+  printf '%s\n' 'UseKeychain no' > "$khome/.ssh/config"
+  ks_just() {
+    env AI_BACKBONE_KEYSTORE="$kstore" AI_BACKBONE_SECRET_HOME="$khome" \
+      AI_BACKBONE_OS=darwin PATH="$kbin:$PATH" KS_CALLED="$kcalled" KS_TAKE_OUT="$kout" \
+      just -f "$ks/Justfile" -d "$ks" "$@"
+  }
+  out=$(ks_just doctor 2>&1) || true
+  grep -q 'a/b/.env' <<<"$out" || ks041_note "doctor missed a/b/.env before the move"
+  grep -qF '~/.grok/auth.json' <<<"$out" || ks041_note "doctor missed ~/.grok/auth.json before the move"
+  out=$(ks_just secrets-to-keystore 2>&1) || true
+  grep -qF 'ks041-fixture-value' <<<"$out" && ks041_note "migrate printed a secret"
+  grep -qx 'moved .env' <<<"$out" || ks041_note "did not move .env"
+  grep -qx 'moved a/b/.env' <<<"$out" || ks041_note "did not move a/b/.env"
+  grep -qx 'moved brain/03-stack/.env' <<<"$out" || ks041_note "did not move brain/03-stack/.env"
+  grep -qx 'moved brain/03-stack/.aws/credentials' <<<"$out" || ks041_note "did not move stack aws"
+  grep -qx 'moved ~/.grok/auth.json' <<<"$out" || ks041_note "did not move grok auth"
+  grep -qx 'moved ~/.config/gh/hosts.yml' <<<"$out" || ks041_note "did not move hosts.yml"
+  grep -qx "refused: $folder/.envrc already holds different bytes" <<<"$out" || ks041_note "did not refuse .envrc"
+  grep -qx 'not moved: ~/.aws/credentials' <<<"$out" || ks041_note "locked aws was not left"
+  grep -qx 'not moved: ~/.appstoreconnect/config.env' <<<"$out" || ks041_note "unwritable file was not rolled back"
+  grep -qx 'ssh key without a passphrase: ~/.ssh/id_clear' <<<"$out" || ks041_note "clear ssh key was not reported"
+  grep -q 'id_enc' <<<"$out" && ks041_note "an encrypted ssh key was reported"
+  grep -q 'id_clear.pub' <<<"$out" && ks041_note "a public key was reported"
+  [ ! -e "$ks/.env" ] && [ ! -L "$ks/.env" ] || ks041_note ".env link stayed"
+  [ ! -e "$ks/brain/secrets/.env" ] || ks041_note "brain/secrets/.env stayed"
+  [ ! -e "$ks/a/b/.env" ] || ks041_note "a/b/.env stayed"
+  [ ! -e "$ks/brain/03-stack/.env" ] || ks041_note "stack .env stayed"
+  [ ! -e "$ks/brain/03-stack/.aws/credentials" ] || ks041_note "stack aws stayed"
+  [ -f "$ks/.env.example" ] || ks041_note ".env.example was moved"
+  [ -f "$ks/node_modules/.env" ] || ks041_note "node_modules/.env was moved"
+  [ -f "$ks/brain/03-stack/notes.txt" ] || ks041_note "notes.txt was moved"
+  [ -f "$ks/ios/dist.p12" ] || ks041_note "a certificate was moved"
+  [ -f "$ks/.envrc" ] || ks041_note "refused .envrc was removed"
+  cmp -s "$fix/token" "$kstore/items/$folder/.env" || ks041_note "stored .env bytes differ"
+  cmp -s "$fix/token" "$kstore/items/$folder/a/b/.env" || ks041_note "stored a/b/.env bytes differ"
+  [ ! -e "$kstore/items/$folder/brain/secrets/.env" ] || ks041_note "the link and its target became two accounts"
+  cmp -s "$fix/other" "$kstore/items/$folder/.envrc" || ks041_note "refused account was overwritten"
+  cmp -s "$fix/hosts" "$kstore/items/home/.config/gh/hosts.yml" || ks041_note "hosts.yml account is not the home path"
+  [ ! -e "$kstore/items/$folder/brain/secrets/.config/gh/hosts.yml" ] || ks041_note "hosts.yml was stored twice"
+  [ ! -e "$khome/.config/gh/hosts.yml" ] && [ ! -L "$khome/.config/gh/hosts.yml" ] || ks041_note "hosts.yml link stayed"
+  [ ! -e "$ks/brain/secrets/.config/gh/hosts.yml" ] || ks041_note "hosts.yml target stayed"
+  [ ! -e "$khome/.grok/auth.json" ] || ks041_note "grok auth stayed"
+  cmp -s "$fix/token" "$kstore/items/home/.grok/auth.json" || ks041_note "grok auth bytes differ"
+  [ -f "$khome/.aws/credentials" ] || ks041_note "locked aws file was removed"
+  [ ! -e "$kstore/items/home/.aws/credentials" ] || ks041_note "locked aws was stored"
+  [ -f "$khome/.appstoreconnect/config.env" ] || ks041_note "rollback removed the file"
+  [ ! -e "$kstore/items/home/.appstoreconnect/config.env" ] || ks041_note "rollback left a store copy"
+  [ -f "$khome/.ssh/id_clear" ] && [ -f "$khome/.ssh/id_enc" ] || ks041_note "an ssh key was removed"
+  [ ! -e "$kstore/items/home/.ssh" ] || ks041_note "an ssh key was stored"
+  grep -qx 'UseKeychain no' "$khome/.ssh/config" || ks041_note "an existing UseKeychain no was replaced"
+  [ "$(grep -c '^UseKeychain yes$' "$khome/.ssh/config")" = 0 ] || ks041_note "UseKeychain yes was added beside no"
+  [ "$(grep -c '^AddKeysToAgent yes$' "$khome/.ssh/config")" = 1 ] || ks041_note "AddKeysToAgent yes was not added once"
+  [ ! -s "$kcalled" ] || ks041_note "a keystore command or ssh-add was executed"
+  out2=$(ks_just secrets-to-keystore 2>&1) || true
+  grep -qE '^moved ' <<<"$out2" && ks041_note "the second run moved something"
+  [ "$(grep -c '^AddKeysToAgent yes$' "$khome/.ssh/config")" = 1 ] || ks041_note "the second run duplicated AddKeysToAgent"
+  [ "$(grep -c '^UseKeychain no$' "$khome/.ssh/config")" = 1 ] || ks041_note "the second run duplicated UseKeychain"
+  chmod 755 "$khome/.appstoreconnect" 2>/dev/null || true
+  out=$(ks_just doctor 2>&1) || true
+  grep -q 'a/b/.env' <<<"$out" && ks041_note "doctor still names a/b/.env"
+  grep -qF '~/.grok/auth.json' <<<"$out" && ks041_note "doctor still names grok auth"
+  grep -qF '~/.aws/credentials' <<<"$out" || ks041_note "doctor is quiet about the locked file"
+  grep -qF '.envrc' <<<"$out" || ks041_note "doctor is quiet about the refused file"
+  rm -rf "$kout"
+  out=$(ks_just with-secret "$folder/a/b/.env" -- "$kbin/take" 2>&1) || ks041_note "with-secret failed"
+  [ -z "$out" ] || ks041_note "with-secret printed: $out"
+  cmp -s "$fix/token" "$kout/stdin" || ks041_note "the command did not receive the secret on stdin"
+  grep -qF 'ks041-fixture-value' "$kout/argv" && ks041_note "the secret was an argument"
+  grep -qF 'ks041-fixture-value' "$kout/env" && ks041_note "the secret was in the environment"
+  if grep -qF -r -- 'ks041-fixture-value' "$tmp/T" 2>/dev/null; then ks041_note "the secret was left in a temp file"; fi
+  rm -rf "$kout"
+  out=$(ks_just with-secret "$folder/missing" -- "$kbin/take" 2>&1) || true
+  [ "$out" = "$folder/missing: absent" ] || ks041_note "absent line was: $out"
+  [ ! -e "$kout/ran" ] || ks041_note "an absent account still ran the command"
+  mkdir -p "$kstore/reason/$folder"
+  printf 'locked' > "$kstore/reason/$folder/locked-one"
+  out=$(ks_just with-secret "$folder/locked-one" -- "$kbin/take" 2>&1) || true
+  [ "$out" = "$folder/locked-one: locked" ] || ks041_note "locked line was: $out"
+  [ ! -e "$kout/ran" ] || ks041_note "a locked account still ran the command"
+  printf 'nobody' > "$kstore/reason/$folder/nobody-one"
+  out=$(ks_just with-secret "$folder/nobody-one" -- "$kbin/take" 2>&1) || true
+  [ "$out" = "$folder/nobody-one: nobody there to approve" ] || ks041_note "nobody line was: $out"
+  [ ! -e "$kout/ran" ] || ks041_note "a missing approval still ran the command"
+  out=$(ks_just with-secret "$folder/a/b/.env" 2>&1) || true
+  [ "$out" = "$folder/a/b/.env: no command" ] || ks041_note "no-command line was: $out"
+  chmod 755 "$khome/.appstoreconnect" 2>/dev/null || true
+  if [ "$ks041_bad" -ne 0 ]; then
+    printf '%s' "${ks041_notes:-}" >&2
+  fi
+  [ "$ks041_bad" -eq 0 ]
+}
+ks041_windows() {
+  local wbin="$tmp/ks041-wbin" wapp="$tmp/ks041-local" wmark="$tmp/ks041-wmark"
+  local wstore="$tmp/ks041-wstore" fix="$tmp/ks041-wfix" got="$tmp/ks041-wgot" whome="$tmp/ks041-whome"
+  rm -rf "$wbin" "$wapp" "$wmark" "$wstore" "$whome" "$fix" "$got"
+  mkdir -p "$wbin" "$wmark" "$wstore/items" "$wstore/reason" "$whome"
+  printf '%s\n' 'ks041-fixture-value' > "$fix"
+  cat > "$wbin/powershell.exe" << 'EOF'
+#!/bin/sh
+cmd=
+prev=
+for arg in "$@"; do
+  if [ "$prev" = "-Command" ]; then cmd=$arg; fi
+  prev=$arg
+done
+case "$cmd" in
+  *Unprotect*)
+    cat -- "$KS_PATH"
+    : > "${KS_WIN_MARK}/unprotect"
+    ;;
+  *Protect*)
+    mkdir -p "$(dirname -- "$KS_PATH")"
+    cat > "$KS_PATH"
+    : > "${KS_WIN_MARK}/protect"
+    ;;
+  *) exit 99 ;;
+esac
+EOF
+  cat > "$wbin/security" << 'EOF'
+#!/bin/sh
+: > "${KS_WIN_MARK}/security"
+exit 99
+EOF
+  cp "$wbin/security" "$wbin/secret-tool"
+  chmod +x "$wbin/powershell.exe" "$wbin/security" "$wbin/secret-tool"
+  if ! env AI_BACKBONE_KEYSTORE="$wstore" AI_BACKBONE_OS=windows PATH="$wbin:$PATH" KS_WIN_MARK="$wmark" \
+      bash "$root/.ai-backbone/keystore.sh" put "win/gated" < "$fix"; then
+    printf '%s\n' "a set keystore still failed on the windows branch" >&2
+    return 1
+  fi
+  if [ -e "$wmark/security" ] || [ -e "$wmark/protect" ]; then
+    printf '%s\n' "a set keystore executed powershell or security" >&2
+    return 1
+  fi
+  rm -f "$wmark/protect" "$wmark/security" "$wmark/unprotect"
+  if ! env -u AI_BACKBONE_KEYSTORE AI_BACKBONE_OS=windows LOCALAPPDATA="$wapp" HOME="$whome" \
+      PATH="$wbin:$PATH" KS_WIN_MARK="$wmark" \
+      bash "$root/.ai-backbone/keystore.sh" put "win/demo" < "$fix"; then
+    printf '%s\n' "windows put failed" >&2
+    return 1
+  fi
+  [ -e "$wmark/protect" ] || { printf '%s\n' "Protect was not called" >&2; return 1; }
+  [ ! -e "$wmark/security" ] || { printf '%s\n' "security was called on the windows branch" >&2; return 1; }
+  env -u AI_BACKBONE_KEYSTORE AI_BACKBONE_OS=windows LOCALAPPDATA="$wapp" HOME="$whome" \
+    PATH="$wbin:$PATH" KS_WIN_MARK="$wmark" \
+    bash "$root/.ai-backbone/keystore.sh" get "win/demo" > "$got" || { printf '%s\n' "windows get failed" >&2; return 1; }
+  cmp -s "$fix" "$got" || { printf '%s\n' "windows round trip changed the bytes" >&2; return 1; }
+  [ -e "$wmark/unprotect" ] || { printf '%s\n' "Unprotect was not called" >&2; return 1; }
+}
+ks041_ssh_linux() {
+  local home="$tmp/ks041-linhome" bare="$tmp/ks041-bare" store="$tmp/ks041-linstore" out
+  rm -rf "$home" "$bare" "$store"
+  mkdir -p "$home/.ssh" "$bare" "$store/items" "$store/reason"
+  { ks041_pem_begin "RSA PRIVATE KEY"; printf '%s\n' 'clear'; ks041_pem_end "RSA PRIVATE KEY"; } > "$home/.ssh/id_clear"
+  out=$(cd "$bare" && env AI_BACKBONE_KEYSTORE="$store" AI_BACKBONE_SECRET_HOME="$home" AI_BACKBONE_OS=linux \
+    bash "$root/.ai-backbone/keystore.sh" migrate) || true
+  grep -qx 'ssh key without a passphrase: ~/.ssh/id_clear' <<<"$out" || { printf '%s\n' "linux did not report the clear key" "$out" >&2; return 1; }
+  [ ! -e "$home/.ssh/config" ] || { printf '%s\n' "linux wrote Apple ssh config" >&2; return 1; }
+  [ -f "$home/.ssh/id_clear" ] || { printf '%s\n' "linux removed the key" >&2; return 1; }
+}
+ks041_budget() {
+  local f="$tmp/ks041-settings.json" badf="$tmp/ks041-bad.json" before
+  "$py" -c 'import json,sys; json.dump({"kept": True, "permissions": {"deny": ["Bash(sudo:*)"]}}, open(sys.argv[1],"w"))' "$f" || return 1
+  "$py" "$root/.ai-backbone/budget.py" secrets "$f" >/dev/null || return 1
+  "$py" "$root/.ai-backbone/budget.py" secrets "$f" >/dev/null || return 1
+  "$py" -c '
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+deny = d["permissions"]["deny"]
+need = [
+    "Bash(sudo:*)",
+    "Bash(security find-generic-password:*)",
+    "Bash(secret-tool lookup:*)",
+    "Bash(just with-secret:*)",
+    "Bash(ssh-add:*)",
+    "Bash(/usr/bin/ssh-add:*)",
+    "Read(**/.env)",
+    "Read(**/.envrc)",
+    "Read(**/ssh-agent.sock)",
+    "Read(**/ai-backbone/keystore/**)",
+]
+for n in need:
+    if deny.count(n) != 1:
+        sys.exit("count " + n + " " + str(deny.count(n)))
+if "Read(**/.env.example)" in deny:
+    sys.exit("example")
+blob = open(p).read()
+if "/Users/" in blob or "home/" in blob:
+    sys.exit("named home")
+if d.get("kept") is not True:
+    sys.exit("kept")
+' "$f" || return 1
+  printf '{\n' > "$badf"
+  before=$(cksum "$badf")
+  "$py" "$root/.ai-backbone/budget.py" secrets "$badf" >/dev/null 2>&1 || true
+  [ "$(cksum "$badf")" = "$before" ] || { printf '%s\n' "broken json was rewritten" >&2; return 1; }
+}
+check "token files move into the fake keystore, a different value is refused, and the reader uses stdin only" "ks041_main"
+check "the windows branch uses the fake DPAPI path and a set keystore calls neither powershell nor security" "ks041_windows"
+check "linux reports a clear ssh key and writes no Apple config" "ks041_ssh_linux"
+check "budget.py secrets merges the keystore denies once and leaves broken json alone" "ks041_budget"
+check "keystore.sh does not name /usr/bin/security" "! grep -qF '/usr/bin/security' '$root/.ai-backbone/keystore.sh'"
+check "the night skip and the CI rule are in the spec skill and how-it-works" "grep -q 'A night step that needs a secret is skipped and named in the morning' '$root/.agents/skills/spec/SKILL.md' && grep -q 'CI does not call the reader' '$root/.agents/skills/spec/SKILL.md' && grep -q 'A night step that needs a secret is skipped and named in the morning' '$root/docs/how-it-works.md' && grep -q 'CI does not call the reader' '$root/docs/how-it-works.md'"
+check "spec 036 points at spec 041" "grep -q 'spec 041' '$root/docs/specs/036-secrets-in-brain.md'"
 
 # A save must never commit code the language layer rejects (3.7.0).
 section "lint before save"
@@ -4145,6 +4436,7 @@ fmt=""
 model=""
 perm=""
 deny=""
+sandbox=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -p) prompt=$2; shift 2 ;;
@@ -4152,6 +4444,7 @@ while [ $# -gt 0 ]; do
     --model) model=$2; shift 2 ;;
     --permission-mode) perm=$2; shift 2 ;;
     --background-wait-timeout) bgwait=$2; shift 2 ;;
+    --sandbox) sandbox=$2; shift 2 ;;
     --deny) deny="$deny$2
 "; shift 2 ;;
     --rules|--allow) shift 2 ;;
@@ -4164,6 +4457,7 @@ if [ -n "${FAKE_WORKER_PROMPT:-}" ]; then
   printf '%s\n' "$model" > "$FAKE_WORKER_PROMPT.model"
   printf '%s\n' "$perm" > "$FAKE_WORKER_PROMPT.perm"
   printf '%s\n' "$bgwait" > "$FAKE_WORKER_PROMPT.bgwait"
+  printf '%s\n' "$sandbox" > "$FAKE_WORKER_PROMPT.sandbox"
   printf '%s' "$deny" > "$FAKE_WORKER_PROMPT.deny"
 fi
 if [ -n "${FAKE_WORKER_BINLOG:-}" ]; then printf '%s\n' "$0" > "$FAKE_WORKER_BINLOG"; fi
@@ -4595,6 +4889,8 @@ check "the worker's prompt is the preamble, then the task, and grok is called he
   "grep -q 'Read AGENTS.md' \"\$dprompt\" && grep -q \"You are on branch \$dbr; stay on it.\" \"\$dprompt\" && grep -q 'just save' \"\$dprompt\" && grep -q 'just publish' \"\$dprompt\" && grep -q 'git push' \"\$dprompt\" && grep -q 'just ship' \"\$dprompt\" && grep -q 'just deploy' \"\$dprompt\" && grep -q 'server or GitHub' \"\$dprompt\" && grep -q 'merge, rebase, or delete a branch' \"\$dprompt\" && grep -q 'Never start a sub-agent or a parallel task' \"\$dprompt\" && grep -q 'at most 15 lines' \"\$dprompt\" && [ \"\$(tail -n 1 \"\$dprompt\")\" = 'add a line' ] && [ \"\$(cat \"\$dprompt.fmt\")\" = plain ] && [ -z \"\$(cat \"\$dprompt.model\")\" ] && [ \"\$(cat \"\$dprompt.perm\")\" = auto ] && grep -qx 'Bash(git push:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(just ship:\*)' \"\$dprompt.deny\""
 check "grok's deny list also names the shell wrappers that step around rm (added, not measured on grok)" \
   "grep -qx 'Bash(sh:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(bash:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(zsh:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(eval:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(xargs:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(env:\*)' \"\$dprompt.deny\""
+check "grok's argv denies the keystore commands, ssh-add and the secret paths, and the sandbox profile names the same paths" \
+  "grep -qx 'Bash(security find-generic-password:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(security find-internet-password:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(/usr/bin/security find-generic-password:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(/usr/bin/security find-internet-password:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(secret-tool lookup:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(/usr/bin/secret-tool lookup:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(just with-secret:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(ssh-add:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(/usr/bin/ssh-add:\*)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/.aws/**)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/.ssh/**)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/.env)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/.envrc)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/ssh-agent.sock)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/brain/secrets/**)' \"\$dprompt.deny\" && ! grep -q '.env.example' \"\$dprompt.deny\" && [ \"\$(cat \"\$dprompt.sandbox\")\" = ai-backbone-delegate ] && grep -q 'extends = \"workspace\"' \"\$dhome/.grok/sandbox.toml\" && grep -q '\"~/.ssh\"' \"\$dhome/.grok/sandbox.toml\" && grep -q '\"~/.aws\"' \"\$dhome/.grok/sandbox.toml\" && grep -Fq '\"**/.env\"' \"\$dhome/.grok/sandbox.toml\" && ! grep -q '/Users/' \"\$dhome/.grok/sandbox.toml\" && ! grep -qx '  \"~/.grok\",' \"\$dhome/.grok/sandbox.toml\""
 git -C "$dproj" checkout -q main
 d_run ok grok "" delegate "add a line"
 dbr2=$(git -C "$dproj" symbolic-ref --short HEAD)
@@ -5007,7 +5303,6 @@ oc_config_ok() {
   grep -qF '"autoupdate": false' "$cfg" || return 1
   grep -qF '"update": "disable"' "$cfg" || return 1
   grep -qF '"*": "deny"' "$cfg" || return 1
-  grep -qF '"read": "allow"' "$cfg" || return 1
   grep -qF '"edit": "allow"' "$cfg" || return 1
   grep -qF '"write": "allow"' "$cfg" || return 1
   grep -qF '"webfetch": "deny"' "$cfg" || return 1
@@ -5019,17 +5314,35 @@ oc_config_ok() {
     "git reset *" "git branch -d *" "git branch -D *" "git tag *" \
     "just publish *" "just ship *" "just deploy *" "just release *" "just undo *" \
     "gh *" "curl *" "ssh *" "rm *" \
-    "sh *" "bash *" "zsh *" "eval *" "xargs *" "env *"
+    "sh *" "bash *" "zsh *" "eval *" "xargs *" "env *" \
+    "security find-generic-password *" "security find-internet-password *" \
+    "/usr/bin/security find-generic-password *" "/usr/bin/security find-internet-password *" \
+    "secret-tool lookup *" "/usr/bin/secret-tool lookup *" \
+    "just with-secret *" "ssh-add *" "/usr/bin/ssh-add *"
   do
     grep -qF "\"$p\": \"deny\"" "$cfg" || return 1
   done
+  for p in \
+    "**/.aws/**" "**/.appstoreconnect/**" "**/.ssh/**" \
+    "**/.config/gh/hosts.yml" "**/.grok/auth.json" "**/.grok/mcp_credentials.json" \
+    "**/brain/secrets/**" "**/brain/03-stack/**" "**/.env" "**/.envrc" \
+    "**/ai-backbone/keystore/**" "**/ssh-agent.sock"
+  do
+    grep -qF "\"$p\": \"deny\"" "$cfg" || return 1
+  done
+  ! grep -q '.env.example' "$cfg" || return 1
+  # spec 038: the catch-all deny is first, and inside shell the allow comes
+  # before the denies (last match wins). spec 041: the same order inside read.
   awk '
-    $0 ~ /"\*": "deny"/ { d = NR }
-    d && $0 ~ /"read": "allow"/ && NR > d { star_ok = 1 }
+    $0 ~ /"\*": "deny"/ && !d { d = NR }
+    /"read"/ { r = 1 }
+    r && $0 ~ /"\*": "allow"/ && !ra { ra = NR }
+    ra && $0 ~ /"\*\*\/\.env": "deny"/ && NR > ra { read_ok = 1; r = 0 }
     /"shell"/ { s = 1 }
     s && $0 ~ /"\*": "allow"/ { a = NR; s = 0 }
     a && $0 ~ /"sh \*": "deny"/ && NR > a { sh_ok = 1 }
-    END { exit !(star_ok && sh_ok) }
+    a && $0 ~ /"security find-generic-password \*": "deny"/ && NR > a { sec_ok = 1 }
+    END { exit !(d && ra && ra > d && read_ok && sh_ok && sec_ok) }
   ' "$cfg"
 }
 oc_events_ok() {
@@ -5189,6 +5502,15 @@ kimi_rules_ok() {
   grep -qxF 'pattern = "WebSearch"' "$cfg" || return 1
   grep -qxF 'pattern = "FetchURL"' "$cfg" || return 1
   grep -qxF 'pattern = "Read(~/.aws/**)"' "$cfg" || return 1
+  grep -qxF 'pattern = "Bash(security find-generic-password)"' "$cfg" || return 1
+  grep -qxF 'pattern = "Bash(secret-tool lookup)"' "$cfg" || return 1
+  grep -qxF 'pattern = "Bash(/usr/bin/secret-tool lookup)"' "$cfg" || return 1
+  grep -qxF 'pattern = "Bash(just with-secret)"' "$cfg" || return 1
+  grep -qxF 'pattern = "Bash(ssh-add)"' "$cfg" || return 1
+  grep -qxF 'pattern = "Bash(/usr/bin/ssh-add)"' "$cfg" || return 1
+  grep -qxF 'pattern = "Read(**/ssh-agent.sock)"' "$cfg" || return 1
+  grep -qxF 'pattern = "Read(**/.envrc)"' "$cfg" || return 1
+  grep -qxF 'pattern = "Read(**/ai-backbone/keystore/**)"' "$cfg" || return 1
   grep -qxF 'pattern = "Write(.env)"' "$cfg" || return 1
   grep -qxF 'pattern = "Edit(**/.env)"' "$cfg" || return 1
   grep -qxF 'pattern = "Read(brain/03-stack/**)"' "$cfg" || return 1
