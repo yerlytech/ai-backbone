@@ -205,6 +205,12 @@ just with-secret <account> -- <command> # that account's secret on the command's
 just --list          # everything
 ```
 
+A checkout whose backbone is older than `delegate` has no such recipe. Until
+`just template-update`, run it from a checkout that has one:
+`just --justfile <that>/.ai-backbone/core.just --working-directory <this project> delegate`.
+`just session-start` and `just doctor` from that newer checkout name this command
+when the folder you are in is the older one.
+
 When `WORKER` is `grok`, `claude`, `opencode` or `kimi`, the session manages. It sends one task,
 reads the report, and accepts, fixes or drops. A fix is another `just delegate`
 on that same `delegate/*` branch, so the first round's commits stay. A line

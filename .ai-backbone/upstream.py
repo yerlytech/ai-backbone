@@ -784,8 +784,19 @@ def where(entry):
         folders.append(str(near))
     if shutil_which("uv"):
         tools = said(["uv", "tool", "dir"])
-        if tools and Path(tools, name).is_dir():
-            folders.append(str(Path(tools, name)))
+        # n-fabf4b: uv names the folder after the PyPI package (graphifyy).
+        # The watch name is the command (graphify). rust-just holds just the same way.
+        if tools:
+            names = []
+            if kind == "pypi" and rest:
+                names.append(rest)
+            if name and name not in names:
+                names.append(name)
+            for folder_name in names:
+                found = Path(tools, folder_name)
+                if found.is_dir():
+                    folders.append(str(found))
+                    break
     # A model, and a repository watched by its commits, is no program: a binary
     # that shares its name says nothing about it.
     exe = None if kind in COMMIT_KINDS else shutil_which("flutter" if kind == "flutter" else name)

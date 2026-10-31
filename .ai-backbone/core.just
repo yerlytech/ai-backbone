@@ -528,6 +528,12 @@ doctor:
       fi
     fi
     if [ -n "$(just _is-repo)" ]; then echo "  ok    git repo"; else echo "  warn  no git repo -> git init"; fi
+    # n-67104d: same line as session-start, under Repo, when this folder's
+    # core.just has no delegate recipe.
+    just _delegate-fallback 2>/dev/null | while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      echo "  warn  $line"
+    done
     hooks=$(git rev-parse --git-path hooks 2>/dev/null || echo .git/hooks)
     if [ -f "$hooks/pre-commit" ] && [ -f "$hooks/commit-msg" ]; then echo "  ok    git hooks"; else echo "  warn  hooks missing -> just hooks-install"; fi
     if [ -n "$(just _push-stage)" ] && [ ! -f "$hooks/pre-push" ]; then echo "  warn  .pre-commit-config.yaml has a pre-push hook and git will not run it -> just hooks-install"; fi
@@ -1290,6 +1296,9 @@ _session-start-body:
       fresh=$("$(just _py)" .ai-backbone/upstream.py --freshness 2>&1) || fresh="${fresh:+$fresh$'\n'}upstream: could not run -> just upstream"
       if [ -n "$fresh" ]; then printf '\n%s\n' "$fresh"; fi
     fi
+    # n-67104d: an older copy of this file has no delegate recipe. Said from
+    # the copy that has it, about the folder we are in. Nothing is written there.
+    just _delegate-fallback 2>/dev/null || true
     echo
     echo "=== WORKING TREE ==="
     git status --short 2>/dev/null | head -15 || true
@@ -1343,7 +1352,12 @@ _session-start-body:
         END { flush() }
       ' docs/specs/*.md
     fi
-    if [ -f graphify-out/GRAPH_REPORT.md ]; then
+    # n-fabf4b: a committed map many commits behind HEAD is refreshed here.
+    # Fewer than 40 stays a date. The recipe prints nothing when it does not act.
+    mapline=$(just _map-if-stale 2>/dev/null || true)
+    if [ -n "$mapline" ]; then
+      echo "$mapline"
+    elif [ -f graphify-out/GRAPH_REPORT.md ]; then
       echo "Code map: $(date -r graphify-out/GRAPH_REPORT.md '+%Y-%m-%d %H:%M')"
     elif [ -n "$(just _has-code 2>/dev/null)" ]; then
       echo "Code map: none -> just update-map"
@@ -1542,6 +1556,27 @@ session-end:
 # from nothing. The log is outside the repo, or the worker's own `just save`
 # would commit it. WORKER is the machine's choice (unset or off: no delegation).
 # Each adapter is one function, the headless call in this folder.
+# n-67104d: the file in this folder is what `just delegate` runs. An older
+# copy has no such recipe. This names the command; it does not write there.
+_delegate-fallback:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    core=".ai-backbone/core.just"
+    [ -f "$core" ] || exit 0
+    grep -q '^delegate ' "$core" && exit 0
+    here=$(pwd -P)
+    # The justfile that is running has the recipe. Prefer its core.just, which
+    # is the command an older checkout can copy. A direct -f core.just stays that file.
+    jf="{{justfile()}}"
+    if [ "$(basename "$jf")" = core.just ]; then
+      cmd=$jf
+    else
+      cand=$(dirname "$jf")/.ai-backbone/core.just
+      if [ -f "$cand" ] && grep -q '^delegate ' "$cand"; then cmd=$cand; else cmd=$jf; fi
+    fi
+    printf '%s\n' "delegate: this checkout has no delegate recipe. Until just template-update, run:"
+    printf 'just --justfile %q --working-directory %q delegate\n' "$cmd" "$here"
+
 # [no-exit-message]: a refusal is one line. Without it, just 1.59.0 adds
 # "error: recipe failed" (measured); the attribute is documented since just 1.7.0,
 # under the 1.29.0 floor this file names.
@@ -1735,10 +1770,12 @@ delegate task="":
     hooks_prev=""
     # The deny list is command text. A merge was run in another form anyway
     # (n-683f69). This ref hook is what actually refuses it.
+    # n-154b76: the path is this worktree's. A sibling keeps its own hooks.
+    # The extension stays on: turning it off would hide another worktree's config.
     restore_delegate_hook() {
       if [ -z "$hookdir" ]; then return 0; fi
-      if [ -n "$hooks_prev" ]; then git config --local core.hooksPath "$hooks_prev" || true
-      else git config --local --unset core.hooksPath || true
+      if [ -n "$hooks_prev" ]; then git config --worktree core.hooksPath "$hooks_prev" || true
+      else git config --worktree --unset core.hooksPath || true
       fi
       rm -rf "$hookdir"
       hookdir=""
@@ -2153,7 +2190,12 @@ delegate task="":
         ln -s "$h" "$hookdir/$(basename "$h")" 2>/dev/null || true
       done
     fi
-    hooks_prev=$(git config --local --get core.hooksPath || true)
+    # n-154b76: --worktree writes the common config until this is on. Set it
+    # first, then only this worktree's hooksPath, so a sibling can still merge.
+    if [ "$(git config --local --get extensions.worktreeConfig 2>/dev/null || true)" != true ]; then
+      git config --local extensions.worktreeConfig true
+    fi
+    hooks_prev=$(git config --worktree --get core.hooksPath 2>/dev/null || true)
     if [ -n "$hooks_prev" ] && [ -d "$hooks_prev" ]; then
       for h in "$hooks_prev"/*; do
         [ -e "$h" ] || continue
@@ -2229,7 +2271,7 @@ delegate task="":
       'exit 0' \
       > "$hookdir/reference-transaction"
     chmod +x "$hookdir/reference-transaction"
-    git config --local core.hooksPath "$hookdir"
+    git config --worktree core.hooksPath "$hookdir"
     rm -f "$dir/${id}.timedout"
     set -m
     # A worker that has committed, printed its report and then sits with no
@@ -3535,6 +3577,33 @@ archive path:
     echo "Add a line at the top of it (or a note next to it) saying when and why. Then: just save"
 
 # ──────────────────────────── map ────────────────────────────
+
+# n-fabf4b: 40 commits is "many". A day's edits stay a date. A dirty map is
+# the person's; this does not overwrite it. graphify missing is named, not a failure.
+_map-if-stale:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    map=graphify-out/GRAPH_REPORT.md
+    if [ ! -f "$map" ]; then exit 0; fi
+    git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
+    git cat-file -e "HEAD:$map" >/dev/null 2>&1 || exit 0
+    if ! git diff --quiet HEAD -- "$map"; then exit 0; fi
+    tip=$(git log -1 --format=%H -- "$map")
+    [ -n "$tip" ] || exit 0
+    n=$(git rev-list --count "$tip"..HEAD)
+    case "$n" in
+      ''|*[!0-9]*) exit 0 ;;
+    esac
+    if [ "$n" -lt 40 ]; then exit 0; fi
+    if ! command -v graphify >/dev/null 2>&1; then
+      echo "Code map: $n commits behind HEAD -> just update-map"
+      exit 0
+    fi
+    if just update-map >/dev/null; then
+      echo "Code map: refreshed, it was $n commits behind HEAD"
+    else
+      echo "Code map: $n commits behind HEAD -> just update-map"
+    fi
 
 # Refresh the code map the agents read
 [group('map')]

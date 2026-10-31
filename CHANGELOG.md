@@ -16,6 +16,12 @@ entries below are the record of every version.
 
 ## [Unreleased]
 
+**A delegate job locks hooks in its own worktree (n-154b76).** `core.hooksPath` is set with `extensions.worktreeConfig` and `git config --worktree`, so a sibling worktree can merge and push while the job runs. The extension stays on after the job.
+
+**An older checkout is told how to run delegate (n-67104d).** When this folder's `.ai-backbone/core.just` has no `delegate` recipe, `just session-start` and `just doctor` name `just --justfile <the core that has it> --working-directory <this folder> delegate`. Nothing is written into that checkout.
+
+**FRESHNESS reads the PyPI package, and a stale map is refreshed (n-fabf4b).** A watch named `graphify` with `source = "pypi:graphifyy"` is asked at `graphifyy`. The installed tool is the uv folder of that package name, which is how `rust-just` holds `just`. At session-start, a committed `graphify-out/GRAPH_REPORT.md` that is 40 or more commits behind HEAD is refreshed when `graphify` is on PATH; otherwise the line names `just update-map`.
+
 **Secrets move into the operating system's keystore.** `just secrets-to-keystore` moves a token file out of the project and the home directory and leaves no copy, including a spec 036 link. An account that already holds different bytes is refused. `just with-secret` passes one account on the command's standard input and prints nothing of the value. An ssh private key stays a file; a key with no passphrase is reported, and on Apple ssh the recipe adds `UseKeychain yes` and `AddKeysToAgent yes` only where that line is missing. Workers are denied the keystore commands, `ssh-add`, the agent socket, and the secret paths. The suite uses a fake store and never calls the real keychain.
 
 **`WORKER=kimi` is a fourth delegate worker.** Kimi Code CLI 2.4.0 runs headless as `kimi -p` with `--output-format stream-json`, beside grok, claude and opencode. There is no per-run config file, and `KIMI_CODE_HOME` would move the login, so the deny list is a marked block in the user config, rewritten each run. A machine that is not logged in stops with `kimi is not logged in: run kimi login` and leaves no branch. `DELEGATE_MODEL` is passed as `-m`. The report is the last 15 lines of the assistant text; the stream-json log stays outside the repo.

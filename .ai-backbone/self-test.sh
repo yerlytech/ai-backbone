@@ -728,6 +728,46 @@ check "uses runs nothing a word asks it to"              "just uses '\$(touch $t
 # private name, and it still runs by hand.
 check "backbone-news gave up its place on show and still exists" "! says '(^| )backbone-news( |\$)' just --summary && just --show _backbone-news"
 check "session-start asks for the tool releases by the name the recipe has" "grep -q 'just _backbone-news' '$root/.ai-backbone/core.just' && ! grep -q 'just backbone-news' '$root/.ai-backbone/core.just'"
+# n-fabf4b: 39 commits behind stays quiet. 40 refreshes when graphify is on
+# PATH, and names the command when it is not. The project's own Justfile is
+# what the inner `just update-map` finds.
+mapproj=$tmp/map-stale
+rm -rf "$mapproj"
+mkdir -p "$mapproj/graphify-out"
+git -C "$mapproj" init -qb main
+git -C "$mapproj" config user.email "map@example.com"
+git -C "$mapproj" config user.name "Map Test"
+git -C "$mapproj" config commit.gpgsign false
+printf 'x = 0\n' > "$mapproj/src.py"
+printf 'map\n' > "$mapproj/graphify-out/GRAPH_REPORT.md"
+printf "import? '%s/.ai-backbone/core.just'\n" "$root" > "$mapproj/Justfile"
+git -C "$mapproj" add src.py graphify-out/GRAPH_REPORT.md Justfile
+git -C "$mapproj" commit -qm "chore: map"
+i=1
+while [ "$i" -le 39 ]; do
+  printf 'x = %s\n' "$i" >> "$mapproj/src.py"
+  git -C "$mapproj" add src.py
+  git -C "$mapproj" commit -qm "chore: $i"
+  i=$((i + 1))
+done
+: > "$fm/calls"
+mapstale() { PATH="$fm:$PATH" just -f "$mapproj/Justfile" -d "$mapproj" "$@"; }
+check "a map 39 commits behind HEAD is left alone" \
+  "[ -z \"\$(mapstale _map-if-stale)\" ] && [ ! -s \"$fm/calls\" ]"
+printf 'x = 40\n' >> "$mapproj/src.py"
+git -C "$mapproj" add src.py
+git -C "$mapproj" commit -qm "chore: 40"
+plain=$tmp/plain-bin
+mkdir -p "$plain"
+ln -s "$(command -v just)" "$plain/just"
+ln -s "$(command -v git)" "$plain/git"
+mapplain() { PATH="$plain:/usr/bin:/bin" just -f "$mapproj/Justfile" -d "$mapproj" "$@"; }
+check "without graphify a map 40 commits behind names update-map" \
+  "says 'Code map: 40 commits behind HEAD -> just update-map' mapplain _map-if-stale && [ ! -s \"$fm/calls\" ]"
+check "a map 40 commits behind HEAD is refreshed when graphify is on PATH" \
+  "says 'Code map: refreshed, it was 40 commits behind HEAD' mapstale _map-if-stale && grep -qx 'extract . --code-only' \"$fm/calls\""
+check "session-start says that the stale map was refreshed" \
+  "says 'Code map: refreshed, it was 40 commits behind HEAD' mapstale session-start"
 rm -rf src/lib brain/probe .archive .references graphify-out .graphifyignore .ai-backbone/probe.txt "$fm"
 git checkout -q -- src/README.md
 # The seed files. Key and certificate files are secrets and live in brain/secrets/.
@@ -2168,6 +2208,9 @@ check "a major row is answered by any release of its major" "upy 'u.same_major(\
 # row's tag pattern, and a tag of another shape is left out (spec 026).
 check "a tag pattern reads REL_18_7 as 18.7, newer than 18.6, and leaves REL9_6_24 out" "upy '[r[\"version\"] for r in u.newer_than(\"18.6\", u.tagged({\"tag\": \"REL_{major}_{minor}\"}, [{\"version\": v, \"prerelease\": False} for v in (\"REL_18_7\", \"REL_18_6\", \"REL9_6_24\")]), False)] == [\"18.7\"] and u.tag_of({\"tag\": \"REL_{major}_{minor}\"}, \"18.6\") == \"REL_18_6\"'"
 check "a tag pattern's {even} keeps the stable line and leaves odd minors out" "upy '[r[\"version\"] for r in u.newer_than(\"1.26.3\", u.tagged({\"tag\": \"release-{major}.{even}.{patch}\"}, [{\"version\": v, \"prerelease\": False} for v in (\"release-1.29.1\", \"release-1.28.1\", \"release-1.28.0\", \"release-1.27.4\", \"release-1.26.3\")]), False)] == [\"1.28.1\", \"1.28.0\"] and u.tag_of({\"tag\": \"release-{major}.{even}.{patch}\"}, \"1.28.0\") == \"release-1.28.0\" and [r[\"version\"] for r in u.tagged({\"tag\": \"release-{major}.{odd}.{patch}\"}, [{\"version\": v, \"prerelease\": False} for v in (\"release-1.29.1\", \"release-1.28.0\")])] == [\"1.29.1\"]'"
+# n-73d3f2: the pin is the number the file writes (1.30.6), and the tag pattern
+# is what turns release-1.31.8 into an odd minor the stable line does not follow.
+check "nginx-like tags follow the even minor: 1.31.8 is not newer than 1.30.6, and 1.32.0 is" "upy '[r[\"version\"] for r in u.tagged({\"tag\": \"release-{major}.{even}.{patch}\"}, [{\"version\": v, \"prerelease\": False} for v in (\"release-1.32.0\", \"release-1.31.8\", \"release-1.30.6\")])] == [\"1.32.0\", \"1.30.6\"] and [r[\"version\"] for r in u.newer_than(\"1.30.6\", u.tagged({\"tag\": \"release-{major}.{even}.{patch}\"}, [{\"version\": v, \"prerelease\": False} for v in (\"release-1.32.0\", \"release-1.31.8\", \"release-1.30.6\")]), False)] == [\"1.32.0\"]'"
 check "the template says a tag pattern can keep one minor line" "grep -q '{even}' '$root/.ai-backbone/templates/upstream.toml'"
 check "a filter keeps one stable line and leaves mainline out" "upy '[r[\"version\"] for r in u.newer_than(\"release-1.30.2\", u.matched({\"filter\": \"release-1\\\\.30\\\\.\"}, [{\"version\": v, \"prerelease\": False} for v in (\"release-1.31.8\", \"release-1.30.4\", \"release-1.30.2\")]), False)] == [\"release-1.30.4\"]'"
 check "a filter that matches nothing the source lists says so" "says 'matches filter' \"\$(just _py)\" -c 'import importlib.util as i; s=i.spec_from_file_location(\"u\", \".ai-backbone/upstream.py\"); u=i.module_from_spec(s); s.loader.exec_module(u); u.matched({\"filter\": \"release-1\\\\.30\\\\.\"}, [{\"version\": \"release-1.31.8\"}])'"
@@ -2413,6 +2456,44 @@ elif mode == "fresh-idea":
         fail(out)
     if "First job: read orch:" not in out or "Behind: orch" in out:
         fail(out)
+elif mode == "fresh-graphify":
+    # n-fabf4b: the watch name is the command. PyPI is asked for the package.
+    (one / "docs" / "upstream.toml").write_text(
+        '[[watch]]\nname = "graphify"\nsource = "pypi:graphifyy"\npin = "0.9.93"\n',
+        encoding="utf-8")
+    fixture["releases"] = {
+        "0.9.93": [{"upload_time_iso_8601": "2026-10-01T00:00:00Z"}],
+        "0.9.97": [{"upload_time_iso_8601": "2026-10-27T00:00:00Z"}],
+    }
+    asked = []
+
+    def fake_graphify(url, headers=None):
+        calls["n"] += 1
+        asked.append(url)
+        if url != "https://pypi.org/pypi/graphifyy/json":
+            raise SystemExit("asked " + url)
+        return fixture
+
+    u.fetch_json = fake_graphify
+    rc, out = run(one, "--freshness")
+    if rc != 0 or "Behind: graphify 0.9.93 → 0.9.97" not in out:
+        fail(f"rc={rc}\n{out}")
+    if asked != ["https://pypi.org/pypi/graphifyy/json"]:
+        fail("asked " + repr(asked))
+    tools = Path(base) / "uv-tools"
+    (tools / "graphifyy").mkdir(parents=True)
+    u.shutil_which = lambda name: "/usr/bin/uv" if name == "uv" else None
+
+    def said_tools(command):
+        if list(command) == ["uv", "tool", "dir"]:
+            return str(tools)
+        return ""
+
+    u.said = said_tools
+    found = u.where({"name": "graphify", "source": "pypi:graphifyy", "pin": "0.9.93"})
+    paths = [text for kind, text in found if kind == "source"]
+    if not any(str(tools / "graphifyy") in text for text in paths):
+        fail("where missed graphifyy: " + repr(found))
 elif mode == "idea-table":
     (one / "docs" / "upstream.toml").write_text(
         '[[watch]]\nname = "tool"\nsource = "pypi:tool"\npin = "1.2.0"\n\n'
@@ -2677,6 +2758,7 @@ check "offline, with no copy, the block says so and still exits 0"    "fresh035 
 check "past ten seconds the block keeps the last result and says slow" "fresh035 fresh-slow"
 check "a pin the file does not hold is the job when nothing is behind" "fresh035 fresh-moved"
 check "an idea's newer release is to read, never behind"              "fresh035 fresh-idea"
+check "FRESHNESS asks PyPI for graphifyy and Behind names graphify, and where() finds that folder" "fresh035 fresh-graphify"
 check "the table lists an idea apart, and not as newer"             "fresh035 idea-table"
 check "a scoped npm package is asked with the slash encoded"        "fresh035 npm-scope"
 check "a channel pointer says the one version the channel holds"    "fresh035 pointer-text"
@@ -4409,6 +4491,26 @@ else
 fi
 cd "$tmp" || exit 1
 
+# n-67104d: the file on disk is the checkout. The running justfile is the one
+# that has delegate, and it names that command. It does not write the file.
+oldbb=$tmp/old-bb
+rm -rf "$oldbb"
+mkdir -p "$oldbb/.ai-backbone"
+git -C "$oldbb" init -qb main
+git -C "$oldbb" config user.email "old@example.com"
+git -C "$oldbb" config user.name "Old"
+git -C "$oldbb" config commit.gpgsign false
+printf 'version 3.0.0\n\nhelp:\n    @echo hi\n' > "$oldbb/.ai-backbone/core.just"
+printf 'seed\n' > "$oldbb/README.md"
+git -C "$oldbb" add README.md .ai-backbone/core.just
+git -C "$oldbb" commit -qm "chore: old"
+check "an older core.just is told the delegate command, by session-start and by doctor" \
+  "says 'no delegate recipe' just -f '$root/Justfile' -d '$oldbb' _delegate-fallback && says --justfile just -f '$root/Justfile' -d '$oldbb' _delegate-fallback && says --working-directory just -f '$root/Justfile' -d '$oldbb' _delegate-fallback && says 'core\\.just' just -f '$root/Justfile' -d '$oldbb' _delegate-fallback && says 'no delegate recipe' just -f '$root/Justfile' -d '$oldbb' session-start && says 'no delegate recipe' just -f '$root/Justfile' -d '$oldbb' doctor"
+check "a checkout whose core.just has delegate is not given that line" \
+  "! says 'no delegate recipe' just -f '$root/Justfile' -d '$root' _delegate-fallback && printf '\ndelegate task=\"\":\n    @true\n' >> '$oldbb/.ai-backbone/core.just' && ! says 'no delegate recipe' just -f '$root/Justfile' -d '$oldbb' _delegate-fallback"
+check "a folder with no core.just is not called an older delegate" \
+  "rm -f '$oldbb/.ai-backbone/core.just' && ! says 'no delegate recipe' just -f '$root/Justfile' -d '$oldbb' _delegate-fallback"
+
 section "delegate (spec 034)"
 # The recipe's text is in d_out. The shared check prints the eval's own
 # stdout, which this section leaves empty, so a red line had nothing under
@@ -4614,6 +4716,29 @@ case "$mode" in
   stdin)
     # A CLI that reads its input until the end before it exits.
     cat >/dev/null
+    echo report
+    ;;
+  hookwt)
+    # n-154b76: this worktree's hooksPath is the job's. The sibling keeps the
+    # common one, so a merge there is allowed. A merge here is still refused.
+    printf '%s\n' "$(git config --get core.hooksPath || true)" > "$FAKE_WORKER_PROMPT.here-hooks"
+    printf '%s\n' "$(git -C "$FAKE_WORKER_SIDE" config --get core.hooksPath || true)" > "$FAKE_WORKER_PROMPT.side-hooks"
+    printf 'lane\n' >> "$FAKE_WORKER_SIDE/README.md"
+    git -C "$FAKE_WORKER_SIDE" add README.md
+    git -C "$FAKE_WORKER_SIDE" commit -qm "chore: lane" --no-verify
+    base=$(git -C "$FAKE_WORKER_SIDE" rev-parse HEAD^)
+    other=$(git -C "$FAKE_WORKER_SIDE" commit-tree "${base}^{tree}" -p "$base" -m other)
+    if git -C "$FAKE_WORKER_SIDE" merge --no-ff --no-edit -m "merge other" "$other"; then
+      echo side-merge-ok > "$FAKE_WORKER_PROMPT.side-merge"
+    else
+      echo side-merge-fail > "$FAKE_WORKER_PROMPT.side-merge"
+    fi
+    if git merge --no-ff --no-edit -m "merge other" "$other"; then
+      echo worker-merge-ok > "$FAKE_WORKER_PROMPT.worker-merge"
+    else
+      echo worker-merge-fail > "$FAKE_WORKER_PROMPT.worker-merge"
+    fi
+    git merge --abort >/dev/null 2>&1 || true
     echo report
     ;;
   *) echo "unknown mode $mode" >&2; exit 2 ;;
@@ -5113,6 +5238,33 @@ d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=siblingd
   WORKER=grok just -f "$root/Justfile" -d "$dproj" delegate "run beside a lane that leaves" 2>&1) && d_rc=0 || d_rc=$?
 check "a lane branch another worktree drops during the run is not a breach" \
   "[ \$d_rc -eq 0 ] && ! grep -q '^BREACH:' <<<\"\$d_out\" && ! git -C \"\$dproj\" show-ref --verify --quiet refs/heads/lane/old"
+# n-154b76: two worktrees. The job's hooksPath must not be the one the sibling
+# reads, and a merge in the sibling must succeed while the job is running.
+d_new hookwt
+side="$tmp/delegate-hookwt-side"
+rm -rf "$side"
+git -C "$dproj" worktree add -q -b lane/side "$side" main
+mkdir -p "$tmp/real-hooks"
+printf '#!/bin/sh\nexit 0\n' > "$tmp/real-hooks/pre-commit"
+chmod +x "$tmp/real-hooks/pre-commit"
+git -C "$dproj" config --local core.hooksPath "$tmp/real-hooks"
+d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=hookwt FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_SIDE="$side" \
+  WORKER=grok just -f "$root/Justfile" -d "$dproj" delegate "merge beside a lane" 2>&1) && d_rc=0 || d_rc=$?
+dlog=""
+for f in "$dhome/.cache/ai-backbone/delegate/delegate-hookwt"/*.log; do
+  [ -f "$f" ] || continue
+  dlog=$f
+done
+hereh=$(cat "$dprompt.here-hooks" 2>/dev/null || true)
+sideh=$(cat "$dprompt.side-hooks" 2>/dev/null || true)
+localh=$(git -C "$dproj" config --local --get core.hooksPath 2>/dev/null || true)
+workh=$(git -C "$dproj" config --worktree --get core.hooksPath 2>/dev/null || true)
+ext=$(git -C "$dproj" config --local --get extensions.worktreeConfig 2>/dev/null || true)
+sideparents=$(git -C "$dproj" rev-list --parents -n 1 lane/side | wc -w | tr -d ' ')
+check "a running job's hooksPath locks only its worktree, and the sibling can merge" \
+  "[ \$d_rc -eq 0 ] && ! grep -q '^BREACH:' <<<\"\$d_out\" && [ -n \"\$dlog\" ] && grep -q 'refuses: a merge is not a commit on this branch' \"\$dlog\" && [ \"\$(cat \"\$dprompt.side-merge\")\" = side-merge-ok ] && [ \"\$(cat \"\$dprompt.worker-merge\")\" = worker-merge-fail ] && [ \"\$sideh\" = \"\$tmp/real-hooks\" ] && [ \"\$hereh\" != \"\$tmp/real-hooks\" ] && case \"\$hereh\" in *.hooks*) true ;; *) false ;; esac && [ \"\$localh\" = \"\$tmp/real-hooks\" ] && [ -z \"\$workh\" ] && [ \"\$ext\" = true ] && [ \"\$sideparents\" -gt 2 ]"
+git -C "$dproj" worktree remove --force "$side" 2>/dev/null || true
+git -C "$dproj" branch -D lane/side >/dev/null 2>&1 || true
 d_new laneown
 d_run laneown grok "" delegate "make a lane"
 first=${d_out%%$'\n'*}
@@ -5637,7 +5789,8 @@ rm -f "$tmp/gh-calls"
 check "a created repository has the branches a merge finished with deleted" "says 'merged branches are deleted on GitHub after a merge' ghrun just _repo-autodelete && grep -qx 'api -X PATCH repos/{owner}/{repo} -F delete_branch_on_merge=true' '$tmp/gh-calls'"
 # The create path itself, under a terminal because that is where it asks; the
 # settings call comes after the repository exists.
-if "$py" -c 'import pty' 2>/dev/null; then
+# import pty succeeds where openpty is refused (a seatbelt with no /dev/ptmx).
+if "$py" -c 'import os; m, s = os.openpty(); os.close(m); os.close(s)' 2>/dev/null; then
   cat > "$tmp/ptyrun.py" <<'PY'
 import os, pty, subprocess, sys
 m, s = os.openpty()
