@@ -195,8 +195,8 @@ read it: on a backlog line you leave open, in the CHANGELOG, in a new
    no list of its milestones, defects, rules or plans, no exact set of its
    pins, nothing about which projects are paused. Update `docs/` if it
    describes the thing.
-9. Remove the backlog line you worked on: the CHANGELOG entry is its record
-   (spec 024). A line you could not finish stays, with a word on it. Never a
+9. Tick the backlog line you worked on (`- [x]`) and name the commit that
+   built it. The CHANGELOG entry is its record. A line you could not finish stays open, with a word on it. Never a
    project's name, in a line or anywhere: the backbone knows no project.
 10. Append ONE line to the end of `docs/routine-log.md`, in your own words:
     `- <date> <version, or "no change">: <what you did>; not read: <sources, or nothing>; skipped: <what and why, or nothing>`.

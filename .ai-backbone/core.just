@@ -529,8 +529,10 @@ doctor:
     fi
     if [ -n "$(just _is-repo)" ]; then echo "  ok    git repo"; else echo "  warn  no git repo -> git init"; fi
     # n-67104d: same line as session-start, under Repo, when this folder's
-    # core.just has no delegate recipe.
-    just _delegate-fallback 2>/dev/null | while IFS= read -r line; do
+    # core.just has no delegate recipe. A bare `just` would search this folder,
+    # whose justfile is the one that does not have the recipe, so the call names
+    # the file that is running.
+    just --justfile "{{justfile()}}" --working-directory "$PWD" _delegate-fallback 2>/dev/null | while IFS= read -r line; do
       [ -n "$line" ] || continue
       echo "  warn  $line"
     done
@@ -1267,7 +1269,10 @@ session-start:
       if [ -n "$dirs" ] && ! grep -qxF -- "$line" "$CLAUDE_ENV_FILE" 2>/dev/null; then printf '%s\n' "$line" >> "$CLAUDE_ENV_FILE" 2>/dev/null || true; fi
       date +%Y-%m-%d > "$(git rev-parse --git-path ai-backbone.hook-ran 2>/dev/null || echo /dev/null)" 2>/dev/null || true
     fi
-    out=$(just _session-start-body 2>&1 || true)
+    # The folder we are in may have no justfile, or an older one. A bare `just`
+    # would search there and never reach the body. The file that is running has
+    # the recipes, so the call names it.
+    out=$(just --justfile "{{justfile()}}" --working-directory "$PWD" _session-start-body 2>&1 || true)
     if [ "${#out}" -gt 9500 ]; then
       printf '%s\n' "${out:0:9500}"
       echo; echo "(cut at 9,500 characters: an agent is shown at most 10,000 of this; what is missing is in the files named above)"
@@ -1298,7 +1303,9 @@ _session-start-body:
     fi
     # n-67104d: an older copy of this file has no delegate recipe. Said from
     # the copy that has it, about the folder we are in. Nothing is written there.
-    just _delegate-fallback 2>/dev/null || true
+    # A bare `just` would read the checkout's own justfile, which is the one
+    # without the recipe.
+    just --justfile "{{justfile()}}" --working-directory "$PWD" _delegate-fallback 2>/dev/null || true
     echo
     echo "=== WORKING TREE ==="
     git status --short 2>/dev/null | head -15 || true
@@ -1450,7 +1457,8 @@ _session-start-body:
       # By id (spec 024): the backlog names no project, and the pairing is
       # this project's own, in brain/. A line is open on main, on its way (on
       # cloud, or kept in the clone's outbox), set aside by the backbone's
-      # hooks, or gone: built, and the CHANGELOG says what came of it.
+      # hooks, or built: ticked with its commit, or gone. The CHANGELOG says
+      # what came of a built line.
       if [ -f brain/notes-to-backbone.md ]; then
         gd=$(git -C "$src" rev-parse --git-dir 2>/dev/null); case "$gd" in /*|[A-Za-z]:*) ;; *) gd="$src/$gd" ;; esac
         way=$(git -C "$src" show origin/cloud:docs/backlog.md 2>/dev/null; cat "$gd/ai-backbone-notes-outbox" "$gd"/ai-backbone-notes-outbox.sending.* 2>/dev/null)
@@ -1458,7 +1466,11 @@ _session-start-body:
         open=""; onway=0; setaside=0; gone=0
         while IFS= read -r id; do
           l=$(grep -m1 -F ", $id:" "$src/docs/backlog.md" 2>/dev/null || true)
-          if [ -n "$l" ]; then open="$open$l"$'\n'
+          if [ -n "$l" ]; then
+            case "$l" in
+              "- [x]"*) gone=$((gone+1)) ;;
+              *) open="$open$l"$'\n' ;;
+            esac
           elif grep -qF ", $id:" <<<"$way"; then onway=$((onway+1))
           elif grep -qF ", $id:" <<<"$aside"; then setaside=$((setaside+1))
           else gone=$((gone+1)); fi

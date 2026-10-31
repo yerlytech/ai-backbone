@@ -141,7 +141,7 @@ the slowest machine.
    a real repository to see what it does: it commits everything there under
    your test message. The self-test's throwaway projects are where a save is
    tried.
-6. Remove the backlog line: the CHANGELOG entry is its record (spec 024).
+6. Tick the backlog line (`- [x]`) and name the commit that built it. The CHANGELOG entry is its record.
    Back in the project, once the version is on `main` (a few minutes; `just session-start` there says so):
    `just template-update`, `just sync-rules`,
    `just save "chore: backbone <version>"`.
@@ -162,8 +162,8 @@ puts a new duty on them); deleting files; installing anything globally (§7).
 `just session-start` brings the folder level with GitHub and prints the open
 backlog, what waits for the maintainer (`- [?]` lines: theirs to answer, never
 yours to build) and the last two lines of `docs/routine-log.md`. Work through
-the backlog, oldest first, and remove each line from `docs/backlog.md` when it is
-done or say on the line why it is not.
+the backlog, oldest first, and tick each line in `docs/backlog.md` when it is
+done, naming the commit that built it, or say on the line why it is not.
 
 A scheduled agent (Claude routine, Cursor cloud agent, a GitHub Action) does
 the same on its own: its whole brief is `.ai-backbone/routine.md`. It follows

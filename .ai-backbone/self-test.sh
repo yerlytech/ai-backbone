@@ -27,6 +27,28 @@ unset WORKER DELEGATE_BASE DELEGATE_IDLE DELEGATE_TIMEOUT DELEGATE_YES KIMI_CODE
 root="$(cd "$(dirname "$0")/.." && pwd -P)"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
+# prek writes a lock and a log under its home, and refuses to run when it cannot.
+# A sandbox that forbids ~/.cache/prek then fails every hook install and every
+# save before a check runs. This run's own copy keeps the hooks already fetched.
+# A home that is writable is left where it is, so an ordinary run copies nothing.
+# Opening either cache to test it prints "Operation not permitted" here, which
+# is the noise a failed redirect makes before any redirect can hide it. uv's
+# lock lives in its cache: without a writable one, `uv python find` fails and
+# upstream falls back to the system python3, which has no tomllib.
+if [ -z "${UV_CACHE_DIR:-}" ] && [ -d "$HOME/.cache/uv" ] && ! python3 -c 'import os,sys; raise SystemExit(0 if os.access(sys.argv[1], os.W_OK) else 1)' "$HOME/.cache/uv"; then
+  export UV_CACHE_DIR="$tmp/uv-cache"
+  mkdir -p "$UV_CACHE_DIR"
+fi
+if [ -z "${PREK_HOME:-}" ] && [ -d "$HOME/.cache/prek" ] && ! python3 -c 'import os,sys; raise SystemExit(0 if os.access(sys.argv[1], os.W_OK) else 1)' "$HOME/.cache/prek"; then
+  export PREK_HOME="$tmp/prek-home"
+  mkdir -p "$PREK_HOME"
+  for e in "$HOME/.cache/prek"/* "$HOME/.cache/prek"/.[!.]*; do
+    [ -e "$e" ] || continue
+    b=$(basename "$e")
+    case "$b" in prek.log|.lock) continue ;; esac
+    cp -a "$e" "$PREK_HOME/" || true
+  done
+fi
 export AI_BACKBONE="$root"
 export AI_BACKBONE_OFFLINE=1   # never reach GitHub or a registry from a test
 # Nor the real usage meter, the real transcripts or the real temp folder: the
@@ -864,6 +886,10 @@ check "backbone-note lands in the backbone's backlog with a date and an id, neve
 check "and keeps the pairing in this project's brain/, where session-start reads which are open" "id=\$(grep -oE 'n-[0-9a-f]{6}' '$tmp/bb/docs/backlog.md' | tail -1) && grep -q \"^- \$id $(date +%Y-%m-%d): core.just: save says the wrong thing\" brain/notes-to-backbone.md && says 'NOTES TO THE BACKBONE \(1 still open, 0 on their way, 0 set aside by its hooks, 0 no longer listed' env AI_BACKBONE='$tmp/bb' just session-start && says 'save says the wrong thing' env AI_BACKBONE='$tmp/bb' just session-start"
 perl -ni -e 'print unless /save says the wrong thing/' "$tmp/bb/docs/backlog.md"
 check "a line gone from the backlog is no longer listed: built" "says 'NOTES TO THE BACKBONE \(0 still open, 0 on their way, 0 set aside by its hooks, 1 no longer listed' env AI_BACKBONE='$tmp/bb' just session-start"
+printf -- '- [x] 2026-01-01, n-cccccc: core.just: built (49e35f4)\n' >> "$tmp/bb/docs/backlog.md"
+printf -- '- n-cccccc 2026-01-01: core.just: built\n' >> brain/notes-to-backbone.md
+check "a ticked backlog line is built, not still open" "says 'NOTES TO THE BACKBONE \(0 still open, 0 on their way, 0 set aside by its hooks, 2 no longer listed' env AI_BACKBONE='$tmp/bb' just session-start && ! says 'core.just: built' env AI_BACKBONE='$tmp/bb' just session-start"
+perl -ni -e 'print unless /n-cccccc/' "$tmp/bb/docs/backlog.md" brain/notes-to-backbone.md
 printf -- '- [ ] 2026-01-01, n-aaaaaa: core.just: kept in the outbox\n' > "$tmp/bb/.git/ai-backbone-notes-outbox"; printf -- '- [ ] 2026-01-01, n-bbbbbb: core.just: set aside\n' > "$tmp/bb/.git/ai-backbone-notes-refused"
 printf -- '- n-aaaaaa 2026-01-01: core.just: kept in the outbox\n- n-bbbbbb 2026-01-01: core.just: set aside\n' >> brain/notes-to-backbone.md
 check "a note still in the outbox is on its way, and one the hooks set aside is said so" "says '\(0 still open, 1 on their way, 1 set aside by its hooks, 1 no longer listed' env AI_BACKBONE='$tmp/bb' just session-start"
@@ -1036,10 +1062,11 @@ box="$hub/bb/.git/ai-backbone-notes-outbox"
 # The backlog itself passes the rule a note is held to, and the pages say the route.
 bad=""; while IFS= read -r nl; do nr=$(just -f "$root/Justfile" -d "$root" _note-check "$nl" "$root"); [ -z "$nr" ] || bad="$bad$nr: ${nl:0:70}"$'\n'; done < <(grep '^- \[' "$root/docs/backlog.md")
 check "no line of the backbone's own backlog carries what a note may not" "[ -z \"\$bad\" ] || { printf '%s\n' \"\$bad\"; false; }"
-# Open lines only, each with a date and an id in the project's place (spec 024);
-# and no tracked file names a project next to this backbone on this machine
-# (nothing next to it on a runner: the check bites on the maintainer's machine).
-check "the backlog holds open lines only, each dated and with an id, or a question for the maintainer" "! grep -q '^- \[x\]' '$root/docs/backlog.md' && ! grep -vE '^- \[[ ?]\] [0-9]{4}-[0-9]{2}-[0-9]{2}, n-[0-9a-f]{6}: |^[^ -]|^\$' '$root/docs/backlog.md'"
+# Open lines, or a built line ticked with its commit, each with a date and an
+# id in the project's place (spec 024); and no tracked file names a project
+# next to this backbone on this machine (nothing next to it on a runner: the
+# check bites on the maintainer's machine).
+check "the backlog holds open lines, or a built line ticked with its commit, each dated and with an id, or a question for the maintainer" "! grep -vE '^- \[x\] [0-9]{4}-[0-9]{2}-[0-9]{2}, n-[0-9a-f]{6}: .*[0-9a-f]{7}|^- \[[ ?]\] [0-9]{4}-[0-9]{2}-[0-9]{2}, n-[0-9a-f]{6}: |^[^ -]|^\$' '$root/docs/backlog.md'"
 sib=$(just _sibling-names "$root" | tr '\n' '|')
 hits=""; if [ -n "$sib" ]; then hits=$(cd "$root" && IFS='|'; for n in $sib; do [ -n "$n" ] || continue; git grep -ilF -w -- "$n" -- . ':!LICENSE' ':!brain' 2>/dev/null | sed "s/^/$n: /"; done); fi
 check "no tracked file names a project next to this backbone (LICENSE aside)" "[ -z \"\$hits\" ] || { printf '%s\n' \"\$hits\"; false; }"
@@ -4247,7 +4274,9 @@ check "a cap that is off adds nothing" "! grep -q 'build caps of this machine' <
 # Under 15% free, a build's trim goes into the idle sibling's folder too, where cargo's locks can be read.
 if "$py" -c 'import fcntl' 2>/dev/null; then
   mkcargo "$tmp/rp-target-p1"; rm -f "$tmp/tr/target/ai-backbone-trim.done"
-  tcap 60 env AI_BACKBONE_PROJECTS="$rp" PATH="$tmp/fakedf:$PATH" just _build-trim auto >/dev/null 2>&1
+  # The fake ps, not this machine's: a seatbelt refuses `ps -A`, and a trim that
+  # cannot read the process list removes nothing and writes no log.
+  tcap 60 env AI_BACKBONE_PROJECTS="$rp" PATH="$tmp/fakedf:$bo/bin:$PATH" just _build-trim auto >/dev/null 2>&1
   check "with the disk under 15% free, a build's trim also trims a project idle for a week" "grep -q 'last built 30 days ago: removed' '$tmp/rp-target-p1/ai-backbone-trim.log'"
 fi
 cd "$tmp" || exit 1
@@ -4507,9 +4536,9 @@ git -C "$oldbb" commit -qm "chore: old"
 check "an older core.just is told the delegate command, by session-start and by doctor" \
   "says 'no delegate recipe' just -f '$root/Justfile' -d '$oldbb' _delegate-fallback && says --justfile just -f '$root/Justfile' -d '$oldbb' _delegate-fallback && says --working-directory just -f '$root/Justfile' -d '$oldbb' _delegate-fallback && says 'core\\.just' just -f '$root/Justfile' -d '$oldbb' _delegate-fallback && says 'no delegate recipe' just -f '$root/Justfile' -d '$oldbb' session-start && says 'no delegate recipe' just -f '$root/Justfile' -d '$oldbb' doctor"
 check "a checkout whose core.just has delegate is not given that line" \
-  "! says 'no delegate recipe' just -f '$root/Justfile' -d '$root' _delegate-fallback && printf '\ndelegate task=\"\":\n    @true\n' >> '$oldbb/.ai-backbone/core.just' && ! says 'no delegate recipe' just -f '$root/Justfile' -d '$oldbb' _delegate-fallback"
+  "! says 'no delegate recipe|error:' just -f '$root/Justfile' -d '$root' _delegate-fallback && printf '\ndelegate task=\"\":\n    @true\n' >> '$oldbb/.ai-backbone/core.just' && ! says 'no delegate recipe|error:' just -f '$root/Justfile' -d '$oldbb' _delegate-fallback"
 check "a folder with no core.just is not called an older delegate" \
-  "rm -f '$oldbb/.ai-backbone/core.just' && ! says 'no delegate recipe' just -f '$root/Justfile' -d '$oldbb' _delegate-fallback"
+  "rm -f '$oldbb/.ai-backbone/core.just' && ! says 'no delegate recipe|error:' just -f '$root/Justfile' -d '$oldbb' _delegate-fallback"
 
 section "delegate (spec 034)"
 # The recipe's text is in d_out. The shared check prints the eval's own
@@ -4909,6 +4938,14 @@ d_run() {
     ${WORKER_LADDER+WORKER_LADDER="$WORKER_LADDER"} \
     ${DELEGATE_MODEL+DELEGATE_MODEL="$DELEGATE_MODEL"} \
     just -f "$root/Justfile" -d "$dproj" "$@" 2>&1) && d_rc=0 || d_rc=$?
+  # just names a setpgid it could not do. A seatbelt denies it, and that line
+  # is the runner's, not the recipe's report (measured where setpgid is refused).
+  local kept="" line
+  while IFS= read -r line; do
+    case "$line" in *child\ setpgid*) continue ;; esac
+    kept="$kept$line"$'\n'
+  done <<< "$d_out"
+  d_out=${kept%$'\n'}
 }
 d_one() {
   local n=0 line

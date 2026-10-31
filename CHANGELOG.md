@@ -16,6 +16,8 @@ entries below are the record of every version.
 
 ## [Unreleased]
 
+**Nginx's stable tags stay on the even minor (n-73d3f2).** `tag = "release-{major}.{even}.{patch}"` reads `release-1.30.6` as 1.30.6. `release-1.32.0` is newer. Mainline `release-1.31.8` is left out. There is no `track` key.
+
 **A delegate job locks hooks in its own worktree (n-154b76).** `core.hooksPath` is set with `extensions.worktreeConfig` and `git config --worktree`, so a sibling worktree can merge and push while the job runs. The extension stays on after the job.
 
 **An older checkout is told how to run delegate (n-67104d).** When this folder's `.ai-backbone/core.just` has no `delegate` recipe, `just session-start` and `just doctor` name `just --justfile <the core that has it> --working-directory <this folder> delegate`. Nothing is written into that checkout.
