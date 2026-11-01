@@ -17,13 +17,17 @@ entries below are the record of every version.
 ## [Unreleased]
 
 **A GHSA-only advisory is seen (n-87f6a0).** `upstream.py --advisories` asks
-OSV for every crate a `Cargo.lock` locks, in batches, and adds its `GHSA-*`
-ids beside RustSec's. An OSV entry whose id or alias is an advisory already
-found is the same one, and lends its aliases to the finding. A row in
-`docs/advisories.toml` matches the advisory's id or any alias, so triaging
-`RUSTSEC-x` also covers `GHSA-y`, and a row for a GHSA id works the same.
-When OSV cannot be read the check says `OSV could not be read` once and still
-reads RustSec.
+OSV for every crate a `Cargo.lock` locks, in batches, then reads each new id
+once from `/v1/vulns/<id>` for its summary, aliases and fixed version, so a
+GitHub-only advisory is shown with words and `fixed in >= 9.0.5`, not an empty
+line. OSV's ids are added beside RustSec's, one advisory once: an entry whose
+id or alias is already found is the same one, and lends its aliases to the
+finding. A row in `docs/advisories.toml` matches the advisory's id or any
+alias, so triaging `RUSTSEC-x` also covers `GHSA-y`, and a row for a GHSA id
+works the same. A RUSTSEC id comes only from the RustSec database path; OSV
+adds an advisory only when neither its id nor an alias is one, so its
+informational entries and newer ids do not stop a ship. When OSV cannot be
+read the check says `OSV could not be read` once and still reads RustSec.
 
 **`upstream.py` stays quiet in the editor (n-259b1e).** The findings Zed's
 basedpyright and ruff reported had come back with newer code: a timezone

@@ -4598,42 +4598,100 @@ if "$py" -c 'import tomllib' 2>/dev/null && cd "$tmp/s29"; then
   check "an edge the reader does not understand gets no test-only label" "! grep -q 'only tests, by Cargo.toml' <<<\"\$o30\" && grep -q 'foo 1.2.0 has RUSTSEC-2099-0001' <<<\"\$o30\""
 
   section "a GitHub advisory from OSV (n-87f6a0)"
-  # RustSec has no qux; OSV does, with a GHSA id and a fixed version in its
-  # ranges. The answer is a file, so the suite never reaches the network.
-  osv31="$tmp/s31-osv"; mkdir -p "$osv31"
-  osv31url() { printf 'file://%s' "$(winpath "$osv31/answer.json")"; }
+  # A querybatch answer names only the id and when it changed; the detail comes
+  # from /v1/vulns/<id>. Both are files, so the suite never reaches the network.
+  osv31="$tmp/s31-osv"; mkdir -p "$osv31/vulns"
+  osv31url() { printf 'file://%s' "$(winpath "$osv31/querybatch")"; }
   u31() { env AI_BACKBONE_ADVISORY_DB="$(winpath "$db30")" AI_BACKBONE_OSV_URL="$(osv31url)" \
     "$py" "$root/.ai-backbone/upstream.py" --advisories "$@"; }
-  cat > "$osv31/answer.json" <<'JSON'
-{"results": [{"vulns": [{"id": "GHSA-2099-0001", "aliases": ["CVE-2099-0001"],
-  "summary": "Qux is broken",
-  "affected": [{"package": {"name": "qux", "ecosystem": "crates.io"},
-    "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "1.0.5"}]}]}]}]}]}
+  cat > "$osv31/querybatch" <<'JSON'
+{"results": [{"vulns": [{"id": "GHSA-m665-v7pm-7grj", "modified": "2026-10-28T15:30:00Z"}]}]}
 JSON
-  lock29 qux 1.0.0 "$reg" > Cargo.lock
+  cat > "$osv31/vulns/GHSA-m665-v7pm-7grj" <<'JSON'
+{
+  "schema_version": "1.7.0",
+  "id": "GHSA-m665-v7pm-7grj",
+  "modified": "2026-10-28T15:30:00Z",
+  "published": "2026-10-28T15:30:00Z",
+  "aliases": ["CVE-2026-39804"],
+  "summary": "Zip writes a file outside the output folder",
+  "details": "### Impact\nA crafted archive can make Zip write outside the folder it extracts into.\n\n### Patched\n9.0.5.",
+  "affected": [
+    {
+      "package": {"ecosystem": "crates.io", "name": "zip", "purl": "pkg:cargo/zip"},
+      "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "9.0.5"}]}],
+      "database_specific": {"source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-m665-v7pm-7grj/GHSA-m665-v7pm-7grj.json"}
+    }
+  ],
+  "references": [{"type": "ADVISORY", "url": "https://github.com/rust-lang/zip/security/advisories/GHSA-m665-v7pm-7grj"}],
+  "database_specific": {"cwe_ids": ["CWE-22"], "severity": "HIGH", "github_reviewed": true, "github_reviewed_at": "2026-10-28T15:30:00Z", "nvd_published_at": null}
+}
+JSON
+  lock29 zip 8.6.0 "$reg" > Cargo.lock
   doc31=$(u31 doctor Cargo.lock 2>&1)
-  check "OSV's GHSA-only advisory is reported with its fixed version" "grep -q '^  warn  Cargo.lock: qux 1.0.0 has GHSA-2099-0001, Qux is broken -> fixed in >= 1.0.5' <<<\"\$doc31\""
-  check "session-start says it too" "s31=\$(u31 session Cargo.lock 2>&1); grep -q '^=== RUST ADVISORIES (1; ' <<<\"\$s31\" && grep -q '^- Cargo.lock: qux 1.0.0 has GHSA-2099-0001' <<<\"\$s31\""
-  row30 GHSA-2099-0001 qux "only the metadata parser" ">= 1.0.5" "$(day30 3)" > docs/advisories.toml
+  check "OSV's GHSA-only advisory is reported with its summary and fixed version" "grep -q '^  warn  Cargo.lock: zip 8.6.0 has GHSA-m665-v7pm-7grj, Zip writes a file outside the output folder -> fixed in >= 9.0.5' <<<\"\$doc31\""
+  check "session-start says it too" "s31=\$(u31 session Cargo.lock 2>&1); grep -q '^=== RUST ADVISORIES (1; ' <<<\"\$s31\" && grep -q '^- Cargo.lock: zip 8.6.0 has GHSA-m665-v7pm-7grj' <<<\"\$s31\""
+  row30 GHSA-m665-v7pm-7grj zip "only the safe extractor" ">= 9.0.5" "$(day30 3)" > docs/advisories.toml
   gate31=$(u31 gate --triaged docs/advisories.toml Cargo.lock 2>&1); rc31=$?
-  check "a row for a GHSA id covers it, and session-start stays quiet" "[ $rc31 -eq 0 ] && grep -q '^triaged Cargo.lock: qux 1.0.0 GHSA-2099-0001 -> fixed in >= 1.0.5' <<<\"\$gate31\" && ! says 'RUST ADVISORIES' u31 session Cargo.lock"
-  # An OSV entry whose alias is a RustSec id already found is that advisory,
-  # not a second one, even when a row names the RustSec id.
+  check "a row for a GHSA id covers it, and session-start stays quiet" "[ $rc31 -eq 0 ] && grep -q '^triaged Cargo.lock: zip 8.6.0 GHSA-m665-v7pm-7grj -> fixed in >= 9.0.5' <<<\"\$gate31\" && ! says 'RUST ADVISORIES' u31 session Cargo.lock"
+  # A GHSA id whose aliases name a RustSec advisory is that older path's, not a
+  # second finding from OSV.
   lock29 foo 1.2.0 "$reg" > Cargo.lock
-  cat > "$osv31/answer.json" <<'JSON'
-{"results": [{"vulns": [{"id": "GHSA-2099-0002", "aliases": ["RUSTSEC-2099-0005"],
+  cat > "$osv31/querybatch" <<'JSON'
+{"results": [{"vulns": [{"id": "GHSA-2099-0002", "modified": "2099-01-01T00:00:00Z"}]}]}
+JSON
+  cat > "$osv31/vulns/GHSA-2099-0002" <<'JSON'
+{
+  "schema_version": "1.7.0",
+  "id": "GHSA-2099-0002",
+  "modified": "2099-01-01T00:00:00Z",
+  "published": "2099-01-01T00:00:00Z",
+  "aliases": ["RUSTSEC-2099-0005"],
   "summary": "The same advisory under another name",
-  "affected": [{"package": {"name": "foo", "ecosystem": "crates.io"},
-    "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "1.2.2"}]}]}]}]}]}
+  "details": "RustSec has this one already.",
+  "affected": [{"package": {"ecosystem": "crates.io", "name": "foo", "purl": "pkg:cargo/foo"},
+    "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "1.2.2"}]}]}],
+  "references": [{"type": "ADVISORY", "url": "https://example.invalid/GHSA-2099-0002"}],
+  "database_specific": {"severity": "HIGH"}
+}
+JSON
+  doc31=$(u31 doctor Cargo.lock 2>&1)
+  check "an OSV id with a RUSTSEC alias is not added" "! grep -q 'GHSA-2099-0002' <<<\"\$doc31\" && grep -q 'RUSTSEC-2099-0005' <<<\"\$doc31\""
+  # An informational RUSTSEC id from OSV is the RustSec path's to leave out.
+  lock29 paste 1.0.0 "$reg" > Cargo.lock
+  cat > "$osv31/querybatch" <<'JSON'
+{"results": [{"vulns": [{"id": "RUSTSEC-2024-0436", "modified": "2024-02-01T00:00:00Z"}]}]}
+JSON
+  doc31=$(u31 doctor Cargo.lock 2>&1)
+  check "an informational RUSTSEC from OSV is not added" "! grep -q 'RUSTSEC-2024-0436' <<<\"\$doc31\" && grep -q '^  ok    Cargo.lock: no RustSec advisory for its 1 crate' <<<\"\$doc31\""
+  # A GHSA alias of a triaged RustSec row asks for no second row.
+  lock29 foo 1.2.0 "$reg" > Cargo.lock
+  cat > "$osv31/querybatch" <<'JSON'
+{"results": [{"vulns": [{"id": "GHSA-2099-0003", "modified": "2099-01-01T00:00:00Z"}]}]}
+JSON
+  cat > "$osv31/vulns/GHSA-2099-0003" <<'JSON'
+{
+  "schema_version": "1.7.0",
+  "id": "GHSA-2099-0003",
+  "modified": "2099-01-01T00:00:00Z",
+  "published": "2099-01-01T00:00:00Z",
+  "aliases": ["RUSTSEC-2099-0001"],
+  "summary": "A GitHub name for a RustSec advisory",
+  "details": "RustSec has this one already.",
+  "affected": [{"package": {"ecosystem": "crates.io", "name": "foo", "purl": "pkg:cargo/foo"},
+    "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "1.2.3"}]}]}],
+  "references": [{"type": "ADVISORY", "url": "https://example.invalid/GHSA-2099-0003"}],
+  "database_specific": {"severity": "HIGH"}
+}
 JSON
   { row30 RUSTSEC-2099-0001 foo x ">= 1.2.3" "$(day30 3)"
     row30 RUSTSEC-2099-0005 foo y ">= 1.2.2" "$(day30 3)"; } > docs/advisories.toml
-  doc31=$(u31 doctor Cargo.lock 2>&1); gate31=$(u31 gate --triaged docs/advisories.toml Cargo.lock 2>&1); rc31=$?
-  check "an OSV entry aliasing a triaged RustSec id is not a second advisory" "! grep -q 'GHSA-2099-0002' <<<\"\$doc31\" && ! grep -q 'GHSA-2099-0002' <<<\"\$gate31\" && [ $rc31 -eq 0 ] && ! says 'RUST ADVISORIES' u31 session Cargo.lock"
+  gate31=$(u31 gate --triaged docs/advisories.toml Cargo.lock 2>&1); rc31=$?
+  check "a GHSA alias of a triaged RUSTSEC row is not asked" "[ $rc31 -eq 0 ] && ! grep -q 'GHSA-2099-0003' <<<\"\$gate31\" && ! says 'RUST ADVISORIES' u31 session Cargo.lock"
   # No answer at all is one line, and RustSec is still read.
-  down31=$(env AI_BACKBONE_ADVISORY_DB="$(winpath "$db30")" AI_BACKBONE_OSV_URL="$(fileurl "$osv31/missing.json")" \
+  down31=$(env AI_BACKBONE_ADVISORY_DB="$(winpath "$db30")" AI_BACKBONE_OSV_URL="$(fileurl "$osv31/missing/querybatch")" \
     "$py" "$root/.ai-backbone/upstream.py" --advisories doctor "$(winpath "$tmp/s30-clean.lock")" 2>&1)
-  sdown31=$(env AI_BACKBONE_ADVISORY_DB="$(winpath "$db30")" AI_BACKBONE_OSV_URL="$(fileurl "$osv31/missing.json")" \
+  sdown31=$(env AI_BACKBONE_ADVISORY_DB="$(winpath "$db30")" AI_BACKBONE_OSV_URL="$(fileurl "$osv31/missing/querybatch")" \
     "$py" "$root/.ai-backbone/upstream.py" --advisories session "$(winpath "$tmp/s30-clean.lock")" 2>&1)
   check "OSV down is said once, and RustSec is still read" "[ \$(grep -c 'OSV could not be read' <<<\"\$down31\") -eq 1 ] && grep -q 'no RustSec advisory' <<<\"\$down31\" && grep -qx 'OSV could not be read' <<<\"\$sdown31\""
   rm -f docs/advisories.toml

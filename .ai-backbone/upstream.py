@@ -1233,11 +1233,21 @@ def recent():
 # had five GHSA advisories, one critical, that RustSec had not caught up with
 # (n-87f6a0). OSV (https://api.osv.dev/v1/querybatch, a POST with no key) answers
 # RustSec and GHSA together for crates.io packages, so every (name, version) is
-# asked of it in batches. Its ids are added beside RustSec's, one advisory once:
-# an entry whose id or alias is already found is the same advisory, and it lends
-# its aliases to the finding. AI_BACKBONE_OSV_URL names another endpoint; a
-# file: URL is an answer the suite reads without a network. When OSV cannot be
-# read, the check says "OSV could not be read" once and still reads RustSec.
+# asked of it in batches. A batch names only an id and when it changed, so each
+# new id is then read once from https://api.osv.dev/v1/vulns/<id> for the
+# summary, the aliases and the crates.io range's fixed versions (round 2).
+# Its ids are added beside RustSec's, one advisory once: an entry whose id or
+# alias is already found is the same advisory, and it lends its aliases to the
+# finding. A RUSTSEC id is the RustSec path's, never OSV's: OSV also lists
+# informational ones (unmaintained, unsound) that path leaves out, and adds new
+# ones before the database catches up, and either would stop every ship. So an
+# OSV entry is added only when neither its id nor an alias is a RUSTSEC id; one
+# with a RUSTSEC alias belongs to the RustSec path, or will once its database
+# has it.
+# AI_BACKBONE_OSV_URL names another endpoint; a file: URL is an answer the
+# suite reads without a network, and its /vulns/<id> files sit beside it. When
+# OSV cannot be read, the check says "OSV could not be read" once and still
+# reads RustSec.
 #
 # A version is affected when no requirement in the advisory's `patched` and
 # `unaffected` lists matches it. Requirements are read the way cargo reads them
@@ -1279,6 +1289,9 @@ ADV_STALE = 7 * ADV_DAY
 OSV_URL = os.environ.get("AI_BACKBONE_OSV_URL", "https://api.osv.dev/v1/querybatch")
 OSV_BATCH = 500
 OSV_TIMEOUT = 15
+# Each id's own answer, read once per run: a lock with many crates asks for the
+# same advisory through several of them, and a ship may read more than one lock.
+OSV_DETAIL = {}
 # Text, not a Path: Windows would print a Path as docs\advisories.toml.
 TRIAGE = "docs/advisories.toml"
 TRIAGE_DAYS = 90
@@ -1684,16 +1697,46 @@ def _osv_file(url):
 def osv_read(queries):
     """OSV's answer for a batch of queries. A file: URL is an answer read from
     disk, which is how the suite answers without a network."""
-    if OSV_URL.startswith("file:"):
-        return json.loads(_osv_file(OSV_URL).read_text())
+    return _osv_ask(OSV_URL, json.dumps({"queries": queries}).encode("utf-8"))
+
+
+def _osv_ask(url, data=None):
+    """One OSV request, a POST with a body or a GET without one."""
+    if url.startswith("file:"):
+        return json.loads(_osv_file(url).read_text())
     if OFFLINE:
         raise Unreachable("offline: AI_BACKBONE_OFFLINE is set")
-    body = json.dumps({"queries": queries}).encode("utf-8")
+    headers = {"User-Agent": "ai-backbone"}
+    if data is not None:
+        headers["Content-Type"] = "application/json"
     request = urllib.request.Request(
-        OSV_URL, data=body, method="POST",
-        headers={"Content-Type": "application/json", "User-Agent": "ai-backbone"})
+        url, data=data, method="POST" if data is not None else "GET", headers=headers)
     with urllib.request.urlopen(request, timeout=call_timeout(OSV_TIMEOUT)) as response:
         return json.load(response)
+
+
+def osv_vuln_url(vuln_id):
+    """The /v1/vulns/<id> address, from the querybatch address this run was given."""
+    tail = "vulns/" + urllib.parse.quote(str(vuln_id), safe="")
+    if OSV_URL.endswith("/querybatch"):
+        return OSV_URL[:-len("/querybatch")] + "/" + tail
+    return urllib.parse.urljoin(OSV_URL, tail)
+
+
+def osv_detail(vuln_id):
+    """One vulnerability's own answer: summary, aliases and ranges. None when it
+    cannot be read; the batch still names a real advisory, so it is kept."""
+    if vuln_id in OSV_DETAIL:
+        return OSV_DETAIL[vuln_id]
+    detail = None
+    try:
+        data = _osv_ask(osv_vuln_url(vuln_id))
+        if isinstance(data, dict) and data.get("id"):
+            detail = data
+    except Exception:  # noqa: BLE001 - one detail missing is not the whole check
+        detail = None
+    OSV_DETAIL[vuln_id] = detail
+    return detail
 
 
 def osv_find(crates):
@@ -1778,19 +1821,47 @@ def osv_title(vuln):
     return one_line(text)
 
 
+def _rustsec_id(key):
+    """True for RUSTSEC-*, the ids only the RustSec path may add."""
+    return str(key).upper().startswith("RUSTSEC-")
+
+
+def _osv_ids(stub, detail):
+    """A querybatch entry's and its detail's ids and aliases, one of each, the
+    detail's own id first."""
+    ids = []
+    for source in (detail or {}, stub):
+        if not isinstance(source, dict):
+            continue
+        keys = [source.get("id", "")]
+        aliases = source.get("aliases", [])
+        keys += [a for a in aliases if isinstance(a, str)] if isinstance(aliases, list) else []
+        for key in keys:
+            key = str(key)
+            if key and key not in ids:
+                ids.append(key)
+    return ids
+
+
 def _merge_osv(found, crates, osv):
     """Add OSV's ids to the findings, one advisory once. An entry whose id or
-    alias is already known is the same advisory, and lends its aliases to it."""
+    alias is already known is the same advisory, and lends its aliases to it.
+    A RUSTSEC id anywhere in an entry keeps it out: that advisory is the
+    RustSec path's, even when its database has not reached it yet."""
     known, seen = {}, {}
     for _name, _ver, adv in found:
         for key in [adv["id"], *adv.get("aliases", [])]:
             known.setdefault(key, adv)
     for name, ver in crates:
         for vuln in osv.get((name, ver), []):
-            ids = [str(vuln.get("id", ""))]
-            ids += [str(a) for a in vuln.get("aliases", []) if isinstance(a, str)]
-            ids = [key for key in ids if key]
-            if not ids:
+            stub_ids = _osv_ids(vuln, None)
+            # An informational RUSTSEC entry is named by the batch alone; never
+            # read its detail and never add it.
+            if not stub_ids or any(_rustsec_id(key) for key in stub_ids):
+                continue
+            detail = osv_detail(stub_ids[0])
+            ids = _osv_ids(vuln, detail)
+            if any(_rustsec_id(key) for key in ids):
                 continue
             target = next((known[key] for key in ids if key in known), None)
             if target is None:
@@ -1802,8 +1873,8 @@ def _merge_osv(found, crates, osv):
                     known.setdefault(key, target)
                     seen.setdefault(key, target)
                 continue
-            adv = {"id": ids[0], "kind": "", "patched": osv_fixed(vuln, name, ver),
-                   "unaffected": [], "title": osv_title(vuln), "aliases": ids[1:]}
+            adv = {"id": ids[0], "kind": "", "patched": osv_fixed(detail or vuln, name, ver),
+                   "unaffected": [], "title": osv_title(detail or vuln), "aliases": ids[1:]}
             found.append((name, ver, adv))
             for key in ids:
                 known.setdefault(key, adv)
