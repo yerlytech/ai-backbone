@@ -14,7 +14,7 @@ squash that follows that version on the maintainer's machine takes the tags
 before it with the history. A newcomer reads a repository, not a diary. The
 entries below are the record of every version.
 
-## [Unreleased]
+## 26.11.0 — 2026-11-01
 
 **A GHSA-only advisory is seen (n-87f6a0).** `upstream.py --advisories` asks
 OSV for every crate a `Cargo.lock` locks, in batches, then reads each new id
