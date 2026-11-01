@@ -11,12 +11,14 @@ it the same day. Closes the backlog line n-bcfbed.
 
 ## What
 
-A Rust project writes down, in `docs/advisories.toml`, each RustSec advisory
-it has looked at and ships anyway: the advisory's id, the crate, the reason in
-one line, the fixed versions as they stood that day, and a last day at most 90
-days ahead. `just session-start` and `just doctor` stop repeating an advisory
-with a valid row, and say it again when its day has passed, when RustSec's
-fixed versions are no longer what the row recorded, or when the row cannot be
+A Rust project writes down, in `docs/advisories.toml`, each RustSec or GHSA
+advisory it has looked at and ships anyway: the advisory's id, the crate, the
+reason in one line, the fixed versions as they stood that day, and a last day
+at most 90 days ahead. A row matches the id or any of its aliases, so one
+written for `RUSTSEC-x` also covers its `GHSA-y`. `just session-start` and
+`just doctor` stop repeating an advisory
+with a valid row, and say it again when its day has passed, when the fixed
+versions are no longer what the row recorded, or when the row cannot be
 used. A second advisory of the same crate has no row, so it is said like any
 new one. `upstream.py --advisories gate --triaged <file> <Cargo.lock>...`
 judges the files it is given, one line per advisory, and exits non-zero when

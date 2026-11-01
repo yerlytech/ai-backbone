@@ -16,6 +16,15 @@ entries below are the record of every version.
 
 ## [Unreleased]
 
+**A GHSA-only advisory is seen (n-87f6a0).** `upstream.py --advisories` asks
+OSV for every crate a `Cargo.lock` locks, in batches, and adds its `GHSA-*`
+ids beside RustSec's. An OSV entry whose id or alias is an advisory already
+found is the same one, and lends its aliases to the finding. A row in
+`docs/advisories.toml` matches the advisory's id or any alias, so triaging
+`RUSTSEC-x` also covers `GHSA-y`, and a row for a GHSA id works the same.
+When OSV cannot be read the check says `OSV could not be read` once and still
+reads RustSec.
+
 **`upstream.py` stays quiet in the editor (n-259b1e).** The findings Zed's
 basedpyright and ruff reported had come back with newer code: a timezone
 constant, two `subprocess.run` calls without a stated check, a prefix taken

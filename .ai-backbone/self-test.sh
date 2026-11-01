@@ -4596,6 +4596,46 @@ if "$py" -c 'import tomllib' 2>/dev/null && cd "$tmp/s29"; then
   printf '%s\n' '[dependencies]' 'weird = { optional = true }' '[dev-dependencies]' 'foo = "1"' > "$use30/app/Cargo.toml"
   o30=$(u30 doctor "$use30/Cargo.lock" 2>&1)
   check "an edge the reader does not understand gets no test-only label" "! grep -q 'only tests, by Cargo.toml' <<<\"\$o30\" && grep -q 'foo 1.2.0 has RUSTSEC-2099-0001' <<<\"\$o30\""
+
+  section "a GitHub advisory from OSV (n-87f6a0)"
+  # RustSec has no qux; OSV does, with a GHSA id and a fixed version in its
+  # ranges. The answer is a file, so the suite never reaches the network.
+  osv31="$tmp/s31-osv"; mkdir -p "$osv31"
+  osv31url() { printf 'file://%s' "$(winpath "$osv31/answer.json")"; }
+  u31() { env AI_BACKBONE_ADVISORY_DB="$(winpath "$db30")" AI_BACKBONE_OSV_URL="$(osv31url)" \
+    "$py" "$root/.ai-backbone/upstream.py" --advisories "$@"; }
+  cat > "$osv31/answer.json" <<'JSON'
+{"results": [{"vulns": [{"id": "GHSA-2099-0001", "aliases": ["CVE-2099-0001"],
+  "summary": "Qux is broken",
+  "affected": [{"package": {"name": "qux", "ecosystem": "crates.io"},
+    "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "1.0.5"}]}]}]}]}]}
+JSON
+  lock29 qux 1.0.0 "$reg" > Cargo.lock
+  doc31=$(u31 doctor Cargo.lock 2>&1)
+  check "OSV's GHSA-only advisory is reported with its fixed version" "grep -q '^  warn  Cargo.lock: qux 1.0.0 has GHSA-2099-0001, Qux is broken -> fixed in >= 1.0.5' <<<\"\$doc31\""
+  check "session-start says it too" "s31=\$(u31 session Cargo.lock 2>&1); grep -q '^=== RUST ADVISORIES (1; ' <<<\"\$s31\" && grep -q '^- Cargo.lock: qux 1.0.0 has GHSA-2099-0001' <<<\"\$s31\""
+  row30 GHSA-2099-0001 qux "only the metadata parser" ">= 1.0.5" "$(day30 3)" > docs/advisories.toml
+  gate31=$(u31 gate --triaged docs/advisories.toml Cargo.lock 2>&1); rc31=$?
+  check "a row for a GHSA id covers it, and session-start stays quiet" "[ $rc31 -eq 0 ] && grep -q '^triaged Cargo.lock: qux 1.0.0 GHSA-2099-0001 -> fixed in >= 1.0.5' <<<\"\$gate31\" && ! says 'RUST ADVISORIES' u31 session Cargo.lock"
+  # An OSV entry whose alias is a RustSec id already found is that advisory,
+  # not a second one, even when a row names the RustSec id.
+  lock29 foo 1.2.0 "$reg" > Cargo.lock
+  cat > "$osv31/answer.json" <<'JSON'
+{"results": [{"vulns": [{"id": "GHSA-2099-0002", "aliases": ["RUSTSEC-2099-0005"],
+  "summary": "The same advisory under another name",
+  "affected": [{"package": {"name": "foo", "ecosystem": "crates.io"},
+    "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "1.2.2"}]}]}]}]}]}
+JSON
+  { row30 RUSTSEC-2099-0001 foo x ">= 1.2.3" "$(day30 3)"
+    row30 RUSTSEC-2099-0005 foo y ">= 1.2.2" "$(day30 3)"; } > docs/advisories.toml
+  doc31=$(u31 doctor Cargo.lock 2>&1); gate31=$(u31 gate --triaged docs/advisories.toml Cargo.lock 2>&1); rc31=$?
+  check "an OSV entry aliasing a triaged RustSec id is not a second advisory" "! grep -q 'GHSA-2099-0002' <<<\"\$doc31\" && ! grep -q 'GHSA-2099-0002' <<<\"\$gate31\" && [ $rc31 -eq 0 ] && ! says 'RUST ADVISORIES' u31 session Cargo.lock"
+  # No answer at all is one line, and RustSec is still read.
+  down31=$(env AI_BACKBONE_ADVISORY_DB="$(winpath "$db30")" AI_BACKBONE_OSV_URL="$(fileurl "$osv31/missing.json")" \
+    "$py" "$root/.ai-backbone/upstream.py" --advisories doctor "$(winpath "$tmp/s30-clean.lock")" 2>&1)
+  sdown31=$(env AI_BACKBONE_ADVISORY_DB="$(winpath "$db30")" AI_BACKBONE_OSV_URL="$(fileurl "$osv31/missing.json")" \
+    "$py" "$root/.ai-backbone/upstream.py" --advisories session "$(winpath "$tmp/s30-clean.lock")" 2>&1)
+  check "OSV down is said once, and RustSec is still read" "[ \$(grep -c 'OSV could not be read' <<<\"\$down31\") -eq 1 ] && grep -q 'no RustSec advisory' <<<\"\$down31\" && grep -qx 'OSV could not be read' <<<\"\$sdown31\""
   rm -f docs/advisories.toml
 else
   check "without tomllib, the gate says it could not tell" "o=\$(\"\$py\" \"\$root/.ai-backbone/upstream.py\" --advisories gate Cargo.lock 2>&1); [ \$? -eq 2 ] && grep -q '^error needs Python 3.11' <<<\"\$o\""

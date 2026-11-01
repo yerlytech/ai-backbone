@@ -16,9 +16,10 @@ watches that source reads the same file. `--refresh` asks again.
 `--freshness` is the short block session start shows: what is behind, what
 moved, and one first job. It stops at ten seconds and still exits 0.
 `--advisories` reads
-a Cargo.lock against the RustSec advisories, and `--crate-sources` says when
-a row reads from GitHub what Cargo.lock locks as a crate (spec 029); what a
-project has looked at and ships anyway is in docs/advisories.toml, and
+a Cargo.lock against the RustSec advisories and OSV's own database, which
+also carries GitHub's GHSA ids, and `--crate-sources` says when a row reads
+from GitHub what Cargo.lock locks as a crate (spec 029); what a project has
+looked at and ships anyway is in docs/advisories.toml, and
 `--advisories gate` is a ship's yes or no (spec 030).
 
 Nothing here upgrades anything. It reports.
@@ -1211,7 +1212,7 @@ def recent():
     return 0
 
 
-# ─────────── every crate a Cargo.lock locks, against RustSec ───────────
+# ─────────── every crate a Cargo.lock locks, against RustSec and OSV ───────────
 #
 #     upstream.py --advisories doctor  <Cargo.lock>...   everything, in doctor's columns
 #     upstream.py --advisories session <Cargo.lock>...   only what is found, for session-start
@@ -1228,6 +1229,16 @@ def recent():
 # AI_BACKBONE_ADVISORY_DB names a folder to read instead, never fetched, and
 # AI_BACKBONE_ADVISORY_URL the archive to fetch.
 #
+# RustSec's database does not carry every advisory GitHub publishes: zip 8.6.0
+# had five GHSA advisories, one critical, that RustSec had not caught up with
+# (n-87f6a0). OSV (https://api.osv.dev/v1/querybatch, a POST with no key) answers
+# RustSec and GHSA together for crates.io packages, so every (name, version) is
+# asked of it in batches. Its ids are added beside RustSec's, one advisory once:
+# an entry whose id or alias is already found is the same advisory, and it lends
+# its aliases to the finding. AI_BACKBONE_OSV_URL names another endpoint; a
+# file: URL is an answer the suite reads without a network. When OSV cannot be
+# read, the check says "OSV could not be read" once and still reads RustSec.
+#
 # A version is affected when no requirement in the advisory's `patched` and
 # `unaffected` lists matches it. Requirements are read the way cargo reads them
 # (a bare 1.2.3 is ^1.2.3, 1.2.* is =1.2), and versions are compared in plain
@@ -1243,13 +1254,15 @@ def recent():
 # An advisory a project has looked at and ships anyway (only tests build the
 # crate, a dependency pins it, the flaw does not touch how it is used) has a
 # [[triaged]] row in docs/advisories.toml: id, crate, why, fixed and until
-# (spec 030). session-start stays quiet about it and doctor lists it, until
-# the day passes, until RustSec's fixed versions are no longer the row's
-# `fixed` (a fix the project may now reach), or while the row cannot be used.
-# A day is at most 90 ahead: a reason is true for a while, not for ever. The
-# gate is a ship's question, asked of the files it is given and never of the
-# folder it runs in: one line per advisory, 0 when every one is covered, 1
-# when one is not, 2 when it could not tell. A database fetched more than 7
+# (spec 030). The row matches the advisory's id or any of its aliases, so a
+# project that wrote down RUSTSEC-x is not asked again for its GHSA alias, and
+# a row for a GHSA id works the same. session-start stays quiet about it and
+# doctor lists it, until the day passes, until the fixed versions are no longer
+# the row's `fixed` (a fix the project may now reach), or while the row cannot
+# be used. A day is at most 90 ahead: a reason is true for a while, not for
+# ever. The gate is a ship's question, asked of the files it is given and never
+# of the folder it runs in: one line per advisory, 0 when every one is covered,
+# 1 when one is not, 2 when it could not tell. A database fetched more than 7
 # days ago that cannot be fetched now is said and still read: it knows every
 # advisory up to its date, and a release a GitHub outage can stop teaches
 # people to switch the gate off.
@@ -1260,6 +1273,12 @@ ADV_DB = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "ai-
 ADV_STAMP = "ai-backbone.fetched"
 ADV_DAY = 86400
 ADV_STALE = 7 * ADV_DAY
+# OSV answers RustSec and GitHub's advisories for one version in one request.
+# A batch is at most 1000 queries there; 500 keeps the answer well under its
+# size limit and lets one slow batch fail without holding the session.
+OSV_URL = os.environ.get("AI_BACKBONE_OSV_URL", "https://api.osv.dev/v1/querybatch")
+OSV_BATCH = 500
+OSV_TIMEOUT = 15
 # Text, not a Path: Windows would print a Path as docs\advisories.toml.
 TRIAGE = "docs/advisories.toml"
 TRIAGE_DAYS = 90
@@ -1467,9 +1486,11 @@ def adv_list(db, name, tomllib):
         if adv.get("withdrawn") or adv.get("package") != name:
             continue
         versions = data.get("versions", {})
+        aliases = adv.get("aliases", [])
         out.append({"id": adv.get("id", f.stem), "kind": adv.get("informational") or "",
                     "patched": list(versions.get("patched", [])), "unaffected": list(versions.get("unaffected", [])),
-                    "title": adv_title(text)})
+                    "title": adv_title(text),
+                    "aliases": [str(a) for a in aliases if isinstance(a, str)] if isinstance(aliases, list) else []})
     return out
 
 
@@ -1651,8 +1672,147 @@ def test_only_note(lock, name, ver, cache):
     return " (only tests, by Cargo.toml)"
 
 
+def _osv_file(url):
+    """The file a file: URL names, with the drive letter Windows wants back."""
+    parsed = urllib.parse.urlparse(url)
+    path = urllib.request.url2pathname(parsed.path)
+    if parsed.netloc and parsed.netloc not in ("", "localhost"):
+        path = f"//{parsed.netloc}{path}"
+    return Path(path)
+
+
+def osv_read(queries):
+    """OSV's answer for a batch of queries. A file: URL is an answer read from
+    disk, which is how the suite answers without a network."""
+    if OSV_URL.startswith("file:"):
+        return json.loads(_osv_file(OSV_URL).read_text())
+    if OFFLINE:
+        raise Unreachable("offline: AI_BACKBONE_OFFLINE is set")
+    body = json.dumps({"queries": queries}).encode("utf-8")
+    request = urllib.request.Request(
+        OSV_URL, data=body, method="POST",
+        headers={"Content-Type": "application/json", "User-Agent": "ai-backbone"})
+    with urllib.request.urlopen(request, timeout=call_timeout(OSV_TIMEOUT)) as response:
+        return json.load(response)
+
+
+def osv_find(crates):
+    """Every OSV vulnerability for these (name, version) pairs, in batches, and
+    a note when OSV could not be read."""
+    if not crates:
+        return {}, ""
+    found = {}
+    for start in range(0, len(crates), OSV_BATCH):
+        chunk = crates[start:start + OSV_BATCH]
+        queries = [{"package": {"name": name, "ecosystem": "crates.io"}, "version": ver}
+                   for name, ver in chunk]
+        try:
+            data = osv_read(queries)
+        except Exception:  # noqa: BLE001 - said, never a traceback
+            return {}, "OSV could not be read"
+        results = data.get("results") if isinstance(data, dict) else None
+        if not isinstance(results, list) or len(results) != len(chunk):
+            return {}, "OSV could not be read"
+        for (name, ver), result in zip(chunk, results):
+            vulns = result.get("vulns", []) if isinstance(result, dict) else []
+            if not isinstance(vulns, list):
+                return {}, "OSV could not be read"
+            rows = found.setdefault((name, ver), [])
+            for vuln in vulns:
+                if isinstance(vuln, dict) and vuln.get("id"):
+                    rows.append(vuln)
+    return found, ""
+
+
+def _osv_after(introduced, version):
+    """True when a range's introduced event is at or before the locked version."""
+    if introduced in ("", "0"):
+        return True
+    if introduced is None:
+        return False
+    start = semver(str(introduced))
+    return start is not None and semver_key(version) >= semver_key(start)
+
+
+def _osv_before(fixed, version):
+    """True when a fixed event is after the locked version, so the range holds it."""
+    end = semver(str(fixed))
+    return end is not None and semver_key(version) < semver_key(end)
+
+
+def osv_fixed(vuln, name, version):
+    """The fixed versions OSV's own ranges give for this crate and version,
+    written the way RustSec's patched list is ("greater or equal")."""
+    v = semver(version)
+    if v is None:
+        return []
+    fixed = []
+    for affected in vuln.get("affected", []) or []:
+        if not isinstance(affected, dict):
+            continue
+        package = affected.get("package", {})
+        if (not isinstance(package, dict) or package.get("ecosystem") != "crates.io"
+                or crate_key(package.get("name", "")) != crate_key(name)):
+            continue
+        for rng in affected.get("ranges", []) or []:
+            if not isinstance(rng, dict) or rng.get("type") not in ("SEMVER", "ECOSYSTEM"):
+                continue
+            introduced = "0"
+            for event in rng.get("events", []) or []:
+                if not isinstance(event, dict):
+                    continue
+                if "introduced" in event:
+                    introduced = event["introduced"]
+                elif "fixed" in event and _osv_after(introduced, v) and _osv_before(event["fixed"], v):
+                    fixed.append(str(event["fixed"]))
+                    introduced = None
+    valid = sorted({f for f in fixed if semver(f) is not None}, key=lambda f: semver_key(semver(f)))
+    return [f">= {f}" for f in valid]
+
+
+def osv_title(vuln):
+    text = str(vuln.get("summary") or "").strip()
+    if not text:
+        text = next((line.strip() for line in str(vuln.get("details") or "").splitlines()
+                     if line.strip()), "")
+    return one_line(text)
+
+
+def _merge_osv(found, crates, osv):
+    """Add OSV's ids to the findings, one advisory once. An entry whose id or
+    alias is already known is the same advisory, and lends its aliases to it."""
+    known, seen = {}, {}
+    for _name, _ver, adv in found:
+        for key in [adv["id"], *adv.get("aliases", [])]:
+            known.setdefault(key, adv)
+    for name, ver in crates:
+        for vuln in osv.get((name, ver), []):
+            ids = [str(vuln.get("id", ""))]
+            ids += [str(a) for a in vuln.get("aliases", []) if isinstance(a, str)]
+            ids = [key for key in ids if key]
+            if not ids:
+                continue
+            target = next((known[key] for key in ids if key in known), None)
+            if target is None:
+                target = next((seen[key] for key in ids if key in seen), None)
+            if target is not None:
+                for key in ids:
+                    if key != target["id"] and key not in target["aliases"]:
+                        target["aliases"].append(key)
+                    known.setdefault(key, target)
+                    seen.setdefault(key, target)
+                continue
+            adv = {"id": ids[0], "kind": "", "patched": osv_fixed(vuln, name, ver),
+                   "unaffected": [], "title": osv_title(vuln), "aliases": ids[1:]}
+            found.append((name, ver, adv))
+            for key in ids:
+                known.setdefault(key, adv)
+                seen.setdefault(key, adv)
+
+
 def adv_check(lock, db, tomllib):
-    """Vulnerabilities and notices for one Cargo.lock, and how many crates."""
+    """Vulnerabilities and notices for one Cargo.lock, how many crates, and a
+    note when OSV could not be read."""
     crates = cargo_locked(lock, tomllib)
     found, notices = [], []
     for name, ver in crates:
@@ -1666,7 +1826,10 @@ def adv_check(lock, db, tomllib):
                 notices.append((adv["kind"], name))
             else:
                 found.append((name, ver, adv))
-    return crates, found, notices
+    osv, osv_note = osv_find([(name, ver) for name, ver in crates if semver(ver) is not None])
+    if osv:
+        _merge_osv(found, crates, osv)
+    return crates, found, notices, osv_note
 
 
 # ─────────────────── what a project has looked at (spec 030) ───────────────────
@@ -1675,6 +1838,13 @@ def adv_fix(patched):
     """The fixed versions as every line says them; a row's `fixed` copies the
     part after "fixed in", or says none."""
     return f"fixed in {' or '.join(patched)}" if patched else "no fixed version yet"
+
+
+def adv_link(adv):
+    """Where the advisory can be read: RustSec keeps its own ids, OSV the rest."""
+    if adv["id"].startswith("RUSTSEC-"):
+        return f"https://rustsec.org/advisories/{adv['id']}"
+    return f"https://osv.dev/vulnerability/{adv['id']}"
 
 
 def fixed_set(value):
@@ -1735,10 +1905,19 @@ def triage_read(path, tomllib, today):
     return out, loose
 
 
+def triage_row(adv, rows):
+    """The first row that names the advisory by its id or any alias."""
+    for key in [adv["id"], *adv.get("aliases", [])]:
+        row = rows.get(key)
+        if row is not None:
+            return key, row
+    return None, None
+
+
 def adv_judge(name, adv, rows, today):
     """What a found advisory is now: triaged, untriaged, expired, changed (the
     fixed versions moved since the row) or invalid, and the words why."""
-    row = rows.get(adv["id"])
+    _key, row = triage_row(adv, rows)
     if row is None:
         return "untriaged", ""
     fault = row["fault"]
@@ -1770,6 +1949,7 @@ def advisories(mode, locks):
             print(f"  warn  Cargo.lock not read against RustSec: {note}")
         return 0
     lines, rows, loose, today = [], {}, 0, datetime.date.today()
+    osv_note = ""
     if Path(TRIAGE).is_file():
         try:
             rows, loose = triage_read(TRIAGE, tomllib, today)
@@ -1778,25 +1958,29 @@ def advisories(mode, locks):
     seen, unread, usage = set(), False, {}
     for lock in locks:
         try:
-            crates, found, notices = adv_check(lock, db, tomllib)
+            crates, found, notices, lock_osv_note = adv_check(lock, db, tomllib)
         except (OSError, ValueError, KeyError, TypeError) as err:
             lines.append(("warn", f"{lock} could not be read: {err}"))
             unread = True
             continue
+        if lock_osv_note and not osv_note:
+            osv_note = lock_osv_note
         triaged = 0
         for name, ver, adv in found:
-            seen.add(adv["id"])
+            seen.update([adv["id"], *adv.get("aliases", [])])
             note = test_only_note(lock, name, ver, usage)
+            _key, trow = triage_row(adv, rows)
             state, why = adv_judge(name, adv, rows, today)
             if state == "triaged":
                 triaged += 1
-                lines.append(("info", f"{lock}: {name} {ver}{note} has {adv['id']}, {why}: {rows[adv['id']]['why']}"))
+                lines.append(("info", f"{lock}: {name} {ver}{note} has {adv['id']}, {why}: {trow['why']}"))
                 continue
+            who = "RustSec's" if adv["id"].startswith("RUSTSEC-") else "the"
             said = {"untriaged": "", "expired": f"; {why}, which has passed",
-                    "changed": f"; {why}, and RustSec's fixed versions have moved",
+                    "changed": f"; {why}, and {who} fixed versions have moved",
                     "invalid": f"; its row in {TRIAGE} does not count: {why}"}[state]
             lines.append(("warn", (f"{lock}: {name} {ver}{note} has {adv['id']}, {adv['title']} -> {adv_fix(adv['patched'])}"
-                                   f"{said} (https://rustsec.org/advisories/{adv['id']})")))
+                                   f"{said} ({adv_link(adv)})")))
         if len(found) == triaged:
             beyond = f" beyond the {triaged} triaged in {TRIAGE}" if triaged else ""
             lines.append(("ok", f"{lock}: no RustSec advisory for its {len(crates)} crate{'' if len(crates) == 1 else 's'}{beyond}"))
@@ -1806,6 +1990,8 @@ def advisories(mode, locks):
                 kinds.setdefault(kind, []).append(name)
             said = "; ".join(f"{k}: {', '.join(sorted(set(v)))}" for k, v in sorted(kinds.items()))
             lines.append(("info", f"{lock}: notices, not vulnerabilities ({said})"))
+    if osv_note:
+        lines.append(("info", osv_note))
     # A row nothing needs any more: the crate was updated past the fix, or left.
     # Not said when a lock could not be read: its advisories are not known.
     if not unread:
@@ -1828,6 +2014,8 @@ def advisories(mode, locks):
                 print(f"- {line}")
             if len(warns) > 5:
                 print(f"  ... and {len(warns) - 5} more: just doctor")
+        if osv_note:
+            print(osv_note)
     return 0
 
 
@@ -2047,14 +2235,16 @@ def advisories_gate(args):
     if db is None:
         print(f"error no RustSec database to read: {note}")
         return 2
-    worst, usage = 0, {}
+    worst, usage, osv_note = 0, {}, ""
     for lock in locks:
         try:
-            crates, found, _ = adv_check(lock, db, tomllib)
+            crates, found, _, lock_osv_note = adv_check(lock, db, tomllib)
         except (OSError, ValueError, KeyError, TypeError) as err:
             print(f"error {lock} could not be read: {one_line(err)}")
             worst = 2
             continue
+        if lock_osv_note and not osv_note:
+            osv_note = lock_osv_note
         for name, ver, adv in found:
             state, why = adv_judge(name, adv, rows, today)
             note = test_only_note(lock, name, ver, usage)
@@ -2063,6 +2253,8 @@ def advisories_gate(args):
                 worst = max(worst, 1)
         if not found:
             print(f"ok {lock}: no advisory for its {len(crates)} crate{'' if len(crates) == 1 else 's'}")
+    if osv_note:
+        print(osv_note)
     if age is not None and age > ADV_STALE:
         print(f"stale RustSec database of {day}, {note or f'fetched {int(age // ADV_DAY)} days ago'}")
     else:
