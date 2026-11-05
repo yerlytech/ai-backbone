@@ -149,7 +149,11 @@ that failed, the lines that name the cause — not the two thousand GitHub keeps
 It says something useful when there is nothing to show: no checks yet, nothing
 pushed yet, no address, still running, and a job that never started, with
 GitHub's reason. `just session-start` mentions a push that did not pass, once,
-so a session that opens on a red branch starts by fixing it.
+so a session that opens on a red branch starts by fixing it. When `main` is
+10 or more commits ahead of `origin/main` and `ai-backbone.publish-on-save`
+is unset or false, it names the count and the fix (`git config
+ai-backbone.publish-on-save true; just publish`). It says nothing about that
+when there is no `origin`.
 
 No checks on GitHub (Actions off, or not set up yet)? Then this machine is the
 only place the tests run. `.pre-commit-config.yaml` carries a pre-push hook

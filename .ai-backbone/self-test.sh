@@ -1453,6 +1453,46 @@ check "a project with no GitHub address hears so at every session, offline too" 
 git remote add origin https://github.com/example/no-such-repo.git
 check "and no longer once it has one"                  "says '^=== LAST COMMITS' just session-start && ! says '^GitHub: no address' just session-start"
 git remote remove origin
+# n-e45338: publish-on-save unset or false, and main many commits ahead of
+# origin/main. Said at 10, with the count and the fix, inside WORKING TREE.
+# Quiet below 10, quiet when the setting is true, quiet when origin is gone.
+publish_ahead_line() {
+  local out n
+  out=$(just session-start 2>&1)
+  n=$(awk -v count="$1" '
+    /^=== WORKING TREE ===/ { b = 1; next }
+    /^=== / { b = 0 }
+    b && index($0, "main is " count " commits ahead of origin/main") && index($0, "git config ai-backbone.publish-on-save true; just publish") { c++ }
+    END { print c + 0 }
+  ' <<<"$out")
+  [ "$n" = 1 ]
+}
+pubbase=$(git rev-parse HEAD)
+git init -q --bare -b main "$tmp/pub-origin.git"
+git remote add origin "$tmp/pub-origin.git"
+git push -q origin main
+git fetch -q origin
+pubn=1
+while [ "$pubn" -le 9 ]; do
+  echo "$pubn" >> pub-ahead.txt
+  git add pub-ahead.txt
+  git commit -qm "chore: ahead $pubn" --no-verify
+  pubn=$((pubn + 1))
+done
+check "nine commits ahead, publish-on-save unset, says nothing" "[ \"\$(git rev-list --count origin/main..main)\" = 9 ] && ! says 'commits ahead of origin/main' just session-start"
+echo 10 >> pub-ahead.txt
+git add pub-ahead.txt
+git commit -qm "chore: ahead 10" --no-verify
+check "ten ahead, publish-on-save unset: one line in WORKING TREE names the count and the fix" "publish_ahead_line 10"
+git config ai-backbone.publish-on-save false
+check "ten ahead with publish-on-save false says the same" "publish_ahead_line 10"
+git config ai-backbone.publish-on-save true
+check "publish-on-save true stays quiet however far main is" "! says 'commits ahead of origin/main' just session-start"
+git config --unset ai-backbone.publish-on-save
+git remote remove origin
+check "no origin stays quiet, even when main has the commits" "! says 'commits ahead of origin/main' just session-start"
+git reset -q --hard "$pubbase"
+rm -f pub-ahead.txt
 # The daily check replaced the weekly one (spec 035). These three lift the
 # offline switch: there is no backbone nearby to bring level, the tool-release
 # block is stamped so it does not ask, a proxy nothing listens on stands behind

@@ -13,7 +13,12 @@ description: How to start and end a work session in a repo built on ai-backbone.
    working tree, what the project is built on, and whether the backbone has
    updates. Something behind is the first job. An idea to read is a ten-line
    note from the worker, and the maintainer hears it only when it is worth a
-   decision.
+   decision. One line in the working tree block, when `main` is 10 or more
+   commits ahead of `origin/main` and `ai-backbone.publish-on-save` is unset
+   or `false`, names that count and the fix (`git config
+   ai-backbone.publish-on-save true; just publish`). It is absent when
+   `origin` does not exist. Those commands send the work to GitHub: say the
+   line to the person first.
 2. Read the journal before touching code. A note marked `status: abandoned`
    is history, not a plan.
 3. If the working tree is dirty, ask what it is before building on it.

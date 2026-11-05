@@ -1310,6 +1310,26 @@ _session-start-body:
     echo "=== WORKING TREE ==="
     git status --short 2>/dev/null | head -15 || true
     echo
+    # n-e45338: publish-on-save unset or false, while local main is many
+    # commits ahead of origin/main. Days of commits then stay on one machine
+    # and nothing says so. Ten is the line. No origin, or no main to count
+    # against: quiet, and the session still starts.
+    if git remote get-url origin >/dev/null 2>&1 \
+       && git rev-parse -q --verify refs/heads/main >/dev/null \
+       && git rev-parse -q --verify refs/remotes/origin/main >/dev/null; then
+      pos=$(git config --get ai-backbone.publish-on-save 2>/dev/null || true)
+      if [ -z "$pos" ] || [ "$pos" = "false" ]; then
+        ahead=$(git rev-list --count refs/remotes/origin/main..refs/heads/main 2>/dev/null || echo 0)
+        case "$ahead" in
+          ''|*[!0-9]*) ;;
+          *)
+            if [ "$ahead" -ge 10 ]; then
+              echo "Publish: main is $ahead commits ahead of origin/main, and publish-on-save is off. Fix: git config ai-backbone.publish-on-save true; just publish"
+            fi
+            ;;
+        esac
+      fi
+    fi
     # The specs that are open, one line each. The journal says what was done and
     # the commits say what was saved; neither says what somebody is in the middle
     # of, and an agent that does not know a spec is open starts a second plan
