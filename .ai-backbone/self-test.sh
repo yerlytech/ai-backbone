@@ -5620,6 +5620,36 @@ FAKE_WORKER_TARGET=migration d_run movebase grok "" delegate "move the base agai
 first=${d_out%%$'\n'*}
 check "a fix round protects the recorded base when DELEGATE_BASE is unset" \
   "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: base branch migration moved' ] && ! grep -q Terminated <<<\"\$d_out\""
+# n-8dbc9e. Three cases: another branch refuses before a worker; the same
+# branch is still a fix round; a fresh run from main still starts there.
+d_migration otherbase
+git -C "$dproj" checkout -q main
+d_run ok grok "" delegate "add a line"
+dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+n8_prompt=$(cksum < "$dprompt")
+n8_ahead=$(git -C "$dproj" rev-list --count main..HEAD)
+DELEGATE_BASE=migration d_run ok grok "" delegate "add another line"
+n8_prompt2=$(cksum < "$dprompt")
+n8_ahead2=$(git -C "$dproj" rev-list --count main..HEAD)
+n8_count=$(git -C "$dproj" branch --list 'delegate/*' | wc -l | tr -d ' ')
+check "on a delegate branch, DELEGATE_BASE naming another branch is refused before a worker" \
+  "[ \$d_rc -ne 0 ] && d_one && grep -qx \"refuses: on \$dbr but DELEGATE_BASE is migration; unset DELEGATE_BASE to fix this branch, or checkout migration to start from it\" <<<\"\$d_out\" && [ \"\$(git -C \"\$dproj\" symbolic-ref --short HEAD)\" = \"\$dbr\" ] && [ \"\$n8_ahead2\" = \"\$n8_ahead\" ] && [ \"\$n8_ahead\" = 1 ] && [ \"\$n8_prompt2\" = \"\$n8_prompt\" ] && [ \"\$n8_count\" = 1 ] && [ -z \"\$(git -C \"\$dproj\" status --porcelain)\" ]"
+d_new samebase
+d_run ok grok "" delegate "add a line"
+dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+DELEGATE_BASE=$dbr d_run fix grok "" delegate "fix the line"
+n8_count=$(git -C "$dproj" branch --list 'delegate/*' | wc -l | tr -d ' ')
+n8_ahead=$(git -C "$dproj" rev-list --count main..HEAD)
+check "a fix round with DELEGATE_BASE set to this same branch stays here" \
+  "[ \$d_rc -eq 0 ] && [ \"\$(git -C \"\$dproj\" symbolic-ref --short HEAD)\" = \"\$dbr\" ] && [ \"\$n8_count\" = 1 ] && [ \"\$n8_ahead\" = 2 ] && ! grep -q '^BREACH:' <<<\"\$d_out\" && grep -q 'worker fixed the task' <<<\"\$d_out\" && grep -q 'worker did the task' <<<\"\$d_out\" && grep -qx 'tree: clean' <<<\"\$d_out\""
+d_new frommain
+d_run ok grok "" delegate "add a line"
+dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+n8_parent=$(git -C "$dproj" rev-parse HEAD^)
+n8_main=$(git -C "$dproj" rev-parse main)
+n8_count=$(git -C "$dproj" branch --list 'delegate/*' | wc -l | tr -d ' ')
+check "a fresh run from main still starts a delegate branch there" \
+  "[ \$d_rc -eq 0 ] && case \"\$dbr\" in delegate/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-add-a-line) ;; *) false ;; esac && [ \"\$n8_parent\" = \"\$n8_main\" ] && [ \"\$n8_count\" = 1 ] && git -C \"\$dproj\" cat-file -e \"\$dbr:worker-did.txt\" && ! grep -q '^BREACH:' <<<\"\$d_out\" && grep -qx 'tree: clean' <<<\"\$d_out\""
 d_new dropyes
 d_run ok grok "" delegate "add a line"
 nbr=$(git -C "$dproj" symbolic-ref --short HEAD)

@@ -63,12 +63,17 @@ its own worker.
 - [x] `just delegate "<task>"` refuses on a dirty tree, on a branch other than
       the default (or `DELEGATE_BASE`, when that branch exists) and other than
       an open `delegate/*` branch, while another job of this project runs, when
-      `DELEGATE_BASE` names a branch that does not exist, or when the worker
-      is not installed. Each refusal says why in one line.
+      `DELEGATE_BASE` names a branch that does not exist, when the current
+      branch is `delegate/*` and `DELEGATE_BASE` names a different branch, or
+      when the worker is not installed. Each refusal says why in one line.
+      The different-branch line names both branches and the fix, and it is
+      printed before a worker starts: unset `DELEGATE_BASE` to keep fixing
+      this branch, or check out the named branch to start from it.
 - [x] On the default branch, or on `DELEGATE_BASE` when that is set, it creates
       `delegate/<date>-<slug>` from that branch and records the base as
-      `branch.<name>.delegateBase`. On a `delegate/*` branch with a clean tree
-      it runs there again and makes no new branch, so a fix keeps the first
+      `branch.<name>.delegateBase`. On a `delegate/*` branch with a clean tree,
+      when `DELEGATE_BASE` is unset or names that same branch, it runs there
+      again and makes no new branch, so a fix keeps the first
       round's commits. The worker gets a fixed preamble: read AGENTS.md, stay
       on this branch, commit with `just save`, the forbidden list, the report's
       shape. The manager's text follows the preamble. The worker sees nothing

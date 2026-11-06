@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 26.11.0
+# .ai-backbone/core.just — the backbone's recipes, version 26.11.1
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -1712,7 +1712,16 @@ delegate task="":
     fi
     fix_round=0
     case "$here" in
-      delegate/*) fix_round=1; branch=$here ;;
+      delegate/*)
+        # n-8dbc9e: DELEGATE_BASE naming another branch used to start a fix
+        # round here and ignore that base. Refuse before a worker starts.
+        if [ -n "$base" ] && [ "$here" != "$base" ]; then
+          echo "refuses: on $here but DELEGATE_BASE is $base; unset DELEGATE_BASE to fix this branch, or checkout $base to start from it"
+          exit 1
+        fi
+        fix_round=1
+        branch=$here
+        ;;
       *)
         if [ -n "$base" ]; then
           if [ "$here" != "$base" ]; then echo "refuses: not on the base branch ($here; base is $base)"; exit 1; fi
@@ -2160,9 +2169,12 @@ delegate task="":
     # set. A fix round with the variable unset still protects the base the
     # branch recorded, or the check would be looking at the default while the
     # worker moved the branch the work is built on.
+    # n-8dbc9e: a fix round may set DELEGATE_BASE to this same delegate
+    # branch. That name is not a base to protect: the worker's commit moves
+    # it. Protect the recorded base, as when the variable is unset.
     protect=$default
     protect_kind=default
-    if [ -n "$base" ]; then
+    if [ "$fix_round" -eq 0 ] && [ -n "$base" ]; then
       protect=$base
       protect_kind=base
     elif [ "$fix_round" -eq 1 ]; then

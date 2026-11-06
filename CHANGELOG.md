@@ -14,6 +14,16 @@ squash that follows that version on the maintainer's machine takes the tags
 before it with the history. A newcomer reads a repository, not a diary. The
 entries below are the record of every version.
 
+## 26.11.1 — 2026-11-07
+
+**A delegate job refuses when `DELEGATE_BASE` names another branch (n-8dbc9e).**
+On a `delegate/*` branch, `just delegate` with `DELEGATE_BASE` set to a
+different branch used to start a fix round on the branch already checked out
+and ignore that base. It now refuses before a worker starts, in one line that
+names both branches and the fix: unset `DELEGATE_BASE` to keep fixing this
+branch, or check out the named branch to start from it. A fix round on that
+same branch, and a fresh run from the default, are unchanged.
+
 ## 26.11.0 — 2026-11-01
 
 **A GHSA-only advisory is seen (n-87f6a0).** `upstream.py --advisories` asks
