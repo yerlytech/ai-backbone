@@ -47,7 +47,11 @@ the last report, the model and cost of the last opencode run when the log has
 one, and the open `delegate/*` branches. `DELEGATE_TIMEOUT` is
 minutes for one job (180 if unset). `DELEGATE_BASE` is a long-lived branch to
 start from instead of the default. The branch records it, accept
-fast-forwards onto it, and drop returns to it. Accept fast-forwards the base
+fast-forwards onto it, and drop returns to it. On a `delegate/*` branch, leave
+it unset, or set it to that same branch, for a fix round. Set to another
+branch, `just delegate` refuses before a worker starts, in one line that names
+both branches and the fix: unset `DELEGATE_BASE` to keep fixing this branch,
+or check out the named branch to start from it. Accept fast-forwards the base
 where it is checked out, and does not switch a worktree that is on main onto
 the lane. When the base is already checked out, the worktree that still has
 the delegate branch is detached there, and then the branch is deleted.
