@@ -24,6 +24,17 @@ names both branches and the fix: unset `DELEGATE_BASE` to keep fixing this
 branch, or check out the named branch to start from it. A fix round on that
 same branch, and a fresh run from the default, are unchanged.
 
+**The vault copy also runs at session start and hourly (n-a931f8).** It ran
+only at `just session-end`, so a session that never ended left the second
+copy of `brain/` days old. `just session-start` now runs it at the end, in
+one line, and says when that copy is older than 24 hours. `just hooks-install`
+and `just template-update` merge two Claude Code hooks that run it at most
+once an hour, at session start and after a shell command, and never while
+another copy is running. Those hooks are not part of the subagent cap:
+`hook add` and `hook remove` still touch only that cap, so a save on a clean
+tree does not rewrite `.claude/settings.json`. A project that set
+`ai-backbone.vault-copy` to off stays off.
+
 ## 26.11.0 — 2026-11-01
 
 **A GHSA-only advisory is seen (n-87f6a0).** `upstream.py --advisories` asks
