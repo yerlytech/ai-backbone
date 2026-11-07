@@ -35,6 +35,10 @@ another copy is running. Those hooks are not part of the subagent cap:
 tree does not rewrite `.claude/settings.json`. A project that set
 `ai-backbone.vault-copy` to off stays off.
 
+**A delegate job does not leave its sccache server running (n-301ae6).** The worker starts with `RUSTC_WRAPPER` unset, `SCCACHE_SERVER_UDS` unset, and its own `SCCACHE_SERVER_PORT`. The server on that port is stopped when the job ends. A server first started inside the sandbox kept the sandbox's file rights and then failed later builds on the machine.
+
+**Docker buildx can write its state in the grok sandbox (n-9e0540).** The `ai-backbone-delegate` profile grants write access to `~/.docker/buildx`, as a full path, because `read_write` does not expand `~`. A test that runs `docker buildx` can finish, and the worker can reach `just save`.
+
 ## 26.11.0 — 2026-11-01
 
 **A GHSA-only advisory is seen (n-87f6a0).** `upstream.py --advisories` asks
