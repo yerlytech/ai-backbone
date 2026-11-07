@@ -14,6 +14,16 @@ squash that follows that version on the maintainer's machine takes the tags
 before it with the history. A newcomer reads a repository, not a diary. The
 entries below are the record of every version.
 
+## 26.11.1 — 2026-11-07
+
+**The vault copy also runs at session start and hourly (n-a931f8).** It ran
+only at `just session-end`, so a session that never ended left the second
+copy of `brain/` days old. `just session-start` now runs it at the end, in
+one line, and says when that copy is older than 24 hours. Claude Code's
+hooks run it at most once an hour, at session start and after a shell
+command, and never while another copy is running. A project that set
+`ai-backbone.vault-copy` to off stays off.
+
 ## 26.11.0 — 2026-11-01
 
 **A GHSA-only advisory is seen (n-87f6a0).** `upstream.py --advisories` asks

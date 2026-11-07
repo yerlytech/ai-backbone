@@ -406,6 +406,10 @@ def line(lang, now, cache, gauge, week_start, week_end, agents_today):
 # ─── the hook in a project's settings ────────────────────────────────────────
 HOOK_COMMAND = 'bash "$CLAUDE_PROJECT_DIR"/.ai-backbone/agent-cap.sh'
 HOOK_GROUP = {"matcher": "Agent|Workflow", "hooks": [{"type": "command", "command": HOOK_COMMAND}]}
+# The vault copy, at most once an hour (n-a931f8). Two hooks, the way a
+# machine-wide hourly job is started from Claude Code: at session start, and
+# after a shell command. The recipe itself keeps the hour and the lock.
+VAULT_HOURLY = "just _vault-copy hourly >/dev/null 2>&1 || true"
 # Claude Code allow rules for the four delegate commands (n-cdb28d). Added only
 # when WORKER is one of these; a rule already in the file is never removed.
 DELEGATE_WORKERS = ("grok", "claude", "opencode", "kimi")
@@ -444,6 +448,73 @@ KEYSTORE_DENIES = (
 
 def _mine(group):
     return any("agent-cap.sh" in str(h.get("command", "")) for h in group.get("hooks", []))
+
+
+def _groups_have_vault(groups):
+    if not isinstance(groups, list):
+        return False
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        for hook in group.get("hooks") or []:
+            if isinstance(hook, dict) and VAULT_HOURLY in str(hook.get("command", "")):
+                return True
+    return False
+
+
+def _append_vault(groups, matcher=None):
+    """One hourly command, on the first matching group. A new group is added
+    only when none of that shape is there, so a project's own hooks stay."""
+    command = {"type": "command", "command": VAULT_HOURLY}
+    if matcher is None:
+        if groups and isinstance(groups[0], dict) and isinstance(groups[0].get("hooks"), list):
+            groups[0]["hooks"].append(command)
+            return
+        groups.append({"hooks": [command]})
+        return
+    for group in groups:
+        if isinstance(group, dict) and group.get("matcher") == matcher and isinstance(group.get("hooks"), list):
+            group["hooks"].append(command)
+            return
+    groups.append({"matcher": matcher, "hooks": [command]})
+
+
+def _add_vault_hooks(path):
+    """SessionStart and PostToolUse/Bash each run the hourly vault copy once.
+    A command already there is left, and a file that is not JSON is not touched.
+    Nothing is printed: hook add's one word is about the subagent cap."""
+    try:
+        data = _load_settings(path)
+    except (OSError, ValueError):
+        return
+    if not isinstance(data, dict):
+        return
+    hooks = data.get("hooks")
+    if hooks is None:
+        hooks = {}
+    if not isinstance(hooks, dict):
+        return
+    changed = False
+    session = hooks.get("SessionStart")
+    if not isinstance(session, list):
+        session = []
+        hooks["SessionStart"] = session
+        changed = True
+    if not _groups_have_vault(session):
+        _append_vault(session)
+        changed = True
+    posted = hooks.get("PostToolUse")
+    if not isinstance(posted, list):
+        posted = []
+        hooks["PostToolUse"] = posted
+        changed = True
+    if not _groups_have_vault(posted):
+        _append_vault(posted, "Bash")
+        changed = True
+    if not changed:
+        return
+    data["hooks"] = hooks
+    _save_settings(path, data)
 
 
 def _load_settings(path):
@@ -600,6 +671,7 @@ def hook(action, path):
         # here: an older template-update calls this and does not know a second
         # line, and the rules still land on that first update (n-cdb28d).
         rc = _add_hook(data, path)
+        _add_vault_hooks(path)
         allow_delegate(path, quiet=True)
         return rc
     groups = data.get("hooks", {}).get("PreToolUse")

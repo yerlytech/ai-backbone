@@ -80,8 +80,10 @@ the list as a line that begins `- [?]`, never more than three of them. Sunday's
 report asks you the oldest one as a question that yes or no answers, you tell
 the answer to the agent in any project, and it travels back as a note that
 begins `decision:`. And `brain/`, your private notebook, never goes to GitHub.
-It stays on your computer, and after every session a second copy of it is left
-in the place you named once for this machine. Secrets live in `brain/secrets/`,
+It stays on your computer. A second copy is written into the place you named
+once for this machine, at the start of a session, at most once an hour while
+a session is open, and at the end of a session. A project that turned that
+copy off stays off. When the copy is older than 24 hours, the session says so. Secrets live in `brain/secrets/`,
 inside that copy, until `just secrets-to-keystore` moves a token file into the
 operating system's keystore. `just with-secret` reads one account onto a
 command's standard input at the moment of use. A night step that needs a secret is skipped and named in the morning.
