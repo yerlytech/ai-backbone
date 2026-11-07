@@ -4770,6 +4770,11 @@ if [ -n "${FAKE_WORKER_PROMPT:-}" ]; then
   printf '%s\n' "$bgwait" > "$FAKE_WORKER_PROMPT.bgwait"
   printf '%s\n' "$sandbox" > "$FAKE_WORKER_PROMPT.sandbox"
   printf '%s' "$deny" > "$FAKE_WORKER_PROMPT.deny"
+  if [ -n "${RUSTC_WRAPPER+x}" ]; then printf '%s\n' "$RUSTC_WRAPPER" > "$FAKE_WORKER_PROMPT.rustc-wrapper"
+  else printf '%s\n' unset > "$FAKE_WORKER_PROMPT.rustc-wrapper"; fi
+  if [ -n "${SCCACHE_SERVER_UDS+x}" ]; then printf '%s\n' "$SCCACHE_SERVER_UDS" > "$FAKE_WORKER_PROMPT.sccache-uds"
+  else printf '%s\n' unset > "$FAKE_WORKER_PROMPT.sccache-uds"; fi
+  printf '%s\n' "${SCCACHE_SERVER_PORT:-}" > "$FAKE_WORKER_PROMPT.sccache-port"
 fi
 if [ -n "${FAKE_WORKER_BINLOG:-}" ]; then printf '%s\n' "$0" > "$FAKE_WORKER_BINLOG"; fi
 mode=${FAKE_WORKER_MODE:-ok}
@@ -5099,7 +5104,9 @@ d_new() {
     "$dprompt.standalone" "$dprompt.auto" "$dprompt.configpath" \
     "$dprompt.config" "$dprompt.projectdisable" "$dprompt.models" \
     "$dprompt.argv" "$dprompt.perm" "$dprompt.bgwait" \
-    "$dprompt.trust" "$dprompt.guard" "$dprompt.home"
+    "$dprompt.trust" "$dprompt.guard" "$dprompt.home" \
+    "$dprompt.rustc-wrapper" "$dprompt.sccache-uds" "$dprompt.sccache-port" \
+    "$dprompt.sccache-argv" "$dprompt.sccache-stopped-port" "$dprompt.sccache-stop-uds"
 }
 # d_run MODE WORKER WORKER_MODEL -- just args. An empty WORKER is unset.
 d_run() {
@@ -5253,6 +5260,26 @@ d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=ok FAKE_
   WORKER=grok DELEGATE_TIMEOUT=2 just -f "$root/Justfile" -d "$dproj" delegate "wait in the background" 2>&1) && d_rc=0 || d_rc=$?
 check "grok's background tasks are allowed the job's timeout, and the preamble says to stay in the foreground" \
   "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$dprompt.bgwait\")\" = 120 ] && grep -q 'Run long commands in the foreground' \"\$dprompt\""
+d_new sccacheiso
+cat > "$dbin/sccache" << 'EOF'
+#!/usr/bin/env bash
+# Stands in for sccache --stop-server. Records the port the recipe asked it
+# to stop. Does not start a server.
+if [ -n "${FAKE_WORKER_PROMPT:-}" ]; then
+  printf '%s\n' "$*" >> "$FAKE_WORKER_PROMPT.sccache-argv"
+  printf '%s\n' "${SCCACHE_SERVER_PORT:-}" >> "$FAKE_WORKER_PROMPT.sccache-stopped-port"
+  if [ -n "${SCCACHE_SERVER_UDS+x}" ]; then printf '%s\n' set >> "$FAKE_WORKER_PROMPT.sccache-stop-uds"
+  else printf '%s\n' unset >> "$FAKE_WORKER_PROMPT.sccache-stop-uds"; fi
+fi
+exit 0
+EOF
+chmod +x "$dbin/sccache"
+export RUSTC_WRAPPER=sccache SCCACHE_SERVER_PORT=4226 SCCACHE_SERVER_UDS="$tmp/machine-sccache.sock"
+d_run ok grok "" delegate "add a line"
+unset RUSTC_WRAPPER SCCACHE_SERVER_PORT SCCACHE_SERVER_UDS
+rm -f "$dbin/sccache"
+check "a delegate job drops the inherited sccache wrapper and stops its own server (n-301ae6)" \
+  "port=\$(cat \"\$dprompt.sccache-port\"); stop=\$(cat \"\$dprompt.sccache-stopped-port\"); lines=\$(wc -l < \"\$dprompt.sccache-stopped-port\"); lines=\${lines// /}; [ \$d_rc -eq 0 ] && [ \"\$(cat \"\$dprompt.rustc-wrapper\")\" = unset ] && [ \"\$(cat \"\$dprompt.sccache-uds\")\" = unset ] && case \"\$port\" in ''|*[!0-9]*|4226) false ;; *) true ;; esac && [ \"\$lines\" = 1 ] && [ \"\$stop\" = \"\$port\" ] && grep -qx -- '--stop-server' \"\$dprompt.sccache-argv\" && [ \"\$(cat \"\$dprompt.sccache-stop-uds\")\" = unset ] && grep -q SCCACHE_SERVER_PORT \"\$root/.agents/skills/delegate/SKILL.md\" && grep -q n-301ae6 \"\$root/.agents/skills/delegate/SKILL.md\""
 d_new model
 d_run ok claude cheap delegate "use claude"
 check "the claude adapter calls claude -p with WORKER_MODEL" "[ \$d_rc -eq 0 ] && grep -q 'Read AGENTS.md' \"\$dprompt\" && [ -z \"\$(cat \"\$dprompt.fmt\")\" ] && [ \"\$(cat \"\$dprompt.model\")\" = cheap ]"

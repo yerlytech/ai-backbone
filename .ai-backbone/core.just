@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 26.11.0
+# .ai-backbone/core.just — the backbone's recipes, version 26.11.1
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -1792,7 +1792,35 @@ delegate task="":
       rm -rf "$hookdir"
       hookdir=""
     }
-    trap 'restore_delegate_hook; if [ -n "$tpid" ]; then kill -TERM -"$tpid" 2>/dev/null || kill -TERM "$tpid" 2>/dev/null || true; fi; if [ -n "$wpid" ]; then kill -TERM -"$wpid" 2>/dev/null || kill -TERM "$wpid" 2>/dev/null || true; fi; rm -rf "$lock"' EXIT
+    # n-301ae6: a server started inside the sandbox keeps those file rights and
+    # then fails later builds. Stop only the port this job gave the worker.
+    sccache_port=""
+    stop_delegate_sccache() {
+      [ -n "${sccache_port:-}" ] || return 0
+      local port out spid watch i
+      port=$sccache_port
+      sccache_port=""
+      command -v sccache >/dev/null 2>&1 || return 0
+      out=$(mktemp 2>/dev/null) || return 0
+      # A connect that never answers is stopped after a few seconds, the same
+      # watcher _build-size uses. sccache may ignore SIGALRM (a Rust binary).
+      (
+        unset SCCACHE_SERVER_UDS
+        SCCACHE_SERVER_PORT=$port exec sccache --stop-server
+      ) >"$out" 2>&1 &
+      spid=$!
+      ( sleep 5 & echo "$!" > "$out.sleep"; wait "$!"; [ -e "$out.done" ] || kill "$spid" 2>/dev/null || true ) >/dev/null 2>&1 &
+      watch=$!
+      wait "$spid" 2>/dev/null || true
+      : > "$out.done" || true
+      i=0
+      until [ -s "$out.sleep" ] || [ "$i" -ge 100 ]; do sleep 0.02; i=$((i + 1)); done
+      kill "$(cat "$out.sleep" 2>/dev/null)" 2>/dev/null || true
+      wait "$watch" 2>/dev/null || true
+      rm -f "$out" "$out.sleep" "$out.done" || true
+      return 0
+    }
+    trap 'restore_delegate_hook; if [ -n "$tpid" ]; then kill -TERM -"$tpid" 2>/dev/null || kill -TERM "$tpid" 2>/dev/null || true; fi; if [ -n "$wpid" ]; then kill -TERM -"$wpid" 2>/dev/null || kill -TERM "$wpid" 2>/dev/null || true; fi; stop_delegate_sccache; rm -rf "$lock"' EXIT
     # opencode climbs WORKER_LADDER (spec 038). The first try of a branch takes
     # the first model; each fix round takes the next. Past the last, the job
     # stops. WORKER_MODEL pins one model and does not climb. Grok, claude and
@@ -2288,6 +2316,17 @@ delegate task="":
     chmod +x "$hookdir/reference-transaction"
     git config --worktree core.hooksPath "$hookdir"
     rm -f "$dir/${id}.timedout"
+    # n-301ae6: never the machine's port. Perl's bind of port 0 is a free one.
+    sccache_port=$(perl -MIO::Socket::INET -e 'my $s = IO::Socket::INET->new(LocalAddr => "127.0.0.1", LocalPort => 0, Proto => "tcp", Listen => 1) or exit 1; print $s->sockport' 2>/dev/null || true)
+    case "$sccache_port" in
+      ''|*[!0-9]*) sccache_port=$((30000 + ($$ % 20000))) ;;
+    esac
+    sccache_n=0
+    while [ "$sccache_n" -lt 5 ]; do
+      if [ "$sccache_port" != 4226 ] && [ "$sccache_port" != "${SCCACHE_SERVER_PORT:-}" ]; then break; fi
+      sccache_port=$((sccache_port + 1))
+      sccache_n=$((sccache_n + 1))
+    done
     set -m
     # A worker that has committed, printed its report and then sits with no
     # process of its own running stays alive for hours (grok 1.0.62, measured
@@ -2302,7 +2341,14 @@ delegate task="":
     rm -f "$dir/${id}.idle"
     idle_clean_since=$(date +%s)
     set +e
-    ( delegate_"$worker" "$prompt" ) </dev/null >"$log" 2>&1 &
+    # n-301ae6: no inherited wrapper and no unix socket, so this port is the
+    # only sccache server the worker can start. The trap stops that port.
+    (
+      unset RUSTC_WRAPPER
+      unset SCCACHE_SERVER_UDS
+      export SCCACHE_SERVER_PORT="$sccache_port"
+      delegate_"$worker" "$prompt"
+    ) </dev/null >"$log" 2>&1 &
     wpid=$!
     (
       t_end=$(LC_ALL=C awk -v s="$timeout_secs" -v n="$(date +%s)" 'BEGIN { printf "%d", n + s }')

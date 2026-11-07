@@ -80,6 +80,12 @@ not logged in stops with `kimi is not logged in: run kimi login` and leaves
 no branch. The report is the last 15 lines of the assistant text in that
 stream-json log.
 
+The job does not share the machine's sccache (n-301ae6). The worker is
+started with `RUSTC_WRAPPER` unset, `SCCACHE_SERVER_UDS` unset, and its own
+`SCCACHE_SERVER_PORT`. The server on that port is stopped when the job ends,
+including when the job is killed. A server first started inside the sandbox
+keeps the sandbox's file rights and then fails later builds on the machine.
+
 ## Pin bumps
 
 The worker has no network. Before a task that bumps a pin, the desk installs
