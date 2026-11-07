@@ -543,6 +543,11 @@ check "_agent-cap refuses what is not a number or not a session folder" "! just 
 # The hook into a project's settings, merged, once, and out again.
 sj="$tmp/hook/settings.json"; cp "$root/.claude/settings.json" "$sj"
 check "the hook is removed and added back without touching the rest" "[ \"\$('$py' '$root/.ai-backbone/budget.py' hook remove '$sj')\" = removed ] && ! grep -q agent-cap '$sj' && grep -q 'session-start' '$sj' && [ \"\$('$py' '$root/.ai-backbone/budget.py' hook add '$sj')\" = added ] && [ \"\$('$py' '$root/.ai-backbone/budget.py' hook add '$sj')\" = 'already there' ] && '$py' '$root/.ai-backbone/budget.py' hook check '$sj' && cmp -s '$sj' '$root/.claude/settings.json'"
+# n-a931f8. The hourly copy is not part of the cap. hook add must not write it,
+# and once it is there a cap round trip puts the file back byte for byte: that
+# is what keeps a later save on a clean tree from seeing .claude/settings.json.
+cp "$root/.claude/settings.json" "$tmp/hook/vault.json"
+check "the hourly vault hooks are their own install, and the cap round trip leaves them" "[ \"\$('$py' '$root/.ai-backbone/budget.py' vault add '$tmp/hook/vault.json')\" = added ] && '$py' '$root/.ai-backbone/budget.py' vault check '$tmp/hook/vault.json' && '$py' -c \"import json,sys; d=json.load(open(sys.argv[1])); ss=[h['command'] for h in d['hooks']['SessionStart'][0]['hooks']]; assert ss[0].startswith('just session-start') and any('_vault-copy hourly' in c for c in ss); pu=d['hooks']['PostToolUse'][0]; assert pu['matcher']=='Bash' and '_vault-copy hourly' in pu['hooks'][0]['command']; assert d['hooks']['PreToolUse'][0]['matcher']=='Agent|Workflow'\" '$tmp/hook/vault.json' && cp '$tmp/hook/vault.json' '$tmp/hook/vault.golden' && [ \"\$('$py' '$root/.ai-backbone/budget.py' vault add '$tmp/hook/vault.json')\" = 'already there' ] && cmp -s '$tmp/hook/vault.json' '$tmp/hook/vault.golden' && '$py' '$root/.ai-backbone/budget.py' hook remove '$tmp/hook/vault.json' >/dev/null && '$py' '$root/.ai-backbone/budget.py' hook add '$tmp/hook/vault.json' >/dev/null && cmp -s '$tmp/hook/vault.json' '$tmp/hook/vault.golden' && [ \"\$('$py' '$root/.ai-backbone/budget.py' vault remove '$tmp/hook/vault.json')\" = removed ] && cmp -s '$tmp/hook/vault.json' '$root/.claude/settings.json' && [ \"\$('$py' '$root/.ai-backbone/budget.py' vault remove '$tmp/hook/vault.json')\" = 'not there' ] && cmp -s '$sj' '$root/.claude/settings.json'"
 "$py" - "$tmp/hook/two.json" <<'PYEOF'
 import json,sys; g=lambda m:{"matcher":m,"hooks":[{"type":"command","command":'bash "$CLAUDE_PROJECT_DIR"/.ai-backbone/agent-cap.sh'}]}; json.dump({"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"true"}]},g("Agent"),g("Agent|Workflow")]}},open(sys.argv[1],"w"))
 PYEOF
@@ -4810,6 +4815,11 @@ if [ -n "${FAKE_WORKER_PROMPT:-}" ]; then
   printf '%s\n' "$bgwait" > "$FAKE_WORKER_PROMPT.bgwait"
   printf '%s\n' "$sandbox" > "$FAKE_WORKER_PROMPT.sandbox"
   printf '%s' "$deny" > "$FAKE_WORKER_PROMPT.deny"
+  if [ -n "${RUSTC_WRAPPER+x}" ]; then printf '%s\n' "$RUSTC_WRAPPER" > "$FAKE_WORKER_PROMPT.rustc-wrapper"
+  else printf '%s\n' unset > "$FAKE_WORKER_PROMPT.rustc-wrapper"; fi
+  if [ -n "${SCCACHE_SERVER_UDS+x}" ]; then printf '%s\n' "$SCCACHE_SERVER_UDS" > "$FAKE_WORKER_PROMPT.sccache-uds"
+  else printf '%s\n' unset > "$FAKE_WORKER_PROMPT.sccache-uds"; fi
+  printf '%s\n' "${SCCACHE_SERVER_PORT:-}" > "$FAKE_WORKER_PROMPT.sccache-port"
 fi
 if [ -n "${FAKE_WORKER_BINLOG:-}" ]; then printf '%s\n' "$0" > "$FAKE_WORKER_BINLOG"; fi
 mode=${FAKE_WORKER_MODE:-ok}
@@ -5139,7 +5149,9 @@ d_new() {
     "$dprompt.standalone" "$dprompt.auto" "$dprompt.configpath" \
     "$dprompt.config" "$dprompt.projectdisable" "$dprompt.models" \
     "$dprompt.argv" "$dprompt.perm" "$dprompt.bgwait" \
-    "$dprompt.trust" "$dprompt.guard" "$dprompt.home"
+    "$dprompt.trust" "$dprompt.guard" "$dprompt.home" \
+    "$dprompt.rustc-wrapper" "$dprompt.sccache-uds" "$dprompt.sccache-port" \
+    "$dprompt.sccache-argv" "$dprompt.sccache-stopped-port" "$dprompt.sccache-stop-uds"
 }
 # d_run MODE WORKER WORKER_MODEL -- just args. An empty WORKER is unset.
 d_run() {
@@ -5279,6 +5291,24 @@ git -C "$dproj" checkout -q main
 d_run ok grok "" delegate "add a line"
 dbr2=$(git -C "$dproj" symbolic-ref --short HEAD)
 check "the same task on the same day gets a short suffix, and the first branch stays" "[ \$d_rc -eq 0 ] && [ \"\$dbr2\" = \"\${dbr}-2\" ] && git -C \"\$dproj\" show-ref --verify --quiet \"refs/heads/\$dbr\" && git -C \"\$dproj\" show-ref --verify --quiet \"refs/heads/\$dbr2\""
+buildx_grant_ok() {
+  awk -v home="$1" '
+    /^# BEGIN ai-backbone delegate/ { blocks++ }
+    /^read_write = \[/ { mode = "rw"; next }
+    /^deny = \[/ { mode = "deny"; next }
+    /^\]/ { mode = ""; next }
+    {
+      if (index($0, home "/.docker/buildx")) {
+        if (mode == "rw") rw++
+        else bad++
+      }
+      if (index($0, "~/.docker/buildx")) tilde++
+    }
+    END { exit !(blocks == 1 && rw == 1 && bad == 0 && tilde == 0) }
+  ' "$2"
+}
+check "the grok sandbox grants write on the home docker buildx directory (n-9e0540)" \
+  "buildx_grant_ok \"\$dhome\" \"\$dhome/.grok/sandbox.toml\" && grep -q n-9e0540 \"\$root/.agents/skills/delegate/SKILL.md\" && grep -q 'docker/buildx' \"\$root/.agents/skills/delegate/SKILL.md\""
 d_new titled
 d_run ok grok "" delegate "$(printf 'From the company desk\n\nTitle: pin the crates\n\nDo the pin.')"
 dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
@@ -5293,6 +5323,26 @@ d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=ok FAKE_
   WORKER=grok DELEGATE_TIMEOUT=2 just -f "$root/Justfile" -d "$dproj" delegate "wait in the background" 2>&1) && d_rc=0 || d_rc=$?
 check "grok's background tasks are allowed the job's timeout, and the preamble says to stay in the foreground" \
   "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$dprompt.bgwait\")\" = 120 ] && grep -q 'Run long commands in the foreground' \"\$dprompt\""
+d_new sccacheiso
+cat > "$dbin/sccache" << 'EOF'
+#!/usr/bin/env bash
+# Stands in for sccache --stop-server. Records the port the recipe asked it
+# to stop. Does not start a server.
+if [ -n "${FAKE_WORKER_PROMPT:-}" ]; then
+  printf '%s\n' "$*" >> "$FAKE_WORKER_PROMPT.sccache-argv"
+  printf '%s\n' "${SCCACHE_SERVER_PORT:-}" >> "$FAKE_WORKER_PROMPT.sccache-stopped-port"
+  if [ -n "${SCCACHE_SERVER_UDS+x}" ]; then printf '%s\n' set >> "$FAKE_WORKER_PROMPT.sccache-stop-uds"
+  else printf '%s\n' unset >> "$FAKE_WORKER_PROMPT.sccache-stop-uds"; fi
+fi
+exit 0
+EOF
+chmod +x "$dbin/sccache"
+export RUSTC_WRAPPER=sccache SCCACHE_SERVER_PORT=4226 SCCACHE_SERVER_UDS="$tmp/machine-sccache.sock"
+d_run ok grok "" delegate "add a line"
+unset RUSTC_WRAPPER SCCACHE_SERVER_PORT SCCACHE_SERVER_UDS
+rm -f "$dbin/sccache"
+check "a delegate job drops the inherited sccache wrapper and stops its own server (n-301ae6)" \
+  "port=\$(cat \"\$dprompt.sccache-port\"); stop=\$(cat \"\$dprompt.sccache-stopped-port\"); lines=\$(wc -l < \"\$dprompt.sccache-stopped-port\"); lines=\${lines// /}; [ \$d_rc -eq 0 ] && [ \"\$(cat \"\$dprompt.rustc-wrapper\")\" = unset ] && [ \"\$(cat \"\$dprompt.sccache-uds\")\" = unset ] && case \"\$port\" in ''|*[!0-9]*|4226) false ;; *) true ;; esac && [ \"\$lines\" = 1 ] && [ \"\$stop\" = \"\$port\" ] && grep -qx -- '--stop-server' \"\$dprompt.sccache-argv\" && [ \"\$(cat \"\$dprompt.sccache-stop-uds\")\" = unset ] && grep -q SCCACHE_SERVER_PORT \"\$root/.agents/skills/delegate/SKILL.md\" && grep -q n-301ae6 \"\$root/.agents/skills/delegate/SKILL.md\""
 d_new model
 d_run ok claude cheap delegate "use claude"
 check "the claude adapter calls claude -p with WORKER_MODEL" "[ \$d_rc -eq 0 ] && grep -q 'Read AGENTS.md' \"\$dprompt\" && [ -z \"\$(cat \"\$dprompt.fmt\")\" ] && [ \"\$(cat \"\$dprompt.model\")\" = cheap ]"
@@ -5660,6 +5710,36 @@ FAKE_WORKER_TARGET=migration d_run movebase grok "" delegate "move the base agai
 first=${d_out%%$'\n'*}
 check "a fix round protects the recorded base when DELEGATE_BASE is unset" \
   "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: base branch migration moved' ] && ! grep -q Terminated <<<\"\$d_out\""
+# n-8dbc9e. Three cases: another branch refuses before a worker; the same
+# branch is still a fix round; a fresh run from main still starts there.
+d_migration otherbase
+git -C "$dproj" checkout -q main
+d_run ok grok "" delegate "add a line"
+dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+n8_prompt=$(cksum < "$dprompt")
+n8_ahead=$(git -C "$dproj" rev-list --count main..HEAD)
+DELEGATE_BASE=migration d_run ok grok "" delegate "add another line"
+n8_prompt2=$(cksum < "$dprompt")
+n8_ahead2=$(git -C "$dproj" rev-list --count main..HEAD)
+n8_count=$(git -C "$dproj" branch --list 'delegate/*' | wc -l | tr -d ' ')
+check "on a delegate branch, DELEGATE_BASE naming another branch is refused before a worker" \
+  "[ \$d_rc -ne 0 ] && d_one && grep -qx \"refuses: on \$dbr but DELEGATE_BASE is migration; unset DELEGATE_BASE to fix this branch, or checkout migration to start from it\" <<<\"\$d_out\" && [ \"\$(git -C \"\$dproj\" symbolic-ref --short HEAD)\" = \"\$dbr\" ] && [ \"\$n8_ahead2\" = \"\$n8_ahead\" ] && [ \"\$n8_ahead\" = 1 ] && [ \"\$n8_prompt2\" = \"\$n8_prompt\" ] && [ \"\$n8_count\" = 1 ] && [ -z \"\$(git -C \"\$dproj\" status --porcelain)\" ]"
+d_new samebase
+d_run ok grok "" delegate "add a line"
+dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+DELEGATE_BASE=$dbr d_run fix grok "" delegate "fix the line"
+n8_count=$(git -C "$dproj" branch --list 'delegate/*' | wc -l | tr -d ' ')
+n8_ahead=$(git -C "$dproj" rev-list --count main..HEAD)
+check "a fix round with DELEGATE_BASE set to this same branch stays here" \
+  "[ \$d_rc -eq 0 ] && [ \"\$(git -C \"\$dproj\" symbolic-ref --short HEAD)\" = \"\$dbr\" ] && [ \"\$n8_count\" = 1 ] && [ \"\$n8_ahead\" = 2 ] && ! grep -q '^BREACH:' <<<\"\$d_out\" && grep -q 'worker fixed the task' <<<\"\$d_out\" && grep -q 'worker did the task' <<<\"\$d_out\" && grep -qx 'tree: clean' <<<\"\$d_out\""
+d_new frommain
+d_run ok grok "" delegate "add a line"
+dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+n8_parent=$(git -C "$dproj" rev-parse HEAD^)
+n8_main=$(git -C "$dproj" rev-parse main)
+n8_count=$(git -C "$dproj" branch --list 'delegate/*' | wc -l | tr -d ' ')
+check "a fresh run from main still starts a delegate branch there" \
+  "[ \$d_rc -eq 0 ] && case \"\$dbr\" in delegate/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-add-a-line) ;; *) false ;; esac && [ \"\$n8_parent\" = \"\$n8_main\" ] && [ \"\$n8_count\" = 1 ] && git -C \"\$dproj\" cat-file -e \"\$dbr:worker-did.txt\" && ! grep -q '^BREACH:' <<<\"\$d_out\" && grep -qx 'tree: clean' <<<\"\$d_out\""
 d_new dropyes
 d_run ok grok "" delegate "add a line"
 nbr=$(git -C "$dproj" symbolic-ref --short HEAD)

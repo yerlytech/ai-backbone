@@ -231,7 +231,11 @@ opencode looks in `~/.opencode/bin/opencode`; kimi looks in
 `/usr/local/bin/kimi`).
 `DELEGATE_TIMEOUT` is how many minutes one job may run (180 if you do not set
 it). `DELEGATE_BASE` is a long-lived branch to start from instead of the
-default, when you set one. `just delegate-drop --yes`, or `DELEGATE_YES=1`,
+default, when you set one. On a `delegate/*` branch, a fix round leaves it
+unset or sets it to that same branch. Set to another branch, `just delegate`
+refuses before a worker starts, in one line that names both branches and the
+fix: unset `DELEGATE_BASE` to keep fixing this branch, or check out the named
+branch to start from it. `just delegate-drop --yes`, or `DELEGATE_YES=1`,
 deletes the branch without asking. `WORKER_MODEL` pins one model, when you set
 one. For opencode, `WORKER_LADDER` is the ladder. Unset, it is
 `opencode-go/deepseek-v4.1-flash`, then `opencode-go/glm-5.3`, then

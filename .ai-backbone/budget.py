@@ -19,6 +19,8 @@ meter anchors and the transcripts only fill the minutes since.
     budget.py --json            the same as one JSON object
     budget.py hook add|remove|check [.claude/settings.json]
                                 the subagent-cap hook in a project's settings
+    budget.py vault add|remove|check [.claude/settings.json]
+                                the hourly vault copy; not part of hook add
     budget.py allow [.claude/settings.json]
                                 the four delegate allow rules, when WORKER is
                                 grok, claude, opencode or kimi; a rule already there stays
@@ -406,6 +408,12 @@ def line(lang, now, cache, gauge, week_start, week_end, agents_today):
 # ─── the hook in a project's settings ────────────────────────────────────────
 HOOK_COMMAND = 'bash "$CLAUDE_PROJECT_DIR"/.ai-backbone/agent-cap.sh'
 HOOK_GROUP = {"matcher": "Agent|Workflow", "hooks": [{"type": "command", "command": HOOK_COMMAND}]}
+# The vault copy, at most once an hour (n-a931f8). Installed by `budget.py vault`,
+# which hooks-install and template-update call. Not by hook add: that one owns
+# the subagent cap, and remove plus add must leave every other hook as it was.
+# Two commands, the way a machine-wide hourly job is started from Claude Code:
+# at session start, and after a shell command. The recipe keeps the hour and the lock.
+VAULT_HOURLY = "just _vault-copy hourly >/dev/null 2>&1 || true"
 # Claude Code allow rules for the four delegate commands (n-cdb28d). Added only
 # when WORKER is one of these; a rule already in the file is never removed.
 DELEGATE_WORKERS = ("grok", "claude", "opencode", "kimi")
@@ -444,6 +452,167 @@ KEYSTORE_DENIES = (
 
 def _mine(group):
     return any("agent-cap.sh" in str(h.get("command", "")) for h in group.get("hooks", []))
+
+
+def _is_vault_hook(hook):
+    return isinstance(hook, dict) and VAULT_HOURLY in str(hook.get("command", ""))
+
+
+def _groups_have_vault(groups):
+    if not isinstance(groups, list):
+        return False
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        for hook in group.get("hooks") or []:
+            if _is_vault_hook(hook):
+                return True
+    return False
+
+
+def _append_vault(groups, matcher=None):
+    """One hourly command, on the first matching group. A new group is added
+    only when none of that shape is there, so a project's own hooks stay."""
+    command = {"type": "command", "command": VAULT_HOURLY}
+    if matcher is None:
+        if groups and isinstance(groups[0], dict) and isinstance(groups[0].get("hooks"), list):
+            groups[0]["hooks"].append(command)
+            return
+        groups.append({"hooks": [command]})
+        return
+    for group in groups:
+        if isinstance(group, dict) and group.get("matcher") == matcher and isinstance(group.get("hooks"), list):
+            group["hooks"].append(command)
+            return
+    groups.append({"matcher": matcher, "hooks": [command]})
+
+
+def _strip_vault_groups(groups):
+    """Take the hourly command out. A group left with no hooks goes too.
+    Returns whether the list changed. The inverse of `_append_vault`."""
+    if not isinstance(groups, list):
+        return False
+    changed = False
+    kept = []
+    for group in groups:
+        if not isinstance(group, dict):
+            kept.append(group)
+            continue
+        hooks = group.get("hooks")
+        if not isinstance(hooks, list):
+            kept.append(group)
+            continue
+        left = [h for h in hooks if not _is_vault_hook(h)]
+        if len(left) != len(hooks):
+            changed = True
+            if not left:
+                continue
+            group["hooks"] = left
+        kept.append(group)
+    if len(kept) != len(groups):
+        groups[:] = kept
+        changed = True
+    return changed
+
+
+def _pre_tool_groups(data):
+    """The PreToolUse list, created when it is missing.
+
+    A new key is inserted just before PostToolUse, and last when that event
+    is not there. Removing the cap deletes the key; adding it back has to land
+    where it was, or a file that also holds the vault hooks would not match
+    what was saved (n-a931f8).
+    """
+    hooks = data.setdefault("hooks", {})
+    if not isinstance(hooks, dict):
+        return hooks.setdefault("PreToolUse", [])
+    existing = hooks.get("PreToolUse")
+    if isinstance(existing, list) or "PreToolUse" in hooks:
+        return existing
+    groups = []
+    if "PostToolUse" in hooks:
+        rebuilt = {}
+        for key, value in hooks.items():
+            if key == "PostToolUse":
+                rebuilt["PreToolUse"] = groups
+            rebuilt[key] = value
+        hooks.clear()
+        hooks.update(rebuilt)
+    else:
+        hooks["PreToolUse"] = groups
+    return groups
+
+
+def vault_hooks(action, path):
+    """Add or remove the hourly vault copy on SessionStart and on PostToolUse/Bash.
+
+    Not the subagent cap: `hook add` leaves these alone, and this leaves the cap
+    alone. A command already there is left. A file that is not JSON is not
+    touched. remove is the inverse of add, so a round trip puts the file back.
+    """
+    try:
+        data = _load_settings(path)
+    except (OSError, ValueError):
+        say("not-json")
+        return 1
+    if not isinstance(data, dict):
+        say("not-object")
+        return 1
+    hooks = data.get("hooks")
+    if action == "check":
+        if not isinstance(hooks, dict):
+            return 1
+        session = isinstance(hooks.get("SessionStart"), list) and _groups_have_vault(hooks["SessionStart"])
+        posted = isinstance(hooks.get("PostToolUse"), list) and _groups_have_vault(hooks["PostToolUse"])
+        return 0 if session and posted else 1
+    if not isinstance(hooks, dict):
+        if hooks is not None:
+            say("not-object")
+            return 1
+        hooks = {}
+    if action == "remove":
+        changed = False
+        for name in ("SessionStart", "PostToolUse"):
+            groups = hooks.get(name)
+            if not isinstance(groups, list) or not _strip_vault_groups(groups):
+                continue
+            changed = True
+            if not groups:
+                del hooks[name]
+        if not changed:
+            say("not there")
+            return 0
+        if hooks:
+            data["hooks"] = hooks
+        else:
+            data.pop("hooks", None)
+        _save_settings(path, data)
+        say("removed")
+        return 0
+    changed = False
+    session = hooks.get("SessionStart")
+    if not isinstance(session, list):
+        session = []
+        hooks["SessionStart"] = session
+        changed = True
+    if not _groups_have_vault(session):
+        _append_vault(session)
+        changed = True
+    posted = hooks.get("PostToolUse")
+    if not isinstance(posted, list):
+        posted = []
+        hooks["PostToolUse"] = posted
+        changed = True
+    if not _groups_have_vault(posted):
+        _append_vault(posted, "Bash")
+        changed = True
+    if not changed:
+        say("already there")
+        return 0
+    data["hooks"] = hooks
+    _save_settings(path, data)
+    say("added")
+    return 0
 
 
 def _load_settings(path):
@@ -552,7 +721,7 @@ def deny_keystore(path, quiet=False):
 
 
 def _add_hook(data, path):
-    groups = data.setdefault("hooks", {}).setdefault("PreToolUse", [])
+    groups = _pre_tool_groups(data)
     mine = [g for g in groups if _mine(g)]
     if mine:
         if len(mine) == 1 and mine[0].get("matcher") == HOOK_GROUP["matcher"]:
@@ -634,6 +803,11 @@ def main():
         if action not in ("add", "remove", "check", "health"):
             say("budget.py hook add|remove|check|health [.claude/settings.json]"); return 2
         return hook(action, argv[2] if len(argv) > 2 else os.path.join(".claude", "settings.json"))
+    if argv[:1] == ["vault"]:
+        action = argv[1] if len(argv) > 1 else "add"
+        if action not in ("add", "remove", "check"):
+            say("budget.py vault add|remove|check [.claude/settings.json]"); return 2
+        return vault_hooks(action, argv[2] if len(argv) > 2 else os.path.join(".claude", "settings.json"))
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--line", metavar="LANG", help="one line for the start of a session, tr or en; never fails")
     parser.add_argument("--json", action="store_true", help="print one JSON object instead of text")

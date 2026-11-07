@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 26.11.0
+# .ai-backbone/core.just — the backbone's recipes, version 26.11.1
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -1139,6 +1139,21 @@ _delegate-allow:
       fi
     fi
 
+# The hourly vault copy in Claude Code's settings (n-a931f8). Not the subagent
+# cap: hook add and hook remove own that, and a round trip must leave every
+# other hook as it was. Quiet when the commands are already there, and never
+# a reason for the caller to fail. A broken settings file is left as found.
+_vault-hooks:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -f .ai-backbone/budget.py ] && { [ -d .claude ] || [ -f .claude/settings.json ]; }; then
+      if said=$("$(just _py)" .ai-backbone/budget.py vault add 2>/dev/null); then
+        case "$said" in
+          added) echo "Vault copy: Claude Code runs it at most once an hour (session start and after a shell command)." ;;
+        esac
+      fi
+    fi
+
 # Install the git hooks that check every save (leaked secrets, message style), and every push when the config has a pre-push hook
 [group('setup')]
 hooks-install:
@@ -1217,6 +1232,9 @@ hooks-install:
         echo "warn  the subagent cap hook could not be merged into .claude/settings.json (a comment or a trailing comma in it?): copy the PreToolUse group from the backbone's .claude/settings.json by hand."
       fi
     fi
+    # After the cap, and not inside it (n-a931f8). hook add stays a round trip
+    # of that one group; this merge is what puts the hourly copy in.
+    just _vault-hooks
     # A local-only project refuses every push, even a plain `git push` (spec 026).
     # The hook reads the setting when it runs, so turning it off needs nothing
     # more; it is written only where no pre-push hook is, and never over one.
@@ -1560,6 +1578,15 @@ _session-start-body:
     # check cached. An agent's training ends on a day; a version released
     # after it is one the agent has never seen, and nothing else here says so.
     if [ -f docs/upstream.toml ]; then echo; "$(just _py)" .ai-backbone/upstream.py --recent 2>/dev/null || true; fi
+    # n-a931f8: the second copy also runs here, or a session that never ends
+    # leaves it days old. One line. Older than 24 hours is said first. Off stays off.
+    if [ -d brain ] && [ -z "$(just _vault-off 2>/dev/null || true)" ]; then
+      vdest=$(just _vault-dest 2>/dev/null || true)
+      if [ -n "$vdest" ] && [ -f "$vdest/about-this-copy.txt" ] && [ -n "$(find "$vdest/about-this-copy.txt" -mmin +1440 2>/dev/null || true)" ]; then
+        echo "Vault copy: older than 24 hours ($vdest)."
+      fi
+    fi
+    just _vault-copy quiet || true
 
 # Open today's journal entry, copy brain/ to its second place, then save
 [group('session')]
@@ -1732,7 +1759,16 @@ delegate task="":
     fi
     fix_round=0
     case "$here" in
-      delegate/*) fix_round=1; branch=$here ;;
+      delegate/*)
+        # n-8dbc9e: DELEGATE_BASE naming another branch used to start a fix
+        # round here and ignore that base. Refuse before a worker starts.
+        if [ -n "$base" ] && [ "$here" != "$base" ]; then
+          echo "refuses: on $here but DELEGATE_BASE is $base; unset DELEGATE_BASE to fix this branch, or checkout $base to start from it"
+          exit 1
+        fi
+        fix_round=1
+        branch=$here
+        ;;
       *)
         if [ -n "$base" ]; then
           if [ "$here" != "$base" ]; then echo "refuses: not on the base branch ($here; base is $base)"; exit 1; fi
@@ -1812,7 +1848,35 @@ delegate task="":
       rm -rf "$hookdir"
       hookdir=""
     }
-    trap 'restore_delegate_hook; if [ -n "$tpid" ]; then kill -TERM -"$tpid" 2>/dev/null || kill -TERM "$tpid" 2>/dev/null || true; fi; if [ -n "$wpid" ]; then kill -TERM -"$wpid" 2>/dev/null || kill -TERM "$wpid" 2>/dev/null || true; fi; rm -rf "$lock"' EXIT
+    # n-301ae6: a server started inside the sandbox keeps those file rights and
+    # then fails later builds. Stop only the port this job gave the worker.
+    sccache_port=""
+    stop_delegate_sccache() {
+      [ -n "${sccache_port:-}" ] || return 0
+      local port out spid watch i
+      port=$sccache_port
+      sccache_port=""
+      command -v sccache >/dev/null 2>&1 || return 0
+      out=$(mktemp 2>/dev/null) || return 0
+      # A connect that never answers is stopped after a few seconds, the same
+      # watcher _build-size uses. sccache may ignore SIGALRM (a Rust binary).
+      (
+        unset SCCACHE_SERVER_UDS
+        SCCACHE_SERVER_PORT=$port exec sccache --stop-server
+      ) >"$out" 2>&1 &
+      spid=$!
+      ( sleep 5 & echo "$!" > "$out.sleep"; wait "$!"; [ -e "$out.done" ] || kill "$spid" 2>/dev/null || true ) >/dev/null 2>&1 &
+      watch=$!
+      wait "$spid" 2>/dev/null || true
+      : > "$out.done" || true
+      i=0
+      until [ -s "$out.sleep" ] || [ "$i" -ge 100 ]; do sleep 0.02; i=$((i + 1)); done
+      kill "$(cat "$out.sleep" 2>/dev/null)" 2>/dev/null || true
+      wait "$watch" 2>/dev/null || true
+      rm -f "$out" "$out.sleep" "$out.done" || true
+      return 0
+    }
+    trap 'restore_delegate_hook; if [ -n "$tpid" ]; then kill -TERM -"$tpid" 2>/dev/null || kill -TERM "$tpid" 2>/dev/null || true; fi; if [ -n "$wpid" ]; then kill -TERM -"$wpid" 2>/dev/null || kill -TERM "$wpid" 2>/dev/null || true; fi; stop_delegate_sccache; rm -rf "$lock"' EXIT
     # opencode climbs WORKER_LADDER (spec 038). The first try of a branch takes
     # the first model; each fix round takes the next. Past the last, the job
     # stops. WORKER_MODEL pins one model and does not climb. Grok, claude and
@@ -1880,14 +1944,20 @@ delegate task="":
       # Nor grok's own auth.json: the profile binds the grok process itself,
       # which then says "Not signed in" (n-4d1e6a, 2026-10-31). The Read deny
       # below keeps the worker's tools off it.
-      local gfile="$HOME/.grok/sandbox.toml" gblock
+      local gfile="$HOME/.grok/sandbox.toml" gblock docker_rw
       mkdir -p "$HOME/.grok"
+      # n-9e0540: workspace cannot write ~/.docker/buildx, so docker buildx
+      # fails before just save. read_write does not expand ~ (grok sandbox guide).
+      docker_rw=$(printf '%s' "$HOME/.docker/buildx" | sed 's/\\/\\\\/g; s/"/\\"/g')
       gblock=$(mktemp)
       {
         printf '%s\n' '# BEGIN ai-backbone delegate'
         printf '%s\n' '# Sandbox deny owned by just delegate (spec 041). Rewritten each run.'
         printf '%s\n' '[profiles.ai-backbone-delegate]'
         printf '%s\n' 'extends = "workspace"'
+        printf '%s\n' 'read_write = ['
+        printf '  "%s",\n' "$docker_rw"
+        printf '%s\n' ']'
         printf '%s\n' 'deny = ['
         for gpath in \
           "~/.ssh" "~/.aws" "~/.appstoreconnect" \
@@ -2180,9 +2250,12 @@ delegate task="":
     # set. A fix round with the variable unset still protects the base the
     # branch recorded, or the check would be looking at the default while the
     # worker moved the branch the work is built on.
+    # n-8dbc9e: a fix round may set DELEGATE_BASE to this same delegate
+    # branch. That name is not a base to protect: the worker's commit moves
+    # it. Protect the recorded base, as when the variable is unset.
     protect=$default
     protect_kind=default
-    if [ -n "$base" ]; then
+    if [ "$fix_round" -eq 0 ] && [ -n "$base" ]; then
       protect=$base
       protect_kind=base
     elif [ "$fix_round" -eq 1 ]; then
@@ -2308,6 +2381,17 @@ delegate task="":
     chmod +x "$hookdir/reference-transaction"
     git config --worktree core.hooksPath "$hookdir"
     rm -f "$dir/${id}.timedout"
+    # n-301ae6: never the machine's port. Perl's bind of port 0 is a free one.
+    sccache_port=$(perl -MIO::Socket::INET -e 'my $s = IO::Socket::INET->new(LocalAddr => "127.0.0.1", LocalPort => 0, Proto => "tcp", Listen => 1) or exit 1; print $s->sockport' 2>/dev/null || true)
+    case "$sccache_port" in
+      ''|*[!0-9]*) sccache_port=$((30000 + ($$ % 20000))) ;;
+    esac
+    sccache_n=0
+    while [ "$sccache_n" -lt 5 ]; do
+      if [ "$sccache_port" != 4226 ] && [ "$sccache_port" != "${SCCACHE_SERVER_PORT:-}" ]; then break; fi
+      sccache_port=$((sccache_port + 1))
+      sccache_n=$((sccache_n + 1))
+    done
     set -m
     # A worker that has committed, printed its report and then sits with no
     # process of its own running stays alive for hours (grok 1.0.62, measured
@@ -2322,7 +2406,14 @@ delegate task="":
     rm -f "$dir/${id}.idle"
     idle_clean_since=$(date +%s)
     set +e
-    ( delegate_"$worker" "$prompt" ) </dev/null >"$log" 2>&1 &
+    # n-301ae6: no inherited wrapper and no unix socket, so this port is the
+    # only sccache server the worker can start. The trap stops that port.
+    (
+      unset RUSTC_WRAPPER
+      unset SCCACHE_SERVER_UDS
+      export SCCACHE_SERVER_PORT="$sccache_port"
+      delegate_"$worker" "$prompt"
+    ) </dev/null >"$log" 2>&1 &
     wpid=$!
     (
       t_end=$(LC_ALL=C awk -v s="$timeout_secs" -v n="$(date +%s)" 'BEGIN { printf "%d", n + s }')
@@ -4015,6 +4106,9 @@ template-update to="":
           echo "warn  the subagent cap hook could not be merged into .claude/settings.json (a comment or a trailing comma in it?): copy the PreToolUse group from the backbone's .claude/settings.json by hand."
         fi
       fi
+      # The same split as hooks-install (n-a931f8): the cap stays a round trip,
+      # and the hourly vault copy is merged beside it.
+      just _vault-hooks
     }
     if [ "$changed" -eq 0 ] && [ "$added" -eq 0 ]; then
       echo "Already up to date."; caphook; rules; exit 0
@@ -4412,6 +4506,9 @@ new-project name lang="":
     just sync-rules >/dev/null
     just _hook-lint >/dev/null
     if command -v prek >/dev/null 2>&1; then just hooks-install >/dev/null; fi
+    # hooks-install merges the hourly vault hooks when prek is here. A machine
+    # without it still gets them; a second merge writes nothing (n-a931f8).
+    just _vault-hooks >/dev/null
     # hooks-install already merged these when prek is here. This covers a
     # machine without it, and says so when the rules were not there yet.
     just _delegate-allow
@@ -4491,6 +4588,7 @@ adopt path:
     core sync-rules >/dev/null 2>&1 || true
     hook=$(core _hook-lint 2>/dev/null || true); if [ -n "$hook" ]; then echo "  $hook"; fi
     if command -v prek >/dev/null 2>&1; then core hooks-install >/dev/null 2>&1 || true; fi
+    core _vault-hooks >/dev/null 2>&1 || true
     core _delegate-allow || true
     echo
     echo "$added file(s) added, $kept of yours kept. Nothing was overwritten and nothing is saved yet."
@@ -5714,40 +5812,84 @@ _secret-files:
 # never fails its caller, and it copies what is there when it runs: the journal
 # entry session-end has just created is still empty, and one written earlier in
 # the day is about to grow, which is why it always asks to be run once more.
-_vault-copy:
+# Session-start runs `quiet` (one line) and says when the copy is older than
+# 24 hours. `hourly`, from Claude Code's hooks, runs at most once an hour and
+# never while another copy holds the lock. Off stays off (n-a931f8).
+[positional-arguments]
+_vault-copy mode="":
     #!/usr/bin/env bash
     set -uo pipefail
+    mode="${1:-}"
+    case "$mode" in quiet|hourly) ;; *) mode="" ;; esac
+    stamp=$(git rev-parse --git-path ai-backbone.vault-hourly 2>/dev/null || true)
+    # The fresh stamp is the whole hourly check: a shell command pays for a
+    # git read, not a copy. A refusal later in the hour is the same.
+    if [ "$mode" = hourly ] && [ -n "$stamp" ] && [ -n "$(find "$stamp" -mmin -60 2>/dev/null || true)" ]; then exit 0; fi
     [ -d brain ] || exit 0
+    # Hourly says nothing. quiet and the plain run say the one refusal.
+    # Touching the stamp keeps the next shell command from asking again.
+    skip() {
+      if [ "$mode" = hourly ]; then
+        [ -n "$stamp" ] && touch "$stamp" 2>/dev/null || true
+        exit 0
+      fi
+      printf '%s\n' "$1"
+      exit 0
+    }
     if [ -n "$(just _vault-off)" ]; then
+      if [ "$mode" = hourly ]; then skip ""; fi
+      if [ "$mode" = quiet ]; then exit 0; fi
       echo "brain/ was not copied: this project keeps no second copy (git config ai-backbone.vault-copy off). Back on: git config --unset ai-backbone.vault-copy"; exit 0
     fi
     dest=$(just _vault-dest 2>/dev/null || true)
     if [ -z "$dest" ]; then
-      echo "brain/ has no second copy: this machine has no place for one yet. An agent asks the person once for a folder (a cloud drive folder, a second disk), then: git config --global ai-backbone.vault-copy \"<folder>\""
-      exit 0
+      skip "brain/ has no second copy: this machine has no place for one yet. An agent asks the person once for a folder (a cloud drive folder, a second disk), then: git config --global ai-backbone.vault-copy \"<folder>\""
     fi
     place=$(dirname "$dest")
     if [ ! -d "$place" ]; then
-      echo "brain/ was not copied: $place is not there (a disk that is not plugged in, a drive that is not signed in?)."; exit 0
+      skip "brain/ was not copied: $place is not there (a disk that is not plugged in, a drive that is not signed in?)."
     fi
-    if ! command -v rsync >/dev/null 2>&1; then echo "brain/ was not copied: rsync is not on this machine."; exit 0; fi
+    if ! command -v rsync >/dev/null 2>&1; then skip "brain/ was not copied: rsync is not on this machine."; fi
     inside="$place"; if [ -d "$dest" ]; then inside="$dest"; fi
     if [ "$(git -C "$inside" rev-parse --is-inside-work-tree 2>/dev/null || true)" = true ]; then
-      echo "brain/ was not copied: $inside is inside a project that git saves, so the secret files would end up in a save. The place for second copies has to be a folder of its own."; exit 0
+      skip "brain/ was not copied: $inside is inside a project that git saves, so the secret files would end up in a save. The place for second copies has to be a folder of its own."
     fi
     case "$(cd "$place" 2>/dev/null && pwd -P)/" in "$(pwd -P)"/*)
-      echo "brain/ was not copied: $place is inside this project. The place for second copies has to be a folder of its own."; exit 0 ;;
+      skip "brain/ was not copied: $place is inside this project. The place for second copies has to be a folder of its own." ;;
     esac
-    was=$(sed -n 's/^Written by just session-end, last on .*, from //p' "$dest/about-this-copy.txt" 2>/dev/null || true)
+    was=$(sed -n 's/^Written by just session-end, last on .*, from //p; s/^Written by just _vault-copy, last on .*, from //p' "$dest/about-this-copy.txt" 2>/dev/null || true)
     if [ -n "$was" ] && [ "$was" != "$PWD" ] && [ -d "$was/brain" ]; then
-      echo "brain/ was not copied: $dest holds the copy of the project in $was, and this folder has the same project name (a clone, a worktree, a duplicate). Nothing was written over it. If this folder is the real one, remove $dest/about-this-copy.txt and run just session-end again."; exit 0
+      skip "brain/ was not copied: $dest holds the copy of the project in $was, and this folder has the same project name (a clone, a worktree, a duplicate). Nothing was written over it. If this folder is the real one, remove $dest/about-this-copy.txt and run just session-end again."
     fi
+    # One copy at a time. A dead holder leaves the directory; a live one is left
+    # to finish. Hourly does not wait and does not count the hour, so the next
+    # command tries again.
+    lock=$(git rev-parse --git-path ai-backbone.vault-lock 2>/dev/null || true)
+    case "$lock" in *ai-backbone.vault-lock) ;; *) lock="" ;; esac
+    if [ -n "$lock" ]; then
+      took=0
+      if mkdir "$lock" 2>/dev/null; then took=1
+      else
+        old=$(cat "$lock/pid" 2>/dev/null || true)
+        live=0
+        case "$old" in ""|*[!0-9]*) ;; *) if kill -0 "$old" 2>/dev/null; then live=1; fi ;; esac
+        if [ "$live" -eq 0 ]; then rm -rf "$lock"; mkdir "$lock" 2>/dev/null && took=1; fi
+      fi
+      if [ "$took" -ne 1 ]; then
+        if [ "$mode" = hourly ]; then exit 0; fi
+        echo "brain/ was not copied: another copy is still running."; exit 0
+      fi
+      echo $$ > "$lock/pid"
+      trap 'rm -rf "$lock"' EXIT
+    fi
+    [ -n "$stamp" ] && touch "$stamp" 2>/dev/null || true
     if ! mkdir -p "$dest/brain" 2>/dev/null || [ ! -w "$dest/brain" ]; then
-      echo "brain/ was not copied: $dest cannot be written."; exit 0
+      skip "brain/ was not copied: $dest cannot be written."
     fi
     full=1
     if ! rsync -a --exclude='.git' brain/ "$dest/brain/"; then
-      echo "brain/ was not copied in full to $dest/brain: what rsync said is above."; full=0
+      full=0
+      [ -n "$mode" ] || echo "brain/ was not copied in full to $dest/brain: what rsync said is above."
     fi
     repos=$(find brain -name .git -prune -print 2>/dev/null | tr '\n' ' ')
     n=0; names=""
@@ -5764,7 +5906,7 @@ _vault-copy:
     project=$(grep -E '^\| *project *\|' AGENTS.md 2>/dev/null | head -1 | awk -F'|' '{print $3}' | sed 's/^ *//;s/ *$//')
     {
       echo "${project:-$(basename "$PWD")}: the second copy of what git does not hold."
-      echo "Written by just session-end, last on $(date '+%Y-%m-%d %H:%M') on $(hostname 2>/dev/null || echo this machine), from $PWD"
+      echo "Written by just _vault-copy, last on $(date '+%Y-%m-%d %H:%M') on $(hostname 2>/dev/null || echo this machine), from $PWD"
       echo
       echo "brain/     the private vault as it was then. Secrets live in brain/secrets/."
       echo "           A file deleted in the project is still here."
@@ -5775,6 +5917,12 @@ _vault-copy:
       echo "This file says when the copy was written."
       echo "Whether the folder has reached a cloud since is the drive's to say."
     } > "$dest/about-this-copy.txt"
+    if [ "$mode" = hourly ]; then exit 0; fi
+    if [ "$mode" = quiet ]; then
+      if [ "$full" -eq 1 ]; then echo "brain/ copied to $dest/brain."
+      else echo "brain/ was not copied in full to $dest/brain: what rsync said is above."; fi
+      exit 0
+    fi
     if [ "$full" -eq 1 ]; then echo "brain/ copied to $dest/brain as it is now. The copy is taken when this command runs: after writing today's entry, run just session-end once more."; fi
     if [ "$n" -gt 0 ]; then echo "Copied beside it, to secrets/, what git ignores and a lost disk would take:$names"; fi
     links=$(find brain -type l 2>/dev/null | while IFS= read -r l; do case "$(readlink "$l")" in (/*) printf '%s ' "$l" ;; esac; done)
@@ -5795,7 +5943,7 @@ _doctor-msg key a="" b="":
       case "$1" in
         copy-none)        echo "brain/ klasörünün ikinci bir kopyası yok. Ajanına bir klasör söyle (bulut sürücüsünde bir klasör, ikinci bir disk); bu bilgisayar için bir kez sorulur."; exit 0 ;;
         copy-unreachable) echo "ikinci kopyaların yeri bulunamadı: $a  (takılı olmayan bir disk, oturumu kapalı bir sürücü?)"; exit 0 ;;
-        copy-never)       echo "brain/ klasörünün ikinci kopyası henüz yazılmadı. Bir sonraki just session-end şuraya yazar: $a"; exit 0 ;;
+        copy-never)       echo "brain/ klasörünün ikinci kopyası henüz yazılmadı. just session-start ya da just session-end şuraya yazar: $a"; exit 0 ;;
         copy-age)         echo "brain/ klasörünün ikinci kopyası: $age, yeri $b"; exit 0 ;;
         key-outside)      echo "brain/ dışında bir anahtar ya da sertifika dosyası var:"; exit 0 ;;
         key-where)        echo "yeri brain/secrets/ (AGENTS.md bölüm 7); just secrets-to-brain taşır ve eski yerinde bir bağ bırakır"; exit 0 ;;
@@ -5816,7 +5964,7 @@ _doctor-msg key a="" b="":
     case "$1" in
       copy-none)        echo "brain/ has no second copy. Tell your agent a folder for it (a folder in a cloud drive, a second disk); it is asked once for this machine." ;;
       copy-unreachable) echo "the place for second copies is not there: $a  (a disk that is not plugged in, a drive that is not signed in?)" ;;
-      copy-never)       echo "no second copy of brain/ written yet. The next just session-end writes it to $a" ;;
+      copy-never)       echo "no second copy of brain/ written yet. just session-start or just session-end writes it to $a" ;;
       copy-age)         echo "second copy of brain/: $age, in $b" ;;
       key-outside)      echo "a key or certificate sits outside brain/:" ;;
       key-where)        echo "it belongs in brain/secrets/ (AGENTS.md section 7); just secrets-to-brain moves it and leaves a link at the old path" ;;

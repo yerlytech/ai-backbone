@@ -14,6 +14,31 @@ squash that follows that version on the maintainer's machine takes the tags
 before it with the history. A newcomer reads a repository, not a diary. The
 entries below are the record of every version.
 
+## 26.11.1 — 2026-11-07
+
+**A delegate job refuses when `DELEGATE_BASE` names another branch (n-8dbc9e).**
+On a `delegate/*` branch, `just delegate` with `DELEGATE_BASE` set to a
+different branch used to start a fix round on the branch already checked out
+and ignore that base. It now refuses before a worker starts, in one line that
+names both branches and the fix: unset `DELEGATE_BASE` to keep fixing this
+branch, or check out the named branch to start from it. A fix round on that
+same branch, and a fresh run from the default, are unchanged.
+
+**The vault copy also runs at session start and hourly (n-a931f8).** It ran
+only at `just session-end`, so a session that never ended left the second
+copy of `brain/` days old. `just session-start` now runs it at the end, in
+one line, and says when that copy is older than 24 hours. `just hooks-install`
+and `just template-update` merge two Claude Code hooks that run it at most
+once an hour, at session start and after a shell command, and never while
+another copy is running. Those hooks are not part of the subagent cap:
+`hook add` and `hook remove` still touch only that cap, so a save on a clean
+tree does not rewrite `.claude/settings.json`. A project that set
+`ai-backbone.vault-copy` to off stays off.
+
+**A delegate job does not leave its sccache server running (n-301ae6).** The worker starts with `RUSTC_WRAPPER` unset, `SCCACHE_SERVER_UDS` unset, and its own `SCCACHE_SERVER_PORT`. The server on that port is stopped when the job ends. A server first started inside the sandbox kept the sandbox's file rights and then failed later builds on the machine.
+
+**Docker buildx can write its state in the grok sandbox (n-9e0540).** The `ai-backbone-delegate` profile grants write access to `~/.docker/buildx`, as a full path, because `read_write` does not expand `~`. A test that runs `docker buildx` can finish, and the worker can reach `just save`.
+
 ## 26.11.0 — 2026-11-01
 
 **A GHSA-only advisory is seen (n-87f6a0).** `upstream.py --advisories` asks
