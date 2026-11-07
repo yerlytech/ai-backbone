@@ -5246,6 +5246,24 @@ git -C "$dproj" checkout -q main
 d_run ok grok "" delegate "add a line"
 dbr2=$(git -C "$dproj" symbolic-ref --short HEAD)
 check "the same task on the same day gets a short suffix, and the first branch stays" "[ \$d_rc -eq 0 ] && [ \"\$dbr2\" = \"\${dbr}-2\" ] && git -C \"\$dproj\" show-ref --verify --quiet \"refs/heads/\$dbr\" && git -C \"\$dproj\" show-ref --verify --quiet \"refs/heads/\$dbr2\""
+buildx_grant_ok() {
+  awk -v home="$1" '
+    /^# BEGIN ai-backbone delegate/ { blocks++ }
+    /^read_write = \[/ { mode = "rw"; next }
+    /^deny = \[/ { mode = "deny"; next }
+    /^\]/ { mode = ""; next }
+    {
+      if (index($0, home "/.docker/buildx")) {
+        if (mode == "rw") rw++
+        else bad++
+      }
+      if (index($0, "~/.docker/buildx")) tilde++
+    }
+    END { exit !(blocks == 1 && rw == 1 && bad == 0 && tilde == 0) }
+  ' "$2"
+}
+check "the grok sandbox grants write on the home docker buildx directory (n-9e0540)" \
+  "buildx_grant_ok \"\$dhome\" \"\$dhome/.grok/sandbox.toml\" && grep -q n-9e0540 \"\$root/.agents/skills/delegate/SKILL.md\" && grep -q 'docker/buildx' \"\$root/.agents/skills/delegate/SKILL.md\""
 d_new titled
 d_run ok grok "" delegate "$(printf 'From the company desk\n\nTitle: pin the crates\n\nDo the pin.')"
 dbr=$(git -C "$dproj" symbolic-ref --short HEAD)

@@ -111,7 +111,11 @@ Grok's delegate run denies `Read` of the secret paths and the keystore
 commands, `ssh-add`, and the agent socket, and writes a sandbox profile
 `ai-backbone-delegate` whose `deny` lists the same paths. The guide says a
 non-empty `deny` is kernel-enforced; that enforcement is not measured yet
-(n-fc65ca). opencode denies the same commands after the shell allow, and
+(n-fc65ca). The same profile grants write access to `~/.docker/buildx`, as
+that directory's full path, because `read_write` does not expand `~`
+(n-9e0540). `docker buildx` stores its state there. Without the grant the
+command fails and the worker never reaches `just save`. opencode denies the
+same commands after the shell allow, and
 denies the same paths in its `read` object; the per-path `read` schema was
 not in the checkout on 2026-10-31 (pin 2.1.2). Claude's denies are merged
 into `.claude/settings.json` when `WORKER` is set. The command list is still

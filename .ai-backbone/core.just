@@ -1888,14 +1888,20 @@ delegate task="":
       # Nor grok's own auth.json: the profile binds the grok process itself,
       # which then says "Not signed in" (n-4d1e6a, 2026-10-31). The Read deny
       # below keeps the worker's tools off it.
-      local gfile="$HOME/.grok/sandbox.toml" gblock
+      local gfile="$HOME/.grok/sandbox.toml" gblock docker_rw
       mkdir -p "$HOME/.grok"
+      # n-9e0540: workspace cannot write ~/.docker/buildx, so docker buildx
+      # fails before just save. read_write does not expand ~ (grok sandbox guide).
+      docker_rw=$(printf '%s' "$HOME/.docker/buildx" | sed 's/\\/\\\\/g; s/"/\\"/g')
       gblock=$(mktemp)
       {
         printf '%s\n' '# BEGIN ai-backbone delegate'
         printf '%s\n' '# Sandbox deny owned by just delegate (spec 041). Rewritten each run.'
         printf '%s\n' '[profiles.ai-backbone-delegate]'
         printf '%s\n' 'extends = "workspace"'
+        printf '%s\n' 'read_write = ['
+        printf '  "%s",\n' "$docker_rw"
+        printf '%s\n' ']'
         printf '%s\n' 'deny = ['
         for gpath in \
           "~/.ssh" "~/.aws" "~/.appstoreconnect" \
