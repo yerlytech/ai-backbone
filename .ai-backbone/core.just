@@ -1139,6 +1139,21 @@ _delegate-allow:
       fi
     fi
 
+# The hourly vault copy in Claude Code's settings (n-a931f8). Not the subagent
+# cap: hook add and hook remove own that, and a round trip must leave every
+# other hook as it was. Quiet when the commands are already there, and never
+# a reason for the caller to fail. A broken settings file is left as found.
+_vault-hooks:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -f .ai-backbone/budget.py ] && { [ -d .claude ] || [ -f .claude/settings.json ]; }; then
+      if said=$("$(just _py)" .ai-backbone/budget.py vault add 2>/dev/null); then
+        case "$said" in
+          added) echo "Vault copy: Claude Code runs it at most once an hour (session start and after a shell command)." ;;
+        esac
+      fi
+    fi
+
 # Install the git hooks that check every save (leaked secrets, message style), and every push when the config has a pre-push hook
 [group('setup')]
 hooks-install:
@@ -1217,6 +1232,9 @@ hooks-install:
         echo "warn  the subagent cap hook could not be merged into .claude/settings.json (a comment or a trailing comma in it?): copy the PreToolUse group from the backbone's .claude/settings.json by hand."
       fi
     fi
+    # After the cap, and not inside it (n-a931f8). hook add stays a round trip
+    # of that one group; this merge is what puts the hourly copy in.
+    just _vault-hooks
     # A local-only project refuses every push, even a plain `git push` (spec 026).
     # The hook reads the setting when it runs, so turning it off needs nothing
     # more; it is written only where no pre-push hook is, and never over one.
@@ -4004,6 +4022,9 @@ template-update to="":
           echo "warn  the subagent cap hook could not be merged into .claude/settings.json (a comment or a trailing comma in it?): copy the PreToolUse group from the backbone's .claude/settings.json by hand."
         fi
       fi
+      # The same split as hooks-install (n-a931f8): the cap stays a round trip,
+      # and the hourly vault copy is merged beside it.
+      just _vault-hooks
     }
     if [ "$changed" -eq 0 ] && [ "$added" -eq 0 ]; then
       echo "Already up to date."; caphook; rules; exit 0
@@ -4401,6 +4422,9 @@ new-project name lang="":
     just sync-rules >/dev/null
     just _hook-lint >/dev/null
     if command -v prek >/dev/null 2>&1; then just hooks-install >/dev/null; fi
+    # hooks-install merges the hourly vault hooks when prek is here. A machine
+    # without it still gets them; a second merge writes nothing (n-a931f8).
+    just _vault-hooks >/dev/null
     # hooks-install already merged these when prek is here. This covers a
     # machine without it, and says so when the rules were not there yet.
     just _delegate-allow
@@ -4480,6 +4504,7 @@ adopt path:
     core sync-rules >/dev/null 2>&1 || true
     hook=$(core _hook-lint 2>/dev/null || true); if [ -n "$hook" ]; then echo "  $hook"; fi
     if command -v prek >/dev/null 2>&1; then core hooks-install >/dev/null 2>&1 || true; fi
+    core _vault-hooks >/dev/null 2>&1 || true
     core _delegate-allow || true
     echo
     echo "$added file(s) added, $kept of yours kept. Nothing was overwritten and nothing is saved yet."
