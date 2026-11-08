@@ -16,6 +16,12 @@ entries below are the record of every version.
 
 ## 26.11.1 — 2026-11-07
 
+**A grok delegate run does not close other Grok sessions.** The sandbox profile is written to the project's `.grok/sandbox.toml`, and only when the spliced content differs. The shared `~/.grok/sandbox.toml` is left alone. Grok's guide names both files; writing the shared one closed every session already running (seen 2026-11-07 23:28). The deny list is the same. If the user file already has `[profiles.ai-backbone-delegate]`, this run uses `ai-backbone-delegate-job` in the project file so the leftover user profile does not win.
+
+**A grok worker can `just save` without reading `~/.ssh` (n-afbc90).** The desk sets a `key::` signing key from the agent socket when that socket is reachable, so `git commit` signs through `SSH_AUTH_SOCK`. If it cannot, the worktree turns `commit.gpgsign` off and accept signs when the desk can. The sandbox still denies `~/.ssh`.
+
+**Accept leaves the tree as it found it, and a leftover `core.hooksPath` is dropped.** A dead job's `reference-transaction` hook refused a multi-commit fast-forward (the new tip's first parent is not the old tip) and left files staged on main. The job no longer restores a stale delegate hooks path as `hooks_prev`. Accept ignores leftover hooks, resets a failed fast-forward, and leaves a clean tree.
+
 **A delegate job refuses when `DELEGATE_BASE` names another branch (n-8dbc9e).**
 On a `delegate/*` branch, `just delegate` with `DELEGATE_BASE` set to a
 different branch used to start a fix round on the branch already checked out

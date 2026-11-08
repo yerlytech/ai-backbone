@@ -55,6 +55,10 @@ or check out the named branch to start from it. Accept fast-forwards the base
 where it is checked out, and does not switch a worktree that is on main onto
 the lane. When the base is already checked out, the worktree that still has
 the delegate branch is detached there, and then the branch is deleted.
+A leftover `core.hooksPath` from a dead job is dropped when the job ends and
+again on accept, so a multi-commit fast-forward does not leave files staged.
+Accept leaves the tree as it found it: clean on success, and the starting
+commit if the fast-forward fails.
 `WORKER_MODEL` pins one model.
 For `claude` it is passed through. For `opencode` it is used on every round
 instead of the ladder. `WORKER_LADDER` is that ladder, comma-separated
@@ -113,12 +117,21 @@ The deny list is command text and can be reworded. These hold another way:
 
 Grok's delegate run denies `Read` of the secret paths and the keystore
 commands, `ssh-add`, and the agent socket, and writes a sandbox profile
-`ai-backbone-delegate` whose `deny` lists the same paths. The guide says a
+`ai-backbone-delegate` (or `ai-backbone-delegate-job` when
+`~/.grok/sandbox.toml` already has the first name) whose `deny` lists the
+same paths. The profile is written to the project's `.grok/sandbox.toml`,
+and only when the spliced content differs. The shared
+`~/.grok/sandbox.toml` is not written: Grok's guide names both files, and
+writing the shared one closes every session already running (seen
+2026-11-07 23:28). The guide says a
 non-empty `deny` is kernel-enforced; that enforcement is not measured yet
 (n-fc65ca). The same profile grants write access to `~/.docker/buildx`, as
 that directory's full path, because `read_write` does not expand `~`
 (n-9e0540). `docker buildx` stores its state there. Without the grant the
-command fails and the worker never reaches `just save`. opencode denies the
+command fails and the worker never reaches `just save`. The worker still
+cannot read `~/.ssh`. When `just save` would sign, the desk sets a `key::`
+signing key from the agent socket if that socket is reachable, or turns
+signing off in the worktree and signs on accept (n-afbc90). opencode denies the
 same commands after the shell allow, and
 denies the same paths in its `read` object; the per-path `read` schema was
 not in the checkout on 2026-10-31 (pin 2.1.2). Claude's denies are merged

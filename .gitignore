@@ -57,6 +57,9 @@ CLAUDE.local.md
 .gemini/
 .aider*
 .windsurf/
+# Grok's per-project sandbox profile. just delegate writes it so a grok
+# worker does not touch ~/.grok/sandbox.toml (which would close other sessions).
+.grok/sandbox.toml
 
 # ── Editor ───────────────────────────────────────────────────
 .idea/

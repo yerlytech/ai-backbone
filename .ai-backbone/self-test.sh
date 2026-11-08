@@ -4791,6 +4791,12 @@ case "$mode" in
     n=1
     while [ "$n" -le 20 ]; do printf 'line-%02d\n' "$n"; n=$((n+1)); done
     ;;
+  sign)
+    printf 'signed\n' > worker-signed.txt
+    git add worker-signed.txt
+    git commit -qm "chore: worker signed the task"
+    printf 'worker signed the task\n'
+    ;;
   slow)
     echo started
     i=0
@@ -5246,7 +5252,7 @@ check "the preamble grok receives says never begin a command with a variable ass
 check "grok's deny list also names the shell wrappers that step around rm (added, not measured on grok)" \
   "grep -qx 'Bash(sh:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(bash:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(zsh:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(eval:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(xargs:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(env:\*)' \"\$dprompt.deny\""
 check "grok's argv denies the keystore commands, ssh-add and the secret paths, and the sandbox profile names the same paths" \
-  "grep -qx 'Bash(security find-generic-password:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(security find-internet-password:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(/usr/bin/security find-generic-password:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(/usr/bin/security find-internet-password:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(secret-tool lookup:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(/usr/bin/secret-tool lookup:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(just with-secret:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(ssh-add:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(/usr/bin/ssh-add:\*)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/.aws/**)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/.ssh/**)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/.env)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/.envrc)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/ssh-agent.sock)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/brain/secrets/**)' \"\$dprompt.deny\" && ! grep -q '.env.example' \"\$dprompt.deny\" && [ \"\$(cat \"\$dprompt.sandbox\")\" = ai-backbone-delegate ] && grep -q 'extends = \"workspace\"' \"\$dhome/.grok/sandbox.toml\" && grep -q '\"~/.ssh\"' \"\$dhome/.grok/sandbox.toml\" && grep -q '\"~/.aws\"' \"\$dhome/.grok/sandbox.toml\" && grep -Fq '\"**/.env\"' \"\$dhome/.grok/sandbox.toml\" && ! grep -q '/Users/' \"\$dhome/.grok/sandbox.toml\" && ! grep -qx '  \"~/.grok\",' \"\$dhome/.grok/sandbox.toml\" && ! grep -q 'grok/auth.json' \"\$dhome/.grok/sandbox.toml\""
+  "grep -qx 'Bash(security find-generic-password:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(security find-internet-password:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(/usr/bin/security find-generic-password:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(/usr/bin/security find-internet-password:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(secret-tool lookup:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(/usr/bin/secret-tool lookup:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(just with-secret:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(ssh-add:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(/usr/bin/ssh-add:\*)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/.aws/**)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/.ssh/**)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/.env)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/.envrc)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/ssh-agent.sock)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/brain/secrets/**)' \"\$dprompt.deny\" && ! grep -q '.env.example' \"\$dprompt.deny\" && [ \"\$(cat \"\$dprompt.sandbox\")\" = ai-backbone-delegate ] && grep -q 'extends = \"workspace\"' \"\$dproj/.grok/sandbox.toml\" && grep -q '\"~/.ssh\"' \"\$dproj/.grok/sandbox.toml\" && grep -q '\"~/.aws\"' \"\$dproj/.grok/sandbox.toml\" && grep -Fq '\"**/.env\"' \"\$dproj/.grok/sandbox.toml\" && ! grep -q '/Users/' \"\$dproj/.grok/sandbox.toml\" && ! grep -qx '  \"~/.grok\",' \"\$dproj/.grok/sandbox.toml\" && ! grep -q 'grok/auth.json' \"\$dproj/.grok/sandbox.toml\" && ! [ -f \"\$dhome/.grok/sandbox.toml\" ]"
 git -C "$dproj" checkout -q main
 d_run ok grok "" delegate "add a line"
 dbr2=$(git -C "$dproj" symbolic-ref --short HEAD)
@@ -5268,7 +5274,16 @@ buildx_grant_ok() {
   ' "$2"
 }
 check "the grok sandbox grants write on the home docker buildx directory (n-9e0540)" \
-  "buildx_grant_ok \"\$dhome\" \"\$dhome/.grok/sandbox.toml\" && grep -q n-9e0540 \"\$root/.agents/skills/delegate/SKILL.md\" && grep -q 'docker/buildx' \"\$root/.agents/skills/delegate/SKILL.md\""
+  "buildx_grant_ok \"\$dhome\" \"\$dproj/.grok/sandbox.toml\" && grep -q n-9e0540 \"\$root/.agents/skills/delegate/SKILL.md\" && grep -q 'docker/buildx' \"\$root/.agents/skills/delegate/SKILL.md\""
+check "the grok sandbox profile is the project file, not the shared home file" \
+  "[ -f \"\$dproj/.grok/sandbox.toml\" ] && ! [ -f \"\$dhome/.grok/sandbox.toml\" ] && grep -Fq '[profiles.ai-backbone-delegate]' \"\$dproj/.grok/sandbox.toml\" && grep -q '.grok/sandbox.toml' \"\$dproj/.git/info/exclude\" && grep -q n-afbc90 \"\$root/.agents/skills/delegate/SKILL.md\""
+d_new grokhome
+mkdir -p "$dhome/.grok"
+printf '%s\n' '# user leftover' '[profiles.ai-backbone-delegate]' 'extends = "workspace"' > "$dhome/.grok/sandbox.toml"
+cp "$dhome/.grok/sandbox.toml" "$tmp/home-sandbox-before"
+d_run ok grok "" delegate "add a line"
+check "a leftover home sandbox.toml is not rewritten, and the run uses a project profile" \
+  "cmp -s \"$tmp/home-sandbox-before\" \"\$dhome/.grok/sandbox.toml\" && [ \"\$(cat \"\$dprompt.sandbox\")\" = ai-backbone-delegate-job ] && grep -Fq '[profiles.ai-backbone-delegate-job]' \"\$dproj/.grok/sandbox.toml\" && grep -q '\"~/.ssh\"' \"\$dproj/.grok/sandbox.toml\""
 d_new titled
 d_run ok grok "" delegate "$(printf 'From the company desk\n\nTitle: pin the crates\n\nDo the pin.')"
 dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
@@ -5335,6 +5350,32 @@ d_run ok grok "" delegate "add a line"
 d_run ok "" "" delegate-accept
 check "accept fast-forwards the default branch and deletes the delegate branch" \
   "[ \$d_rc -eq 0 ] && grep -q '^accepted delegate/.* onto main$' <<<\"\$d_out\" && [ \"\$(git -C \"\$dproj\" symbolic-ref --short HEAD)\" = main ] && [ -f \"\$dproj/worker-did.txt\" ] && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ] && git -C \"\$dproj\" merge-base --is-ancestor HEAD HEAD"
+d_new acceptleftover
+d_run ok grok "" delegate "add a line"
+d_run fix grok "" delegate "fix the line"
+leftdir="$tmp/leftover-hooks"
+rm -rf "$leftdir"
+mkdir -p "$leftdir"
+printf '%s\n' '#!/bin/sh' 'echo staged-by-hook > leftover.txt' 'git add leftover.txt' 'echo refuses: leftover hook >&2' 'exit 1' > "$leftdir/reference-transaction"
+chmod +x "$leftdir/reference-transaction"
+git -C "$dproj" config --local extensions.worktreeConfig true
+git -C "$dproj" config --worktree core.hooksPath "$leftdir"
+d_run ok "" "" delegate-accept
+check "accept of a multi-commit branch under leftover hooksPath leaves a clean tree" \
+  "[ \$d_rc -eq 0 ] && grep -q '^accepted delegate/.* onto main$' <<<\"\$d_out\" && [ \"\$(git -C \"\$dproj\" symbolic-ref --short HEAD)\" = main ] && [ -z \"\$(git -C \"\$dproj\" status --porcelain)\" ] && [ ! -f \"\$dproj/leftover.txt\" ] && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ] && [ -f \"\$dproj/worker-did.txt\" ]"
+d_new signoff
+git -C "$dproj" config commit.gpgsign true
+git -C "$dproj" config gpg.format ssh
+git -C "$dproj" config user.signingkey "$dhome/missing-signing-key"
+d_out=$(env -u WORKER -u WORKER_MODEL -u DELEGATE_TIMEOUT -u DELEGATE_IDLE -u WORKER_BIN -u DELEGATE_BASE -u DELEGATE_YES -u FAKE_WORKER_TARGET \
+  -u WORKER_LADDER -u OPENCODE_CONFIG -u OPENCODE_CONFIG_PROJECT_DISABLE \
+  -u DELEGATE_MODEL -u KIMI_CODE_HOME -u SSH_AUTH_SOCK \
+  HOME="$dhome" PATH="$dbin:$PATH" \
+  FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE=sign FAKE_WORKER_GO="$dgo" \
+  WORKER=grok \
+  just -f "$root/Justfile" -d "$dproj" delegate "sign it" 2>&1) && d_rc=0 || d_rc=$?
+check "a worker whose signing key is unreadable still commits (n-afbc90)" \
+  "[ \$d_rc -eq 0 ] && [ -f \"\$dproj/worker-signed.txt\" ] && [ -z \"\$(git -C \"\$dproj\" status --porcelain)\" ] && grep -q 'worker signed the task' <<<\"\$d_out\""
 d_new noff
 d_run ok grok "" delegate "add a line"
 nbr=$(git -C "$dproj" symbolic-ref --short HEAD)
