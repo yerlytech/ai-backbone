@@ -2031,6 +2031,10 @@ delegate task="":
     close $out;
     GROKPERL
       rm -f "$gblock"
+      # The profile lives in this worktree, which the workspace profile can
+      # write. Hash it after the splice and again when the job ends.
+      if [ -f "$gfile" ]; then git hash-object "$gfile" > "$dir/${id}.sandbox-hash"
+      else printf 'missing\n' > "$dir/${id}.sandbox-hash"; fi
       exec "$worker_bin" -p "$1" --output-format plain --permission-mode auto \
         --background-wait-timeout "$background_wait" \
         --sandbox "$gprofile" \
@@ -2040,7 +2044,9 @@ delegate task="":
         --deny 'Bash(git checkout:*)' --deny 'Bash(git switch:*)' --deny 'Bash(git reset:*)' \
         --deny 'Bash(git branch -d:*)' --deny 'Bash(git branch -D:*)' --deny 'Bash(git tag:*)' \
         --deny 'Bash(just publish:*)' --deny 'Bash(just ship:*)' --deny 'Bash(just deploy:*)' \
-        --deny 'Bash(just release:*)' --deny 'Bash(just undo:*)' --deny 'Bash(gh:*)' \
+        --deny 'Bash(just release:*)' --deny 'Bash(just undo:*)' \
+        --deny 'Bash(just delegate-accept:*)' --deny 'Bash(just delegate-drop:*)' \
+        --deny 'Bash(gh:*)' \
         --deny 'Bash(curl:*)' --deny 'Bash(ssh:*)' --deny 'Bash(rm:*)' \
         --deny 'Bash(sh:*)' --deny 'Bash(bash:*)' --deny 'Bash(zsh:*)' \
         --deny 'Bash(eval:*)' --deny 'Bash(xargs:*)' --deny 'Bash(env:*)' \
@@ -2057,7 +2063,8 @@ delegate task="":
         --deny 'Read(**/.grok/auth.json)' --deny 'Read(**/.grok/mcp_credentials.json)' \
         --deny 'Read(**/brain/secrets/**)' --deny 'Read(**/brain/03-stack/**)' \
         --deny 'Read(**/.env)' --deny 'Read(**/.envrc)' \
-        --deny 'Read(**/ai-backbone/keystore/**)' --deny 'Read(**/ssh-agent.sock)'
+        --deny 'Read(**/ai-backbone/keystore/**)' --deny 'Read(**/ssh-agent.sock)' \
+        --deny 'Write(**/.grok/sandbox.toml)' --deny 'Edit(**/.grok/sandbox.toml)'
     }
     delegate_claude() {
       if [ -n "${WORKER_MODEL:-}" ]; then exec "$worker_bin" -p "$1" --model "$WORKER_MODEL"
@@ -2115,6 +2122,8 @@ delegate task="":
           "just deploy *": "deny",
           "just release *": "deny",
           "just undo *": "deny",
+          "just delegate-accept *": "deny",
+          "just delegate-drop *": "deny",
           "gh *": "deny",
           "curl *": "deny",
           "ssh *": "deny",
@@ -2163,6 +2172,7 @@ delegate task="":
           "git push" "git merge" "git rebase" "git checkout" "git switch" "git reset" \
           "git branch -d" "git branch -D" "git tag" \
           "just publish" "just ship" "just deploy" "just release" "just undo" "just carry" \
+          "just delegate-accept" "just delegate-drop" \
           "just server-bootstrap" "just ssh-allow" "just box-keys" "just live" "just live-trust" "just live-retry" \
           "just ghcr-login" "just backup-pull" "just restore-drill" "just disk-grow" "just aws-key-rotate" \
           "gh" "curl" "ssh" "scp" "sftp" "rsync" "aws" "security" "secret-tool" \
@@ -2417,46 +2427,19 @@ delegate task="":
       > "$hookdir/reference-transaction"
     chmod +x "$hookdir/reference-transaction"
     git config --worktree core.hooksPath "$hookdir"
-    # n-afbc90: just save signs with a key under ~/.ssh, which the sandbox
-    # denies. The desk can read that path and the agent socket; the worker
-    # cannot. Prefer key:: plus SSH_AUTH_SOCK. If neither is possible, turn
-    # signing off in this worktree so the worker can commit; accept signs.
+    # n-afbc90: a worker never signs. The agent socket on this Mac is
+    # launchd's path, which the **/ssh-agent.sock deny does not match, so a
+    # key:: signing key would let the worker sign with the company's key.
+    # When commit.gpgsign is on, turn it off in this worktree for the job and
+    # mark the branch. Accept signs after the desk has read the work. The
+    # worktree's own value is put back when the job ends.
     if git config --worktree --get commit.gpgsign >/dev/null 2>&1; then
-      sign_wt_gpgsign_set=1
       sign_wt_gpgsign=$(git config --worktree --get commit.gpgsign)
-    fi
-    if git config --worktree --get gpg.format >/dev/null 2>&1; then
-      sign_wt_format_set=1
-      sign_wt_format=$(git config --worktree --get gpg.format)
-    fi
-    if git config --worktree --get user.signingkey >/dev/null 2>&1; then
-      sign_wt_key_set=1
-      sign_wt_key=$(git config --worktree --get user.signingkey)
     fi
     sign_want=0
     sign_gpgsign=$(git config --get commit.gpgsign 2>/dev/null || true)
     case "$sign_gpgsign" in true|TRUE|yes|YES|on|ON|1) sign_want=1 ;; esac
-    sign_pubkey=""
-    sign_key=$(git config --get user.signingkey 2>/dev/null || true)
-    case "$sign_key" in
-      key::*) sign_pubkey=${sign_key#key::} ;;
-      "") ;;
-      *)
-        if [ -f "$sign_key" ]; then sign_pubkey=$(cat "$sign_key" 2>/dev/null || true)
-        elif [ -f "$sign_key.pub" ]; then sign_pubkey=$(cat "$sign_key.pub" 2>/dev/null || true)
-        fi
-        ;;
-    esac
-    if [ -z "$sign_pubkey" ] && [ -n "${SSH_AUTH_SOCK:-}" ] && [ -S "$SSH_AUTH_SOCK" ] && command -v ssh-add >/dev/null 2>&1; then
-      sign_pubkey=$(ssh-add -L 2>/dev/null | awk 'NF { print; exit }' || true)
-    fi
-    sign_pubkey=$(printf '%s\n' "$sign_pubkey" | awk 'NF { print; exit }')
-    if [ "$sign_want" -eq 1 ] && [ -n "$sign_pubkey" ] && [ -n "${SSH_AUTH_SOCK:-}" ] && [ -S "$SSH_AUTH_SOCK" ]; then
-      git config --worktree gpg.format ssh
-      git config --worktree user.signingkey "key::$sign_pubkey"
-      sign_wt_format_set=1
-      sign_wt_key_set=1
-    elif [ "$sign_want" -eq 1 ]; then
+    if [ "$sign_want" -eq 1 ]; then
       git config --worktree commit.gpgsign false
       sign_wt_gpgsign_set=1
       git config "branch.${branch}.delegateUnsigned" 1
@@ -2645,6 +2628,17 @@ delegate task="":
       echo "(branch $branch is gone)"
     fi
     echo
+    if [ -f "$dir/${id}.sandbox-hash" ]; then
+      sandbox_before=$(cat "$dir/${id}.sandbox-hash")
+      rm -f "$dir/${id}.sandbox-hash"
+      sandbox_after=missing
+      if [ -f "$top/.grok/sandbox.toml" ]; then
+        sandbox_after=$(git hash-object "$top/.grok/sandbox.toml")
+      fi
+      if [ "$sandbox_before" != "$sandbox_after" ]; then
+        echo "sandbox profile changed: .grok/sandbox.toml"
+      fi
+    fi
     if [ -n "$(git status --porcelain)" ]; then echo "tree: dirty"; else echo "tree: clean"; fi
     if [ "$went_quiet" -eq 1 ]; then echo "the worker went quiet after its last commit and was stopped after ${idle_min} min (DELEGATE_IDLE)"; fi
     if [ "$timed_out" -eq 1 ]; then echo "exit status: timeout"; else echo "exit status: $rc"; fi
@@ -2717,11 +2711,24 @@ delegate-accept branch="":
     #!/usr/bin/env bash
     set -euo pipefail
     git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "refuses: not a git repository"; exit 1; }
+    # n-683f69: the reference-transaction hook is what refuses a merge. Empty
+    # hooks skip it, so they are used only after this check finds no running
+    # job. A running job's hook is never removed or skipped, and nothing else
+    # changes until that is known.
+    top=$(git rev-parse --show-toplevel)
+    lock="$HOME/.cache/ai-backbone/delegate/$(basename "$top")/running"
+    if [ -f "$lock/pid" ]; then
+      pid=$(cat "$lock/pid" 2>/dev/null || true)
+      if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+        echo "refuses: a job is running"
+        exit 1
+      fi
+    fi
     if [ -n "$(git status --porcelain)" ]; then echo "refuses: the working tree is not clean"; exit 1; fi
     # Leftover core.hooksPath from a dead job's reference-transaction hook
     # refuses a multi-commit fast-forward (new tip's first parent is not the
     # old tip) and leaves the index staged. Empty hooks for this recipe, and
-    # drop a stale delegate hooksPath when no job is running.
+    # drop a stale delegate hooksPath, only because no job is running.
     emptyhooks=$(mktemp -d)
     trap 'rm -rf "$emptyhooks"' EXIT
     git_nh() { git -c core.hooksPath="$emptyhooks" "$@"; }
@@ -2800,20 +2807,67 @@ delegate-accept branch="":
     if [ -n "$onto_wt" ] && [ "$onto_wt" != "$branch_wt" ] && [ -n "$(git -C "$onto_wt" status --porcelain)" ]; then
       echo "refuses: the worktree on $onto is not clean"; exit 1
     fi
-    # n-afbc90: unsigned worker commits, signed here when the desk can.
+    # n-afbc90: the worker left unsigned commits. Sign them here, after the
+    # work has been read, and do not move the base until every one carries a
+    # signature. The mark stays until the base has moved.
+    # Measured on git 2.56.0: `rebase -S` on a branch already ahead of its
+    # base says "up to date" and never calls the signer. `-f` replays the
+    # commits, so a signer that fails stops halfway and leaves rebase-merge.
+    # %G? is N when gpg.ssh.allowedSignersFile is unset even if the commit
+    # has a gpgsig line, so the check reads the commit object.
     if [ "$(git config --get "branch.${branch}.delegateUnsigned" 2>/dev/null || true)" = 1 ]; then
       sign_now=$(git config --get commit.gpgsign 2>/dev/null || true)
       case "$sign_now" in
         true|TRUE|yes|YES|on|ON|1)
           sign_dir=$here_top
           if [ -n "$branch_wt" ]; then sign_dir=$branch_wt; fi
-          if [ "$(git -C "$sign_dir" symbolic-ref -q --short HEAD || true)" = "$branch" ]; then
-            git_nhC "$sign_dir" rebase -S "$onto" >/dev/null 2>&1 || true
+          if [ "$(git -C "$sign_dir" symbolic-ref -q --short HEAD || true)" != "$branch" ]; then
+            echo "refuses: could not sign"
+            exit 1
+          fi
+          if ! git_nhC "$sign_dir" rebase -S -f "$onto" >/dev/null 2>&1; then
+            git_nhC "$sign_dir" rebase --abort >/dev/null 2>&1 || true
+            echo "refuses: could not sign"
+            exit 1
+          fi
+          sign_rb=$(git -C "$sign_dir" rev-parse --git-path rebase-merge)
+          case "$sign_rb" in /*) ;; *) sign_rb="$sign_dir/$sign_rb" ;; esac
+          sign_ra=$(git -C "$sign_dir" rev-parse --git-path rebase-apply)
+          case "$sign_ra" in /*) ;; *) sign_ra="$sign_dir/$sign_ra" ;; esac
+          if [ -d "$sign_rb" ] || [ -d "$sign_ra" ]; then
+            git_nhC "$sign_dir" rebase --abort >/dev/null 2>&1 || true
+            echo "refuses: could not sign"
+            exit 1
+          fi
+          sign_missing=0
+          for sign_sha in $(git rev-list "${onto}..${branch}"); do
+            # Headers only. A pipe into grep -q under pipefail reports a
+            # signature as missing: grep closes the pipe early.
+            sign_body=$(git cat-file -p "$sign_sha")
+            sign_head=${sign_body%%$'\n\n'*}
+            case "$sign_head" in
+              *gpgsig\ *) ;;
+              *) sign_missing=1; break ;;
+            esac
+          done
+          if [ "$sign_missing" -eq 1 ]; then
+            echo "refuses: could not sign"
+            exit 1
           fi
           ;;
       esac
-      git config --unset "branch.${branch}.delegateUnsigned" || true
     fi
+    # A dirty tree after the fast-forward is a concurrent edit or a bug.
+    # Say what it is and leave it. Do not reset it away.
+    dirty_after_ff() {
+      local there=$1 dirt
+      dirt=$(git -C "$there" status --porcelain)
+      if [ -n "$dirt" ]; then
+        echo "refuses: the tree is dirty after the fast-forward"
+        printf '%s\n' "$dirt"
+        exit 1
+      fi
+    }
     ff_there() {
       local orig
       orig=$(git -C "$1" rev-parse HEAD)
@@ -2821,9 +2875,7 @@ delegate-accept branch="":
         restore_accept_tree "$1" "$orig"
         echo "refuses: $branch is not a fast-forward of $onto"; exit 1
       fi
-      if [ -n "$(git -C "$1" status --porcelain)" ]; then
-        git_nhC "$1" reset --hard HEAD >/dev/null 2>&1 || true
-      fi
+      dirty_after_ff "$1"
     }
     if [ -n "$onto_wt" ]; then
       ff_there "$onto_wt"
@@ -2838,13 +2890,15 @@ delegate-accept branch="":
         fi
         echo "refuses: $branch is not a fast-forward of $onto"; exit 1
       fi
-      if [ -n "$(git status --porcelain)" ]; then git_nh reset --hard HEAD >/dev/null 2>&1 || true; fi
+      dirty_after_ff "$here_top"
     elif [ -n "$branch_wt" ]; then
       git_nhC "$branch_wt" checkout -q "$onto"
       ff_there "$branch_wt"
     else
       git_nh update-ref "refs/heads/$onto" "$(git rev-parse "refs/heads/$branch")"
     fi
+    # The base has moved. Clear the unsigned mark only now.
+    git config --unset "branch.${branch}.delegateUnsigned" || true
     # The lane may still hold the branch. Move it onto a free base, or detach
     # it there when the base is busy, and then the branch can be deleted.
     branch_wt=$(canon "$(worktree_of "$branch")")
@@ -2866,7 +2920,7 @@ delegate-accept branch="":
         echo "refuses: $branch is still checked out in another worktree"; exit 1
       fi
     fi
-    if [ -n "$(git status --porcelain)" ]; then git_nh reset --hard HEAD >/dev/null 2>&1 || true; fi
+    dirty_after_ff "$here_top"
     echo "accepted $branch onto $onto"
 
 # Ask once, then delete a delegate branch. A manager has no terminal: --yes

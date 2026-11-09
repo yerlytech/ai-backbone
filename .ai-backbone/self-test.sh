@@ -4797,6 +4797,10 @@ case "$mode" in
     git commit -qm "chore: worker signed the task"
     printf 'worker signed the task\n'
     ;;
+  sandboxedit)
+    printf '\n# worker changed the profile\n' >> .grok/sandbox.toml
+    echo report
+    ;;
   slow)
     echo started
     i=0
@@ -5244,7 +5248,7 @@ for f in "$dhome/.cache/ai-backbone/delegate/delegate-clean"/*.log; do
   dlog=$f
 done
 check "a clean run makes delegate/<date>-<slug>, commits, and prints the report, the stat, a clean tree and the exit" \
-  "[ \$d_rc -eq 0 ] && case \"\$dbr\" in delegate/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-add-a-line) ;; *) false ;; esac && grep -qx 'tree: clean' <<<\"\$d_out\" && grep -qx 'exit status: 0' <<<\"\$d_out\" && grep -q 'worker-did.txt' <<<\"\$d_out\" && grep -q 'line-20' <<<\"\$d_out\" && grep -q 'line-06' <<<\"\$d_out\" && ! grep -q 'line-01' <<<\"\$d_out\" && grep -q \"commits on \$dbr\" <<<\"\$d_out\" && ! grep -q '^BREACH:' <<<\"\$d_out\" && [ -n \"\$dlog\" ] && grep -q 'line-01' \"\$dlog\" && [ -z \"\$(find \"\$dproj\" -name '*.log' -type f)\" ] && [ -z \"\$(git -C \"\$dproj\" status --porcelain)\" ] && ! grep -q '^cost:' <<<\"\$d_out\""
+  "[ \$d_rc -eq 0 ] && case \"\$dbr\" in delegate/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-add-a-line) ;; *) false ;; esac && grep -qx 'tree: clean' <<<\"\$d_out\" && grep -qx 'exit status: 0' <<<\"\$d_out\" && grep -q 'worker-did.txt' <<<\"\$d_out\" && grep -q 'line-20' <<<\"\$d_out\" && grep -q 'line-06' <<<\"\$d_out\" && ! grep -q 'line-01' <<<\"\$d_out\" && grep -q \"commits on \$dbr\" <<<\"\$d_out\" && ! grep -q '^BREACH:' <<<\"\$d_out\" && [ -n \"\$dlog\" ] && grep -q 'line-01' \"\$dlog\" && [ -z \"\$(find \"\$dproj\" -name '*.log' -type f)\" ] && [ -z \"\$(git -C \"\$dproj\" status --porcelain)\" ] && ! grep -q '^cost:' <<<\"\$d_out\" && ! grep -q 'sandbox profile changed' <<<\"\$d_out\""
 check "the worker's prompt is the preamble, then the task, and grok is called headless" \
   "grep -q 'Read AGENTS.md' \"\$dprompt\" && grep -q \"You are on branch \$dbr; stay on it.\" \"\$dprompt\" && grep -q 'just save' \"\$dprompt\" && grep -q 'just publish' \"\$dprompt\" && grep -q 'git push' \"\$dprompt\" && grep -q 'just ship' \"\$dprompt\" && grep -q 'just deploy' \"\$dprompt\" && grep -q 'server or GitHub' \"\$dprompt\" && grep -q 'merge, rebase, or delete a branch' \"\$dprompt\" && grep -q 'Never start a sub-agent or a parallel task' \"\$dprompt\" && grep -q 'at most 15 lines' \"\$dprompt\" && [ \"\$(tail -n 1 \"\$dprompt\")\" = 'add a line' ] && [ \"\$(cat \"\$dprompt.fmt\")\" = plain ] && [ -z \"\$(cat \"\$dprompt.model\")\" ] && [ \"\$(cat \"\$dprompt.perm\")\" = auto ] && grep -qx 'Bash(git push:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(just ship:\*)' \"\$dprompt.deny\""
 check "the preamble grok receives says never begin a command with a variable assignment" \
@@ -5252,7 +5256,7 @@ check "the preamble grok receives says never begin a command with a variable ass
 check "grok's deny list also names the shell wrappers that step around rm (added, not measured on grok)" \
   "grep -qx 'Bash(sh:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(bash:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(zsh:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(eval:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(xargs:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(env:\*)' \"\$dprompt.deny\""
 check "grok's argv denies the keystore commands, ssh-add and the secret paths, and the sandbox profile names the same paths" \
-  "grep -qx 'Bash(security find-generic-password:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(security find-internet-password:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(/usr/bin/security find-generic-password:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(/usr/bin/security find-internet-password:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(secret-tool lookup:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(/usr/bin/secret-tool lookup:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(just with-secret:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(ssh-add:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(/usr/bin/ssh-add:\*)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/.aws/**)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/.ssh/**)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/.env)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/.envrc)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/ssh-agent.sock)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/brain/secrets/**)' \"\$dprompt.deny\" && ! grep -q '.env.example' \"\$dprompt.deny\" && [ \"\$(cat \"\$dprompt.sandbox\")\" = ai-backbone-delegate ] && grep -q 'extends = \"workspace\"' \"\$dproj/.grok/sandbox.toml\" && grep -q '\"~/.ssh\"' \"\$dproj/.grok/sandbox.toml\" && grep -q '\"~/.aws\"' \"\$dproj/.grok/sandbox.toml\" && grep -Fq '\"**/.env\"' \"\$dproj/.grok/sandbox.toml\" && ! grep -q '/Users/' \"\$dproj/.grok/sandbox.toml\" && ! grep -qx '  \"~/.grok\",' \"\$dproj/.grok/sandbox.toml\" && ! grep -q 'grok/auth.json' \"\$dproj/.grok/sandbox.toml\" && ! [ -f \"\$dhome/.grok/sandbox.toml\" ]"
+  "grep -qx 'Bash(security find-generic-password:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(security find-internet-password:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(/usr/bin/security find-generic-password:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(/usr/bin/security find-internet-password:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(secret-tool lookup:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(/usr/bin/secret-tool lookup:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(just with-secret:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(ssh-add:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(/usr/bin/ssh-add:\*)' \"\$dprompt.deny\" && grep -Fqx 'Bash(just delegate-accept:*)' \"\$dprompt.deny\" && grep -Fqx 'Bash(just delegate-drop:*)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/.aws/**)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/.ssh/**)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/.env)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/.envrc)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/ssh-agent.sock)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/brain/secrets/**)' \"\$dprompt.deny\" && grep -Fqx 'Write(**/.grok/sandbox.toml)' \"\$dprompt.deny\" && grep -Fqx 'Edit(**/.grok/sandbox.toml)' \"\$dprompt.deny\" && ! grep -q '.env.example' \"\$dprompt.deny\" && [ \"\$(cat \"\$dprompt.sandbox\")\" = ai-backbone-delegate ] && grep -q 'extends = \"workspace\"' \"\$dproj/.grok/sandbox.toml\" && grep -q '\"~/.ssh\"' \"\$dproj/.grok/sandbox.toml\" && grep -q '\"~/.aws\"' \"\$dproj/.grok/sandbox.toml\" && grep -Fq '\"**/.env\"' \"\$dproj/.grok/sandbox.toml\" && ! grep -q '/Users/' \"\$dproj/.grok/sandbox.toml\" && ! grep -qx '  \"~/.grok\",' \"\$dproj/.grok/sandbox.toml\" && ! grep -q 'grok/auth.json' \"\$dproj/.grok/sandbox.toml\" && ! [ -f \"\$dhome/.grok/sandbox.toml\" ]"
 git -C "$dproj" checkout -q main
 d_run ok grok "" delegate "add a line"
 dbr2=$(git -C "$dproj" symbolic-ref --short HEAD)
@@ -5376,6 +5380,195 @@ d_out=$(env -u WORKER -u WORKER_MODEL -u DELEGATE_TIMEOUT -u DELEGATE_IDLE -u WO
   just -f "$root/Justfile" -d "$dproj" delegate "sign it" 2>&1) && d_rc=0 || d_rc=$?
 check "a worker whose signing key is unreadable still commits (n-afbc90)" \
   "[ \$d_rc -eq 0 ] && [ -f \"\$dproj/worker-signed.txt\" ] && [ -z \"\$(git -C \"\$dproj\" status --porcelain)\" ] && grep -q 'worker signed the task' <<<\"\$d_out\""
+# A reachable agent socket used to install a key:: signing key. The socket
+# file is not a live agent: signing through it fails, so the old path cannot
+# commit. The worker turns signing off instead.
+d_new signsock
+git -C "$dproj" config commit.gpgsign true
+git -C "$dproj" config gpg.format ssh
+printf '%s\n' 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakeKeyForDelegateTest nobody@test' > "$dhome/fake.pub"
+git -C "$dproj" config user.signingkey "$dhome/fake.pub"
+rm -f "$tmp/agent.sock"
+python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); s.close()' "$tmp/agent.sock"
+d_out=$(env -u WORKER -u WORKER_MODEL -u DELEGATE_TIMEOUT -u DELEGATE_IDLE -u WORKER_BIN -u DELEGATE_BASE -u DELEGATE_YES -u FAKE_WORKER_TARGET \
+  -u WORKER_LADDER -u OPENCODE_CONFIG -u OPENCODE_CONFIG_PROJECT_DISABLE \
+  -u DELEGATE_MODEL -u KIMI_CODE_HOME \
+  HOME="$dhome" PATH="$dbin:$PATH" SSH_AUTH_SOCK="$tmp/agent.sock" \
+  FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE=sign FAKE_WORKER_GO="$dgo" \
+  WORKER=grok \
+  just -f "$root/Justfile" -d "$dproj" delegate "sign it" 2>&1) && d_rc=0 || d_rc=$?
+dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+sock_mark=$(git -C "$dproj" config --get "branch.${dbr}.delegateUnsigned" 2>/dev/null || true)
+sock_key=$(git -C "$dproj" config --worktree --get user.signingkey 2>/dev/null || true)
+sock_gpg=$(git -C "$dproj" config --worktree --get commit.gpgsign 2>/dev/null || true)
+sock_body=$(git -C "$dproj" cat-file -p HEAD)
+sock_head=${sock_body%%$'\n\n'*}
+case "$sock_head" in
+  *gpgsig\ *) sock_signed=yes ;;
+  *) sock_signed=no ;;
+esac
+check "a worker never signs, even when the agent socket and a key file are both there" \
+  "[ \$d_rc -eq 0 ] && [ \"\$sock_mark\" = 1 ] && [ -z \"\$sock_key\" ] && [ -z \"\$sock_gpg\" ] && [ \"\$sock_signed\" = no ] && ! grep -q 'key::' <<<\"\$sock_key\" && grep -q 'worker signed the task' <<<\"\$d_out\""
+cat > "$tmp/ok-sign" << 'EOF'
+#!/bin/sh
+buf=
+for a in "$@"; do buf=$a; done
+printf '%s\n' '-----BEGIN SSH SIGNATURE-----' 'ZmFrZQ==' '-----END SSH SIGNATURE-----' > "$buf.sig"
+exit 0
+EOF
+chmod +x "$tmp/ok-sign"
+printf '%s\n' '#!/bin/sh' "echo called >> '$tmp/fail-sign.calls'" 'exit 1' > "$tmp/fail-sign"
+chmod +x "$tmp/fail-sign"
+realgit=$(command -v git)
+mkdir -p "$tmp/git-norebase" "$tmp/git-dirty"
+cat > "$tmp/git-norebase/git" << EOF
+#!/bin/sh
+real="$realgit"
+for a in "\$@"; do
+  if [ "\$a" = rebase ]; then exit 0; fi
+done
+exec "\$real" "\$@"
+EOF
+cat > "$tmp/git-dirty/git" << EOF
+#!/bin/sh
+real="$realgit"
+ff=0
+prev=
+for a in "\$@"; do
+  if [ "\$prev" = merge ] && [ "\$a" = --ff-only ]; then ff=1; fi
+  prev=\$a
+done
+if [ "\$ff" -eq 0 ]; then
+  exec "\$real" "\$@"
+fi
+"\$real" "\$@"
+rc=\$?
+if [ "\$rc" -eq 0 ]; then
+  wt=
+  prev=
+  for a in "\$@"; do
+    if [ "\$prev" = -C ]; then wt=\$a; fi
+    prev=\$a
+  done
+  if [ -z "\$wt" ]; then wt=\$(pwd); fi
+  printf 'dirty-after-ff\n' >> "\$wt/README.md"
+fi
+exit \$rc
+EOF
+chmod +x "$tmp/git-norebase/git" "$tmp/git-dirty/git"
+d_new signok
+git -C "$dproj" config commit.gpgsign true
+git -C "$dproj" config gpg.format ssh
+git -C "$dproj" config user.signingkey "$dhome/fake.pub"
+git -C "$dproj" config gpg.ssh.program "$tmp/ok-sign"
+d_out=$(env -u WORKER -u WORKER_MODEL -u DELEGATE_TIMEOUT -u DELEGATE_IDLE -u WORKER_BIN -u DELEGATE_BASE -u DELEGATE_YES -u FAKE_WORKER_TARGET \
+  -u WORKER_LADDER -u OPENCODE_CONFIG -u OPENCODE_CONFIG_PROJECT_DISABLE \
+  -u DELEGATE_MODEL -u KIMI_CODE_HOME -u SSH_AUTH_SOCK \
+  HOME="$dhome" PATH="$dbin:$PATH" \
+  FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE=sign FAKE_WORKER_GO="$dgo" \
+  WORKER=grok \
+  just -f "$root/Justfile" -d "$dproj" delegate "sign it" 2>&1) && d_rc=0 || d_rc=$?
+ok_br=$(git -C "$dproj" symbolic-ref --short HEAD)
+d_run ok "" "" delegate-accept
+ok_body=$(git -C "$dproj" cat-file -p HEAD)
+ok_head=${ok_body%%$'\n\n'*}
+case "$ok_head" in
+  *gpgsig\ *) ok_signed=yes ;;
+  *) ok_signed=no ;;
+esac
+ok_mark=$(git -C "$dproj" config --get "branch.${ok_br}.delegateUnsigned" 2>/dev/null || true)
+check "accept signs the marked branch and clears the mark only after main moves" \
+  "[ \$d_rc -eq 0 ] && [ \"\$ok_signed\" = yes ] && grep -q '^accepted delegate/.* onto main$' <<<\"\$d_out\" && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ] && [ -z \"\$ok_mark\" ] && [ \"\$(git -C \"\$dproj\" symbolic-ref --short HEAD)\" = main ]"
+d_new signfail
+git -C "$dproj" config commit.gpgsign true
+git -C "$dproj" config gpg.format ssh
+git -C "$dproj" config user.signingkey "$dhome/fake.pub"
+git -C "$dproj" config gpg.ssh.program "$tmp/fail-sign"
+rm -f "$tmp/fail-sign.calls"
+d_out=$(env -u WORKER -u WORKER_MODEL -u DELEGATE_TIMEOUT -u DELEGATE_IDLE -u WORKER_BIN -u DELEGATE_BASE -u DELEGATE_YES -u FAKE_WORKER_TARGET \
+  -u WORKER_LADDER -u OPENCODE_CONFIG -u OPENCODE_CONFIG_PROJECT_DISABLE \
+  -u DELEGATE_MODEL -u KIMI_CODE_HOME -u SSH_AUTH_SOCK \
+  HOME="$dhome" PATH="$dbin:$PATH" \
+  FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE=sign FAKE_WORKER_GO="$dgo" \
+  WORKER=grok \
+  just -f "$root/Justfile" -d "$dproj" delegate "sign it" 2>&1) && d_rc=0 || d_rc=$?
+fail_br=$(git -C "$dproj" symbolic-ref --short HEAD)
+fail_main=$(git -C "$dproj" rev-parse refs/heads/main)
+fail_tip=$(git -C "$dproj" rev-parse "refs/heads/$fail_br")
+rm -f "$tmp/fail-sign.calls"
+d_run ok "" "" delegate-accept
+fail_mark=$(git -C "$dproj" config --get "branch.${fail_br}.delegateUnsigned" 2>/dev/null || true)
+fail_main_after=$(git -C "$dproj" rev-parse refs/heads/main)
+fail_tip_after=$(git -C "$dproj" rev-parse "refs/heads/$fail_br")
+if [ -d "$dproj/.git/rebase-merge" ] || [ -d "$dproj/.git/rebase-apply" ]; then fail_rebase=yes; else fail_rebase=no; fi
+if [ -s "$tmp/fail-sign.calls" ]; then fail_called=yes; else fail_called=no; fi
+check "a signer that fails aborts the rebase, keeps the mark and the branch, and leaves main" \
+  "[ \$d_rc -ne 0 ] && d_one && grep -qx 'refuses: could not sign' <<<\"\$d_out\" && [ \"\$fail_called\" = yes ] && [ \"\$fail_rebase\" = no ] && [ \"\$fail_mark\" = 1 ] && [ \"\$fail_main\" = \"\$fail_main_after\" ] && [ \"\$fail_tip\" = \"\$fail_tip_after\" ] && [ -z \"\$(git -C \"\$dproj\" status --porcelain)\" ] && [ \"\$(git -C \"\$dproj\" symbolic-ref --short HEAD)\" = \"\$fail_br\" ]"
+d_new signbare
+git -C "$dproj" config commit.gpgsign true
+git -C "$dproj" config gpg.format ssh
+git -C "$dproj" config user.signingkey "$dhome/fake.pub"
+git -C "$dproj" config gpg.ssh.program "$tmp/fail-sign"
+d_out=$(env -u WORKER -u WORKER_MODEL -u DELEGATE_TIMEOUT -u DELEGATE_IDLE -u WORKER_BIN -u DELEGATE_BASE -u DELEGATE_YES -u FAKE_WORKER_TARGET \
+  -u WORKER_LADDER -u OPENCODE_CONFIG -u OPENCODE_CONFIG_PROJECT_DISABLE \
+  -u DELEGATE_MODEL -u KIMI_CODE_HOME -u SSH_AUTH_SOCK \
+  HOME="$dhome" PATH="$dbin:$PATH" \
+  FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE=sign FAKE_WORKER_GO="$dgo" \
+  WORKER=grok \
+  just -f "$root/Justfile" -d "$dproj" delegate "sign it" 2>&1) && d_rc=0 || d_rc=$?
+bare_br=$(git -C "$dproj" symbolic-ref --short HEAD)
+bare_main=$(git -C "$dproj" rev-parse refs/heads/main)
+bare_tip=$(git -C "$dproj" rev-parse "refs/heads/$bare_br")
+rm -f "$tmp/fail-sign.calls"
+d_out=$(env -u WORKER -u SSH_AUTH_SOCK HOME="$dhome" PATH="$tmp/git-norebase:$dbin:$PATH" \
+  just -f "$root/Justfile" -d "$dproj" delegate-accept 2>&1) && d_rc=0 || d_rc=$?
+bare_mark=$(git -C "$dproj" config --get "branch.${bare_br}.delegateUnsigned" 2>/dev/null || true)
+bare_main_after=$(git -C "$dproj" rev-parse refs/heads/main)
+bare_tip_after=$(git -C "$dproj" rev-parse "refs/heads/$bare_br")
+if [ -s "$tmp/fail-sign.calls" ]; then bare_called=yes; else bare_called=no; fi
+check "accept refuses when rebase reports success but a commit has no signature" \
+  "[ \$d_rc -ne 0 ] && grep -qx 'refuses: could not sign' <<<\"\$d_out\" && [ \"\$bare_called\" = no ] && [ \"\$bare_mark\" = 1 ] && [ \"\$bare_main\" = \"\$bare_main_after\" ] && [ \"\$bare_tip\" = \"\$bare_tip_after\" ] && git -C \"\$dproj\" show-ref --verify --quiet \"refs/heads/\$bare_br\""
+d_new dirtyff
+d_run ok grok "" delegate "add a line"
+d_out=$(env -u WORKER HOME="$dhome" PATH="$tmp/git-dirty:$dbin:$PATH" \
+  just -f "$root/Justfile" -d "$dproj" delegate-accept 2>&1) && d_rc=0 || d_rc=$?
+check "a dirty tree after the fast-forward is printed and left" \
+  "[ \$d_rc -ne 0 ] && grep -qx 'refuses: the tree is dirty after the fast-forward' <<<\"\$d_out\" && grep -q 'README.md' <<<\"\$d_out\" && grep -qx 'dirty-after-ff' \"\$dproj/README.md\""
+d_new dirtythere
+d_run ok grok "" delegate "add a line"
+git -C "$dproj" checkout -q main
+d_out=$(env -u WORKER HOME="$dhome" PATH="$tmp/git-dirty:$dbin:$PATH" \
+  just -f "$root/Justfile" -d "$dproj" delegate-accept 2>&1) && d_rc=0 || d_rc=$?
+check "a dirty tree in the base worktree after the fast-forward is printed and left" \
+  "[ \$d_rc -ne 0 ] && grep -qx 'refuses: the tree is dirty after the fast-forward' <<<\"\$d_out\" && grep -q 'README.md' <<<\"\$d_out\" && grep -qx 'dirty-after-ff' \"\$dproj/README.md\""
+d_new acceptrun
+d_run ok grok "" delegate "add a line"
+run_br=$(git -C "$dproj" symbolic-ref --short HEAD)
+run_main=$(git -C "$dproj" rev-parse refs/heads/main)
+run_hooks="$dhome/.cache/ai-backbone/delegate/$(basename "$dproj")/live.hooks"
+mkdir -p "$run_hooks"
+printf '%s\n' '#!/bin/sh' 'exit 0' > "$run_hooks/reference-transaction"
+chmod +x "$run_hooks/reference-transaction"
+git -C "$dproj" config --local extensions.worktreeConfig true
+git -C "$dproj" config --worktree core.hooksPath "$run_hooks"
+run_lock="$dhome/.cache/ai-backbone/delegate/$(basename "$dproj")/running"
+mkdir -p "$run_lock"
+python3 -c 'import time; time.sleep(180)' &
+run_live=$!
+printf '%s\n' "$run_live" > "$run_lock/pid"
+d_run ok "" "" delegate-accept
+run_hooks_after=$(git -C "$dproj" config --worktree --get core.hooksPath 2>/dev/null || true)
+run_main_after=$(git -C "$dproj" rev-parse refs/heads/main)
+if git -C "$dproj" show-ref --verify --quiet "refs/heads/$run_br"; then run_still=yes; else run_still=no; fi
+kill "$run_live" 2>/dev/null || true
+wait "$run_live" 2>/dev/null || true
+rm -rf "$run_lock"
+check "accept refuses while a job is running, and does not skip that job's hook" \
+  "[ \$d_rc -ne 0 ] && d_one && grep -qx 'refuses: a job is running' <<<\"\$d_out\" && [ \"\$run_still\" = yes ] && [ \"\$run_main\" = \"\$run_main_after\" ] && [ \"\$run_hooks_after\" = \"\$run_hooks\" ] && [ -x \"\$run_hooks/reference-transaction\" ]"
+d_new sandedit
+d_run sandboxedit grok "" delegate "touch the profile"
+check "a worker that rewrites the project sandbox profile is named when the job ends" \
+  "[ \$d_rc -eq 0 ] && grep -qx 'sandbox profile changed: .grok/sandbox.toml' <<<\"\$d_out\" && grep -q 'worker changed the profile' \"\$dproj/.grok/sandbox.toml\""
 d_new noff
 d_run ok grok "" delegate "add a line"
 nbr=$(git -C "$dproj" symbolic-ref --short HEAD)
@@ -5807,6 +6000,7 @@ oc_config_ok() {
     "git push *" "git merge *" "git rebase *" "git checkout *" "git switch *" \
     "git reset *" "git branch -d *" "git branch -D *" "git tag *" \
     "just publish *" "just ship *" "just deploy *" "just release *" "just undo *" \
+    "just delegate-accept *" "just delegate-drop *" \
     "gh *" "curl *" "ssh *" "rm *" \
     "sh *" "bash *" "zsh *" "eval *" "xargs *" "env *" \
     "security find-generic-password *" "security find-internet-password *" \
@@ -5992,6 +6186,10 @@ kimi_rules_ok() {
   grep -qxF 'pattern = "Bash(git push **)"' "$cfg" || return 1
   grep -qxF 'pattern = "Bash(just carry)"' "$cfg" || return 1
   grep -qxF 'pattern = "Bash(just publish)"' "$cfg" || return 1
+  grep -qxF 'pattern = "Bash(just delegate-accept)"' "$cfg" || return 1
+  grep -qxF 'pattern = "Bash(just delegate-accept **)"' "$cfg" || return 1
+  grep -qxF 'pattern = "Bash(just delegate-drop)"' "$cfg" || return 1
+  grep -qxF 'pattern = "Bash(just delegate-drop **)"' "$cfg" || return 1
   grep -qxF 'pattern = "Bash(git merge)"' "$cfg" || return 1
   grep -qxF 'pattern = "Bash(sh)"' "$cfg" || return 1
   grep -qxF 'pattern = "Bash(sh **)"' "$cfg" || return 1
