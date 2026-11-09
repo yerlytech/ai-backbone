@@ -16,6 +16,12 @@ entries below are the record of every version.
 
 ## 26.11.1 — 2026-11-07
 
+**A grok delegate run does not close other Grok sessions.** The sandbox profile is written to the project's `.grok/sandbox.toml`, and only when the spliced content differs. The shared `~/.grok/sandbox.toml` is left alone. Grok's guide names both files; writing the shared one closed every session already running (seen 2026-11-07 23:28). The path deny list is the same, plus `Write` and `Edit` of `.grok/sandbox.toml`. When the job ends, the recipe compares that file's hash with the hash from before the worker started, and says so if the worker changed it. If the user file already has `[profiles.ai-backbone-delegate]`, this run uses `ai-backbone-delegate-job` in the project file so the leftover user profile does not win.
+
+**A grok worker never signs (n-afbc90).** When `commit.gpgsign` is on, the job turns signing off in this worktree and marks the branch `delegateUnsigned`. The worktree's own settings come back when the job ends. Accept signs after the desk has read the work. There is no `key::` signing key from the agent socket: on this Mac that socket is launchd's path, and the deny pattern `**/ssh-agent.sock` does not match it. The sandbox still denies `~/.ssh`.
+
+**Accept does not skip a running job's hook, and it does not hide a dirty tree.** `delegate-accept` says `refuses: a job is running` while the lock's pid is alive, before anything else changes. Empty hooks are used only after that check finds no job, so a dead job's leftover `core.hooksPath` still does not block a multi-commit fast-forward. A running job's hook is left in place. `just delegate-accept` and `just delegate-drop` are denied on every worker that has a deny list. If the branch is marked and `rebase -S -f` fails, accept aborts the rebase, keeps the mark and the branch, leaves the base where it was, and says `refuses: could not sign`. A plain `rebase -S` on a branch already ahead of its base never calls the signer. Every commit that would move has to carry a signature first. The mark is cleared only after the base has moved. A dirty tree after the fast-forward is printed and left. A refused fast-forward still returns to the starting commit.
+
 **A delegate job refuses when `DELEGATE_BASE` names another branch (n-8dbc9e).**
 On a `delegate/*` branch, `just delegate` with `DELEGATE_BASE` set to a
 different branch used to start a fix round on the branch already checked out
