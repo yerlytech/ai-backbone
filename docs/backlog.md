@@ -29,3 +29,4 @@ project's name: the backbone is public and knows no project (spec 024). A
 - [ ] 2026-11-08, n-e78e2e: just spec --help creates docs/specs/<n>-help.md: a flag is taken for a spec name; refuse a name that starts with a dash
 - [ ] 2026-11-08, n-3510d4: just delegate with WORKER=grok: the sandbox refuses xcodebuild on ~/Library/Caches/org.swift.swiftpm (exit 74), so a grok worker cannot build an iOS shell; allow that cache or name it in the delegate skill
 - [ ] 2026-11-08, n-70dcaf: just delegate can leave core.hooksPath on a finished job's hooks dir: delegate-accept of a multi-commit branch then fails as not a fast-forward and leaves its files staged on main; restore hooksPath at job end, and accept must not leave a staged tree
+- [ ] 2026-11-09, n-28ad13: delegate: docs and just delegate's timeout help say DELEGATE_TIMEOUT is minutes, and a chain script's failure word must match its watcher (a FAILED line was missed against a DESK FAIL watcher for 19 minutes)
