@@ -130,7 +130,7 @@ not the same thing as the scheduled agent further down, which also lives in
 
 ```bash
 just ci-init         # writes .github/workflows/checks.yml and .github/dependabot.yml
-just ci-init image   # with a Dockerfile: after green checks on main, the image is built on GitHub and sent to ghcr.io, tagged by commit; the server pulls it
+just ci-init image   # with a Dockerfile: after green checks on main, the image is built on GitHub and sent to ghcr.io, tagged by commit; the server pulls it. A chain that ships must publish first. Comparing the tree with main after main has moved is a false alarm: the image is the commit the checks tested.
 just ci              # how the last push went, without opening a browser
 just ci-check        # do the checks still carry the lessons they were built on
 ```
@@ -470,7 +470,12 @@ just outdated        # which of the project's dependencies have newer versions (
 ```
 
 `just session-start` shows a FRESHNESS block: what is behind, which pins moved,
-the backbone's version, ideas to read, and one first job. The online check runs
+the backbone's version, ideas to read, packages declared with no watch row
+(`not watched: <name>`), and one first job. A `[[unwatched]]` row is a package
+left out on purpose. `just freshness-sweep` writes those lines, and the
+`Behind:` lines, for every project on this machine into one file.
+`just freshness-sweep-install` runs that every day at 08:15 and marks this
+checkout as the desk, whose session start prints the file. The online check runs
 once a day per machine, and every project that watches the same source shares
 that answer (`~/.cache/ai-backbone/upstream/`, or `XDG_CACHE_HOME`). `just
 upstream --refresh` asks again. Offline, rate-limited or past ten seconds, the

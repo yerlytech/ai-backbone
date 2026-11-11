@@ -84,8 +84,10 @@ jobs:
         # about forty on 2026-10-21. That suite now reports from windows.yml
         # (caps 48 and 44). These two decide the carry.
         include:
-          - { os: ubuntu-latest,  cap: 15, suite_cap: 12, report_only: false }
-          - { os: macos-latest,   cap: 29, suite_cap: 26, report_only: false }
+          # caps +10 for the cargo-audit install below (n-2ed2cf): compiling it
+          # sits outside the suite step.
+          - { os: ubuntu-latest,  cap: 25, suite_cap: 12, report_only: false }
+          - { os: macos-latest,   cap: 39, suite_cap: 26, report_only: false }
     # The name gate.sh reads the verdict by: without it the matrix's other
     # values are appended ("suite (ubuntu-latest, 30, false)"; measured).
     name: suite (${{ matrix.os }})
@@ -119,6 +121,14 @@ jobs:
           for t in just uv prek graphify gh; do
             command -v "$t" >/dev/null || { echo "setup.sh did not leave $t on the PATH"; exit 1; }
           done
+          # cargo-audit 0.23.0, the pin in docs/upstream.toml (n-2ed2cf).
+          if ! command -v cargo >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+            . "$HOME/.cargo/env"
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+          cargo install cargo-audit --version 0.23.0 --locked
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: the private vault a fresh clone has no copy of
         run: just brain-init

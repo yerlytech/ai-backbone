@@ -296,7 +296,9 @@ n=$(git ls-files | wc -l | tr -d ' ')
 # writes. The maintainer approved that skill on 2026-10-30.
 # 66 since spec 041: keystore.sh reaches every project. The maintainer
 # approved that spec on 2026-10-31.
-check "tracked files at most 66 (got $n)"             "[ $n -le 66 ]"
+# 67 since spec 043: freshness-sweep.sh reaches every project (n-058e8b).
+# The owner asked for the sweep on 2026-11-11.
+check "tracked files at most 67 (got $n)"             "[ $n -le 67 ]"
 # Two more ceilings, set at what a new project measured on 2026-09-19 (spec 012).
 # An agent nobody watches works on this backbone every day and builds ideas it
 # read about; every one of them is small and sensible, and a hundred of them are
@@ -320,7 +322,9 @@ r=$(just --summary 2>/dev/null | wc -w | tr -d ' ')
 # the spec the maintainer approved on 2026-10-21.
 # 49 since spec 041: `just with-secret` and `just secrets-to-keystore`, named
 # in the spec the maintainer approved on 2026-10-31.
-check "recipes a new project shows at most 49 (got $r)" "[ $r -le 49 ]"
+# 52 since spec 043: `just freshness-sweep`, `freshness-sweep-install` and
+# `freshness-sweep-remove` (n-058e8b). The owner asked for them on 2026-11-11.
+check "recipes a new project shows at most 52 (got $r)" "[ $r -le 52 ]"
 b=$(wc -c < AGENTS.md | tr -d ' ')
 # 7080 since the design line (the maintainer, 2026-10-30): code follows the
 # design skill, and a review cites its rule numbers. 7088 since spec 040:
@@ -481,6 +485,67 @@ rm -f docs/specs/0[0-9][0-9]-x.md brain/01-journal/2026-01-01.md
 section "the budget"
 bt="$tmp/budget"; mkdir -p "$bt/projects/p1/s1/subagents" "$bt/home"
 py=$(just _py); nowz=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
+# cargo-audit stand-in (n-2ed2cf). The real binary is not installed here, and
+# the suite stays offline. It reads the fixture database through the same
+# matching the old reader used, and prints the JSON cargo-audit prints.
+mkdir -p "$tmp/bin"
+cat > "$tmp/cargo-audit-fake.py" << 'PY'
+import json, os, sys
+from importlib.util import module_from_spec, spec_from_file_location
+from pathlib import Path
+root = os.environ["AI_BACKBONE"]
+spec = spec_from_file_location("upstream_audit", root + "/.ai-backbone/upstream.py")
+mod = module_from_spec(spec)
+spec.loader.exec_module(mod)
+args = sys.argv[1:]
+log = os.environ.get("AI_BACKBONE_CARGO_AUDIT_ARGV", "")
+if log:
+    with open(log, "a", encoding="utf-8") as fh:
+        fh.write(" ".join(args) + "\n")
+def opt(flag):
+    if flag in args:
+        i = args.index(flag)
+        if i + 1 < len(args):
+            return args[i + 1]
+    return ""
+lock, db = opt("--file"), opt("--db")
+if not lock or not db:
+    sys.stderr.write("cargo-audit: need --file and --db\n")
+    sys.exit(2)
+try:
+    import tomllib
+except ModuleNotFoundError:
+    sys.stderr.write("tomllib missing\n")
+    sys.exit(2)
+found, warnings = [], {}
+for name, ver in mod.cargo_locked(lock, tomllib):
+    parsed = mod.semver(ver)
+    if parsed is None:
+        continue
+    for adv in mod.adv_list(Path(db), name, tomllib):
+        if any(mod.semver_matches(req, parsed) for req in adv["patched"] + adv["unaffected"]):
+            continue
+        block = {"advisory": {"id": adv["id"], "package": name, "title": adv["title"],
+                              "aliases": adv["aliases"], "informational": adv["kind"] or None},
+                 "versions": {"patched": adv["patched"], "unaffected": adv["unaffected"]},
+                 "package": {"name": name, "version": ver}}
+        if adv["kind"]:
+            warnings.setdefault(adv["kind"], []).append(block)
+        else:
+            found.append(block)
+json.dump({"vulnerabilities": {"count": len(found), "list": found}, "warnings": warnings}, sys.stdout)
+PY
+cat > "$tmp/bin/cargo-audit" << EOF
+#!/bin/sh
+if [ "\$1" = "--version" ] || [ "\$1" = "-V" ]; then
+  echo "cargo-audit 0.23.0"
+  exit 0
+fi
+exec "$py" "$tmp/cargo-audit-fake.py" "\$@"
+EOF
+chmod +x "$tmp/bin/cargo-audit"
+export PATH="$tmp/bin:$PATH"
+export AI_BACKBONE_CARGO_AUDIT="$tmp/bin/cargo-audit"
 msg() { printf '{"type":"assistant","timestamp":"%s","message":{"id":"%s","model":"claude-opus-5","usage":{"input_tokens":%s,"cache_creation_input_tokens":0,"cache_read_input_tokens":%s,"output_tokens":%s}}}\n' "$nowz" "$1" "$2" "$3" "$4"; }
 { msg m1 10 1000 5; msg m1 10 1000 40; msg m2 20 2000 7; printf '{"type":"assistant","timestamp":"%s","message":{"id":"m3","model":"<synthetic>","usage":{}},"quotaLimits":{"rateLimitType":"seven_day","resetsAt":%s}}\n' "$nowz" "$(( $(date +%s) + 86400 * 3 ))"; msg m1 10 1000 40; } > "$bt/projects/p1/s1.jsonl"
 msg a1 5 500 3 > "$bt/projects/p1/s1/subagents/agent-x.jsonl"
@@ -659,6 +724,7 @@ check "both git hooks installed"                      "[ -f .git/hooks/pre-commi
 check "plain just shows the save command"             "says 'just save' just"
 check "save on a clean tree is calm"                  "says 'Nothing new to save|yeni bir şey yok' just save x"
 check "spec name becomes a slug"                      "just spec 'İlk Fikir' && [ -f docs/specs/001-ilk-fikir.md ]"
+check "just spec refuses a name that starts with a dash" "! just spec --help && ! compgen -G 'docs/specs/*-help.md' && says 'does not start with a dash' just spec --help"
 check "plain save message gets chore:"                "just save 'first spec' && says '^chore: first spec' git log -1 --format=%s"
 # Free text reaches a recipe's script as an argument, never as text spliced into it
 # (3.20.0): a dollar sign stays a dollar sign, a dollar-paren runs nothing, quotes and
@@ -1070,10 +1136,11 @@ box="$hub/bb/.git/ai-backbone-notes-outbox"
 bad=""; while IFS= read -r nl; do nr=$(just -f "$root/Justfile" -d "$root" _note-check "$nl" "$root"); [ -z "$nr" ] || bad="$bad$nr: ${nl:0:70}"$'\n'; done < <(grep '^- \[' "$root/docs/backlog.md")
 check "no line of the backbone's own backlog carries what a note may not" "[ -z \"\$bad\" ] || { printf '%s\n' \"\$bad\"; false; }"
 # Open lines, or a built line ticked with its commit, each with a date and an
-# id in the project's place (spec 024); and no tracked file names a project
-# next to this backbone on this machine (nothing next to it on a runner: the
-# check bites on the maintainer's machine).
-check "the backlog holds open lines, or a built line ticked with its commit, each dated and with an id, or a question for the maintainer" "! grep -vE '^- \[x\] [0-9]{4}-[0-9]{2}-[0-9]{2}, n-[0-9a-f]{6}: .*[0-9a-f]{7}|^- \[[ ?]\] [0-9]{4}-[0-9]{2}-[0-9]{2}, n-[0-9a-f]{6}: |^[^ -]|^\$' '$root/docs/backlog.md'"
+# id in the project's place (spec 024). (uncommitted) is that tick while the
+# index lock is refused; the next save replaces the word with the hash.
+# No tracked file names a project next to this backbone on this machine
+# (nothing next to it on a runner: the check bites on the maintainer's machine).
+check "the backlog holds open lines, or a built line ticked with its commit, each dated and with an id, or a question for the maintainer" "! grep -vE '^- \[x\] [0-9]{4}-[0-9]{2}-[0-9]{2}, n-[0-9a-f]{6}: (.*[0-9a-f]{7}|.*\\(uncommitted\\))|^- \\[[ ?]\\] [0-9]{4}-[0-9]{2}-[0-9]{2}, n-[0-9a-f]{6}: |^[^ -]|^\$' '$root/docs/backlog.md'"
 sib=$(just _sibling-names "$root" | tr '\n' '|')
 hits=""; if [ -n "$sib" ]; then hits=$(cd "$root" && IFS='|'; for n in $sib; do [ -n "$n" ] || continue; git grep -ilF -w -- "$n" -- . ':!LICENSE' ':!brain' 2>/dev/null | sed "s/^/$n: /"; done); fi
 check "no tracked file names a project next to this backbone (LICENSE aside)" "[ -z \"\$hits\" ] || { printf '%s\n' \"\$hits\"; false; }"
@@ -1257,7 +1324,7 @@ check "on cloud, publish sends to cloud and nothing reaches main" "says 'Sent to
 # fixtures/gh-log-failed.txt). Nothing leaves the machine.
 section "the gate: what passes on cloud reaches main"
 check "windows.yml runs the Windows suite when look says suite, and checks.yml keeps Linux and macOS" \
-  "grep -q 'runs-on: windows-latest' '$root/.github/workflows/windows.yml' && grep -q 'name: suite (windows-latest)' '$root/.github/workflows/windows.yml' && grep -q 'timeout-minutes: 48' '$root/.github/workflows/windows.yml' && grep -q 'timeout-minutes: 44' '$root/.github/workflows/windows.yml' && grep -q 'actions/checkout@v7' '$root/.github/workflows/windows.yml' && grep -q 'gate.sh look' '$root/.github/workflows/windows.yml' && grep -q 'branches: \\[cloud\\]' '$root/.github/workflows/windows.yml' && ! grep -q 'windows-latest' '$root/.github/workflows/checks.yml' && grep -q 'ubuntu-latest' '$root/.github/workflows/checks.yml' && grep -q 'macos-latest' '$root/.github/workflows/checks.yml'"
+  "grep -q 'runs-on: windows-latest' '$root/.github/workflows/windows.yml' && grep -q 'name: suite (windows-latest)' '$root/.github/workflows/windows.yml' && grep -q 'timeout-minutes: 60' '$root/.github/workflows/windows.yml' && grep -q 'timeout-minutes: 44' '$root/.github/workflows/windows.yml' && grep -q 'actions/checkout@v7' '$root/.github/workflows/windows.yml' && grep -q 'gate.sh look' '$root/.github/workflows/windows.yml' && grep -q 'branches: \\[cloud\\]' '$root/.github/workflows/windows.yml' && ! grep -q 'windows-latest' '$root/.github/workflows/checks.yml' && grep -q 'ubuntu-latest' '$root/.github/workflows/checks.yml' && grep -q 'macos-latest' '$root/.github/workflows/checks.yml'"
 check "ci-check accepts the windows workflow" "says 'ok    \\.github/workflows/windows\\.yml' just -f '$root/Justfile' -d '$root' ci-check && says 'ok    \\.github/workflows/checks\\.yml' just -f '$root/Justfile' -d '$root' ci-check"
 gt="$tmp/gate"; mkdir -p "$gt/gh"
 ( cd "$gt" && git init -q --bare -b main hub.git && git clone -q hub.git seed && cd seed \
@@ -3053,6 +3120,11 @@ touch Cargo.toml
 check "ci-init sees Rust, and writes the workflow, the update bot and the hook" \
   "just ci-init && [ -f .github/workflows/checks.yml ] && [ -f .github/dependabot.yml ] && grep -q 'id: ci-check' .pre-commit-config.yaml"
 check "the starter it wrote passes its own check"       "says 'still in force' just ci-check"
+cp .github/workflows/checks.yml "$tmp/checks-fmt.yml"
+perl -pi -e 's/^.*cargo fmt --check.*\n//' .github/workflows/checks.yml
+check "without cargo fmt --check the gate names the miss" "! just ci-check && says 'no cargo fmt --check' just ci-check"
+cp "$tmp/checks-fmt.yml" .github/workflows/checks.yml
+check "the rust checks run cargo fmt --check" "grep -q 'cargo fmt --check' .github/workflows/checks.yml && says 'still in force' just ci-check"
 check "the starter waives none of its own lessons"      "! grep -qE '#[[:space:]]*ci-check:[[:space:]]*skip[[:space:]]+[a-z-]+' .github/workflows/checks.yml"
 check "the workflow hook is not added twice"            "just ci-init rust; [ \$(grep -c 'id: ci-check' .pre-commit-config.yaml) -eq 1 ]"
 check "a second ci-init keeps the project's own file"   "says kept just ci-init rust"
@@ -4004,6 +4076,7 @@ printf '#!/bin/sh\nprintf "%%s\\t%%s\\t%%s\\n" 123 78 %s\n' "$rl26" > "$tmp/mac2
 printf '/bin/sh: ./routine.sh: Operation not permitted\n' > brain/05-files/routine.log
 check "routine-status names a last run that did not end at 0, and a macOS refusal" "says 'last run ended with status 78' env HOME='$dh' PATH='$tmp/mac26:'\"\$PATH\" just routine-status && says 'refused by macOS' env HOME='$dh' PATH='$tmp/mac26:'\"\$PATH\" just routine-status"
 # CI/CD for a project with a Dockerfile.
+check "the ship notes say to publish first, and that a tree comparison after main moves is a false alarm" "grep -q 'must publish' '$root/.ai-backbone/examples/README.md' && grep -q 'false alarm' '$root/.ai-backbone/examples/README.md' && grep -q 'must publish first' '$root/docs/01-getting-started.md' && grep -q 'false alarm' '$root/docs/01-getting-started.md'"
 check "ci-init image needs a Dockerfile" "! just ci-init image && says 'No Dockerfile' just ci-init image && [ ! -e .github/workflows/image.yml ]"
 printf 'FROM scratch\n' > Dockerfile
 out=$(just ci-init image 2>&1)
@@ -4914,6 +4987,11 @@ case "$mode" in
     git branch from-the-worker
     echo report
     ;;
+  othersess)
+    # n-dbc9e9: another session in this repository, not this worktree's hook.
+    git -c core.hooksPath=/dev/null branch delegate/other-session
+    echo report
+    ;;
   sibling)
     # A parallel lane: another worktree of this repository creates its own
     # branch while this run is going.
@@ -5753,6 +5831,10 @@ d_run branch grok "" delegate "add a branch"
 first=${d_out%%$'\n'*}
 check "a worker that adds a branch is a breach, said first" \
   "[ \$d_rc -ne 0 ] && [ \"\$first\" = 'BREACH: branch list changed' ] && grep -q '^report$' <<<\"\$d_out\" && git -C \"\$dproj\" show-ref --verify --quiet refs/heads/from-the-worker"
+d_new othersess
+d_run othersess grok "" delegate "other session"
+check "a delegate branch another session creates during the run is not a breach" \
+  "[ \$d_rc -eq 0 ] && ! grep -q '^BREACH:' <<<\"\$d_out\" && git -C \"\$dproj\" show-ref --verify --quiet refs/heads/delegate/other-session"
 d_new nomerge
 d_run merge grok "" delegate "do not merge"
 dlog=""
@@ -6390,6 +6472,122 @@ PY
   check "publish creates the repo, then turns the setting on" "[ $rc -eq 0 ] && [ \"\$(git remote get-url origin)\" = '$tmp/gh-remote.git' ] && grep -qx 'repo create gh-proj --private --source=. --remote=origin' '$tmp/gh-calls' && grep -qx 'api -X PATCH repos/{owner}/{repo} -F delete_branch_on_merge=true' '$tmp/gh-calls'"
 fi
 cd "$tmp" || exit 1
+
+section "unwatched packages and the freshness sweep (n-058e8b)"
+# A declared package with no [[watch]] row is a line. An allow row is not.
+# A gitignored package.json is not a package the project holds (n-a65306).
+# The behind line is the shared cache, so the sweep stays offline.
+sw="$tmp/sweep-root"
+rm -rf "$sw" "$tmp/sweep-cache" "$tmp/sweep-inst" "$tmp/sweep-home"
+mkdir -p "$sw/alpha/docs" "$sw/alpha/.ai-backbone" "$sw/alpha/web/pkg" "$sw/beta/docs" "$sw/beta/.ai-backbone" "$tmp/sweep-cache"
+printf '%s\n' 'web/' > "$sw/alpha/.gitignore"
+printf '%s\n' '{"dependencies":{"left-pad":"1.0.0"},"devDependencies":{"typescript":"5.0.0"}}' > "$sw/alpha/package.json"
+printf '%s\n' '{"dependencies":{"ignored-pkg":"1.0.0"}}' > "$sw/alpha/web/pkg/package.json"
+cat > "$sw/alpha/Cargo.toml" <<'EOF'
+[workspace]
+members = []
+
+[workspace.dependencies]
+serde = "1"
+private-crate = { version = "0.1", package = "private-crate" }
+renamed = { package = "serde", version = "1" }
+EOF
+cat > "$sw/alpha/pyproject.toml" <<'EOF'
+[project]
+name = "demo"
+dependencies = ["requests>=2", "rich[box]>=13"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[dependency-groups]
+lint = ["ruff>=0.5"]
+EOF
+cat > "$sw/alpha/docs/upstream.toml" <<'EOF'
+[[watch]]
+name = "serde-lib"
+source = "crates:serde"
+pin = "1.0.0"
+
+[[unwatched]]
+name = "requests"
+why = "left out on purpose"
+
+[[unwatched]]
+name = "pytest"
+why = "a test runner, not how this project is built"
+EOF
+git -C "$sw/alpha" init -q
+printf '%s\n' '# core' > "$sw/alpha/.ai-backbone/core.just"
+printf '%s\n' '# core' > "$sw/beta/.ai-backbone/core.just"
+cat > "$sw/beta/docs/upstream.toml" <<'EOF'
+[[watch]]
+name = "demo-crate"
+source = "crates:demo-crate"
+pin = "1.0.0"
+EOF
+"$py" - "$tmp/sweep-cache" <<'PY'
+import datetime, hashlib, json, re, sys
+from pathlib import Path
+key = "crates:demo-crate"
+slug = re.sub(r"[^A-Za-z0-9._+-]+", "_", key).strip("_")
+digest = hashlib.sha256(key.encode()).hexdigest()[:12]
+when = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
+record = {"source": key, "fetched": when, "releases": [
+    {"version": "2.0.0", "at": "2026-11-01", "url": "", "notes": "", "prerelease": False}],
+    "error": "", "detail": "", "failed_at": ""}
+Path(sys.argv[1], f"{slug}--{digest}.json").write_text(json.dumps(record), encoding="utf-8")
+PY
+# The last grep must not be the function's status: a name that is absent is
+# what we want, and grep then exits 1 (n-058e8b).
+nw_has() {
+  local name
+  for name in left-pad private-crate rich ruff typescript; do
+    grep -qx "not watched: $name" "$1" || return 1
+  done
+  for name in requests pytest serde ignored-pkg serde-lib; do
+    if grep -qx "not watched: $name" "$1"; then return 1; fi
+  done
+  return 0
+}
+( cd "$sw/alpha" && "$py" "$root/.ai-backbone/upstream.py" --freshness >"$tmp/nw-fresh.out" 2>&1 ) || true
+check "freshness names each unwatched package and skips a watch, an allow row and a gitignored package" "nw_has '$tmp/nw-fresh.out' && grep -q '=== FRESHNESS' '$tmp/nw-fresh.out'"
+( cd "$sw/alpha" && "$py" "$root/.ai-backbone/upstream.py" >"$tmp/nw-up.out" 2>&1 ) || true
+check "just upstream names the same unwatched packages" "nw_has '$tmp/nw-up.out'"
+env AI_BACKBONE_PROJECTS="$sw" AI_BACKBONE_FRESHNESS_FILE="$tmp/sweep-list.txt" AI_BACKBONE_UPSTREAM_CACHE="$tmp/sweep-cache" \
+  just -f "$root/Justfile" -d "$root" freshness-sweep >"$tmp/sweep-run.txt" 2>&1 || true
+check "the sweep writes one behind line and the unwatched lines, per project" \
+  "grep -q 'Wrote $tmp/sweep-list.txt' '$tmp/sweep-run.txt' && grep -qx '== alpha ==' '$tmp/sweep-list.txt' && grep -qx '== beta ==' '$tmp/sweep-list.txt' && grep -qx 'not watched: left-pad' '$tmp/sweep-list.txt' && grep -qx 'not watched: typescript' '$tmp/sweep-list.txt' && grep -qxF 'Behind: demo-crate 1.0.0 → 2.0.0' '$tmp/sweep-list.txt' && ! grep -qx 'not watched: requests' '$tmp/sweep-list.txt' && ! grep -qx 'not watched: ignored-pkg' '$tmp/sweep-list.txt'"
+mkdir -p "$tmp/sweep-inst/.ai-backbone" "$tmp/sweep-home/Library/LaunchAgents" "$tmp/sweep-launch"
+cp "$root/.ai-backbone/freshness-sweep.sh" "$tmp/sweep-inst/.ai-backbone/"
+git -C "$tmp/sweep-inst" init -q
+git -C "$tmp/sweep-inst" config user.email "sweep@example.com"
+git -C "$tmp/sweep-inst" config user.name "Sweep"
+printf "import? '%s/.ai-backbone/core.just'\n" "$root" > "$tmp/sweep-inst/Justfile"
+printf '#!/bin/sh\nexit 0\n' > "$tmp/sweep-launch/launchctl"
+chmod +x "$tmp/sweep-launch/launchctl"
+( cd "$tmp/sweep-inst" && HOME="$tmp/sweep-home" PATH="$tmp/sweep-launch:$PATH" AI_BACKBONE_FRESHNESS_FILE="$tmp/sweep-list.txt" just freshness-sweep-install >"$tmp/sweep-inst.out" 2>&1 ) || true
+inst_plist="$tmp/sweep-home/Library/LaunchAgents/ai-backbone.freshness-sweep.plist"
+check "the installer writes the daily job, marks this checkout the desk, and does not touch the real home" \
+  "grep -q 'This checkout is the desk' '$tmp/sweep-inst.out' && [ \"\$(git -C '$tmp/sweep-inst' config --local --get ai-backbone.desk)\" = true ] && grep -q '<integer>8</integer>' '$inst_plist' && grep -q '<integer>15</integer>' '$inst_plist' && grep -q 'freshness-sweep.sh' '$inst_plist' && [ ! -e \"$HOME/Library/LaunchAgents/ai-backbone.freshness-sweep.plist\" ]"
+printf '%s\n' '== beta ==' 'Behind: demo-crate 1.0.0 → 2.0.0' > "$tmp/sweep-list.txt"
+( cd "$tmp/sweep-inst" && HOME="$tmp/sweep-home" AI_BACKBONE_FRESHNESS_FILE="$tmp/sweep-list.txt" just session-start >"$tmp/sweep-desk.out" 2>&1 ) || true
+check "the desk's session-start prints the sweep list" "grep -q '=== FRESHNESS SWEEP ===' '$tmp/sweep-desk.out' && grep -qF 'Behind: demo-crate 1.0.0 → 2.0.0' '$tmp/sweep-desk.out'"
+( cd "$tmp/sweep-inst" && HOME="$tmp/sweep-home" PATH="$tmp/sweep-launch:$PATH" just freshness-sweep-remove >"$tmp/sweep-rm.out" 2>&1 ) || true
+check "removing the sweep takes the job and leaves the list" "[ ! -e '$inst_plist' ] && grep -q '^Removed' '$tmp/sweep-rm.out' && [ -f '$tmp/sweep-list.txt' ]"
+
+section "cargo-audit is the RustSec reader (n-2ed2cf)"
+# The stand-in records the flags. A reasoned row is an ignore entry, and the
+# scan still reports the finding so the gate can say the day passed.
+rm -f "$tmp/audit-argv"
+audit_py=$("$py" -c 'import importlib.util as i, sys; s = i.spec_from_file_location("u", sys.argv[1]); u = i.module_from_spec(s); s.loader.exec_module(u); print(u.audit_ignores({"RUSTSEC-2099-0001": {"why": "only tests build it", "fault": ""}, "RUSTSEC-2099-0002": {"why": "", "fault": "it has no why"}}))' "$root/.ai-backbone/upstream.py")
+printf '%s\n' "$audit_py" > "$tmp/audit-ignores.txt"
+check "a reasoned row is a cargo-audit ignore entry, and a row with no reason is not" "grep -qx 'id = \"RUSTSEC-2099-0001\"' '$tmp/audit-ignores.txt' && grep -qx 'reason = \"only tests build it\"' '$tmp/audit-ignores.txt' && grep -qx '\[\[advisories.ignore\]\]' '$tmp/audit-ignores.txt' && ! grep -q 'RUSTSEC-2099-0002' '$tmp/audit-ignores.txt'"
+reg="registry+https://github.com/rust-lang/crates.io-index"
+printf 'version = 4\n\n[[package]]\nname = "foo"\nversion = "1.2.0"\nsource = "%s"\n' "$reg" > "$tmp/audit.lock"
+env AI_BACKBONE_CARGO_AUDIT_ARGV="$tmp/audit-argv" AI_BACKBONE_ADVISORY_DB="$(winpath "$tmp/s29-db")" \
+  "$py" "$root/.ai-backbone/upstream.py" --advisories doctor "$(winpath "$tmp/audit.lock")" >"$tmp/audit-doc.out" 2>&1 || true
+check "advisories runs cargo-audit with --json, the lock, the database and --no-fetch" "grep -q -- '--json' '$tmp/audit-argv' && grep -q -- '--no-fetch' '$tmp/audit-argv' && grep -q -- '--file' '$tmp/audit-argv' && grep -q -- '--db' '$tmp/audit-argv' && grep -q 'RUSTSEC-2099-0001' '$tmp/audit-doc.out'"
 
 sec_times="$sec_times$((SECONDS-sec_start)) $sec_name"$'\n'
 echo

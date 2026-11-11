@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 26.11.1
+# .ai-backbone/core.just — the backbone's recipes, version 26.11.2
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -50,7 +50,8 @@ ci-check:
     # somebody edits the file. So they are checked here instead, on the commit.
     # Only what this backbone has measured is asserted — which is why every rule
     # but the first asks about cargo, and why nothing here judges a language
-    # nobody has run on a runner yet.
+    # nobody has run on a runner yet. fmt is the step `cargo fmt --check`
+    # (n-af4b74), required where the project has a Cargo.toml.
     # Flutter was checked against these rules on 2026-09-23, with
     # examples/ci-flutter.yml: the concurrency rule is the one that applies to
     # it, and it holds; the others ask about cargo and stay silent. No Flutter
@@ -181,6 +182,15 @@ ci-check:
         done
       fi
 
+      # n-af4b74: where this project has Rust, the checks run cargo fmt.
+      if ! skipped fmt && [ -f Cargo.toml ] && has 'cargo (build|test|clippy)' \
+         && ! has 'cargo fmt --check'; then
+        say "$f: no cargo fmt --check" \
+          'A one-line rustfmt miss passes these checks and fails first when' \
+          'the image is built. Where the project has Rust, the checks run:' \
+          '  cargo fmt --check'
+      fi
+
       [ "$bad" -eq "$had" ] && printf '  ok    %s\n' "$f"
     done
     echo
@@ -190,7 +200,7 @@ ci-check:
       if [ "$bad" -eq 1 ]; then echo "One lesson is not in force. The lines above say what it costs."
       else echo "$bad lessons are not in force. The lines above say what each one costs."; fi
       echo "Meant on purpose? Say so in the workflow and this stops asking. One of:"
-      echo "  # ci-check: skip concurrency | room | debug-info | no-fail-fast"
+      echo "  # ci-check: skip concurrency | room | debug-info | no-fail-fast | fmt"
       echo "with the reason after it, on the same line. A no-fail-fast waiver"
       echo "written on a cargo test line, or the line above one, waives that"
       echo "line alone; anywhere else in the file it waives the whole file."
@@ -415,6 +425,8 @@ doctor:
     check uv       "curl -LsSf https://astral.sh/uv/install.sh | sh"              || missing=1
     check graphify "uv tool install graphifyy"                                    || missing=1
     check prek     "uv tool install prek"                                         || missing=1
+    # RustSec's own reader (n-2ed2cf). The pin is the cargo-audit row.
+    check cargo-audit "cargo install cargo-audit --version 0.23.0 --locked"      || missing=1
     # A pin ahead of what is installed: the row says the version in use, and
     # this machine runs an older one, so every check on it tests something the
     # pin does not name (uv 0.8.17 under a pin of 0.12.19, spec 026). Said, never
@@ -1087,6 +1099,11 @@ tools-update:
     if command -v prek >/dev/null 2>&1 && [ -f .pre-commit-config.yaml ]; then
       prek update 2>&1 | tail -3
     fi
+    # cargo-audit at the pin in docs/upstream.toml (n-2ed2cf). A machine with
+    # no cargo has nothing to install it with; doctor names the command.
+    if command -v cargo >/dev/null 2>&1; then
+      cargo install cargo-audit --version 0.23.0 --locked 2>&1 | tail -1
+    fi
     # A tool that lives as a binary and in no file has its pin in docs/upstream.toml
     # and nowhere else, so nothing held the two together: graphify was upgraded to
     # 0.9.64 here while its row still said 0.9.62, and `just upstream` went on
@@ -1318,6 +1335,21 @@ _session-start-body:
     if [ -f docs/upstream.toml ] && [ -f .ai-backbone/upstream.py ]; then
       fresh=$("$(just _py)" .ai-backbone/upstream.py --freshness 2>&1) || fresh="${fresh:+$fresh$'\n'}upstream: could not run -> just upstream"
       if [ -n "$fresh" ]; then printf '\n%s\n' "$fresh"; fi
+    fi
+    # n-058e8b: only the desk prints the machine's list. Any other checkout
+    # stays quiet. The mark is local git config, set by the installer.
+    if [ "$(git config --local --get ai-backbone.desk 2>/dev/null || true)" = "true" ]; then
+      echo
+      echo "=== FRESHNESS SWEEP ==="
+      sweep=$(just _freshness-file 2>/dev/null || true)
+      if [ -n "$sweep" ] && [ -f "$sweep" ]; then
+        cat "$sweep"
+        if [ -n "$(find "$sweep" -mmin +1440 2>/dev/null || true)" ]; then
+          echo "The list is older than 24 hours. Run: just freshness-sweep"
+        fi
+      else
+        echo "No list yet. Run: just freshness-sweep"
+      fi
     fi
     # n-67104d: an older copy of this file has no delegate recipe. Said from
     # the copy that has it, about the folder we are in. Nothing is written there.
@@ -2384,6 +2416,11 @@ delegate task="":
       *) objroot=$(cd "$objroot" && pwd -P) ;;
     esac
     objroot_q=$(printf '%s' "$objroot" | sed "s/'/'\\\\''/g")
+    # n-dbc9e9: names this worktree creates or deletes. Another session's
+    # branch never reaches this hook, so it is not a branch-list breach.
+    touch_file="$dir/${id}.touched"
+    rm -f "$touch_file"
+    touch_q=$(printf '%s' "$touch_file" | sed "s/'/'\\\\''/g")
     rm -f "$hookdir/reference-transaction" "$hookdir/parents.pl"
     # Written with printf: a heredoc here is a just parse error (1.59.0).
     printf '%s\n' \
@@ -2412,6 +2449,16 @@ delegate task="":
     printf '%s\n' \
       '#!/bin/sh' \
       '# n-683f69: a merge is refused at the ref, not by the command text.' \
+      '# n-dbc9e9: record a branch this worktree creates or deletes.' \
+      'if [ "$1" = "committed" ]; then' \
+      "  touchfile='$touch_q'" \
+      '  zeros=0000000000000000000000000000000000000000' \
+      '  while read -r old new ref; do' \
+      '    case "$ref" in refs/heads/*) ;; *) continue ;; esac' \
+      '    if [ "$old" = "$zeros" ] || [ "$new" = "$zeros" ]; then printf "%s\n" "$ref" >> "$touchfile"; fi' \
+      '  done' \
+      '  exit 0' \
+      'fi' \
       '[ "$1" = "prepared" ] || exit 0' \
       "objroot='$objroot_q'" \
       'here=$(CDPATH= cd "$(dirname "$0")" && pwd)' \
@@ -2584,6 +2631,17 @@ delegate task="":
       # named too, in case its worktree was gone before a snapshot.
       changed_file="$dir/${id}.branches"
       printf '%s\n%s\n' "$before_branches" "$after_branches" | sed '/^$/d' | sort | uniq -u > "$changed_file"
+      # n-dbc9e9: keep a name only when this worktree's hook saw the create or
+      # the delete. Another session's branch is in the difference and not here.
+      if [ -s "$touch_file" ]; then
+        sort -u "$touch_file" > "$dir/${id}.touched.u"
+        grep -xF -f "$dir/${id}.touched.u" "$changed_file" > "$dir/${id}.kept" || true
+        mv "$dir/${id}.kept" "$changed_file"
+        rm -f "$dir/${id}.touched.u" "$touch_file"
+      else
+        : > "$changed_file"
+        rm -f "$touch_file"
+      fi
       foreign=$(printf '%s\n%s\n' "$before_foreign" "$after_foreign" | sed '/^$/d')
       branch_change=0
       while IFS= read -r ref; do
@@ -3016,6 +3074,10 @@ spec name:
     #!/usr/bin/env bash
     set -euo pipefail
     name="$1"
+    # n-e78e2e: `just spec --help` was a spec named help. A leading dash is refused.
+    case "$name" in
+      -*) echo "refuses: a spec name does not start with a dash"; exit 1 ;;
+    esac
     mkdir -p docs/specs
     # File names are ASCII and dashed: "Yapılacaklar Listesi" -> 002-yapilacaklar-listesi.md
     slug=$(just _slug "$name")
@@ -4625,6 +4687,93 @@ _backbone-news:
     echo
     echo "Behind -> run: just tools-update, then just save. (An agent does this without asking.)"
 
+# The file the sweep writes. The desk and the daily job both read this path
+# (n-058e8b). A test points AI_BACKBONE_FRESHNESS_FILE at its own file.
+_freshness-file:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -n "${AI_BACKBONE_FRESHNESS_FILE:-}" ]; then printf '%s\n' "$AI_BACKBONE_FRESHNESS_FILE"; exit 0; fi
+    if [ "$(uname)" = Darwin ]; then printf '%s\n' "$HOME/Library/Application Support/ai-backbone/freshness.txt"
+    else printf '%s\n' "${XDG_CACHE_HOME:-$HOME/.cache}/ai-backbone/freshness.txt"; fi
+
+# Behind and not-watched lines for every project on this machine (n-058e8b).
+[group('template')]
+freshness-sweep:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out=$(just _freshness-file)
+    bash .ai-backbone/freshness-sweep.sh "$PWD" "$out"
+
+# Every day at 08:15. The script launchd runs is a copy outside this checkout:
+# a job started by launchd cannot be a file inside Desktop, Documents or
+# Downloads. This checkout becomes the desk, whose session-start prints the list.
+[group('template')]
+freshness-sweep-install:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "$(uname)" != Darwin ]; then
+      echo "This installs a macOS schedule. On this machine, run the same sweep from cron:"
+      echo "  15 8 * * *  cd $PWD && just freshness-sweep"
+      exit 1
+    fi
+    if [ ! -f .ai-backbone/freshness-sweep.sh ]; then
+      echo "This checkout has no .ai-backbone/freshness-sweep.sh. Run just template-update, then this again."
+      exit 1
+    fi
+    support="$HOME/Library/Application Support/ai-backbone"
+    mkdir -p "$support" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
+    copy="$support/freshness-sweep.sh"
+    cp .ai-backbone/freshness-sweep.sh "$copy"
+    chmod +x "$copy"
+    root=$(pwd -P)
+    out=$(just _freshness-file)
+    label="ai-backbone.freshness-sweep"
+    plist="$HOME/Library/LaunchAgents/$label.plist"
+    printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' \
+      '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+      '<plist version="1.0"><dict>' \
+      "<key>Label</key><string>$label</string>" \
+      '<key>ProgramArguments</key><array>' \
+      '<string>/bin/bash</string>' \
+      "<string>$copy</string>" \
+      "<string>$root</string>" \
+      "<string>$out</string>" \
+      '</array>' \
+      '<key>StartCalendarInterval</key><dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>15</integer></dict>' \
+      "<key>StandardOutPath</key><string>$HOME/Library/Logs/ai-backbone-freshness.log</string>" \
+      "<key>StandardErrorPath</key><string>$HOME/Library/Logs/ai-backbone-freshness.log</string>" \
+      '</dict></plist>' > "$plist"
+    launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || launchctl unload "$plist" 2>/dev/null || true
+    launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null || launchctl load "$plist"
+    if git rev-parse --git-dir >/dev/null 2>&1; then git config --local ai-backbone.desk true; fi
+    echo "Installed. Every day at 08:15 the sweep writes $out."
+    echo "This checkout is the desk: just session-start prints the list."
+    here=$(pwd -P)
+    home=$(cd "$HOME" 2>/dev/null && pwd -P || echo "$HOME")
+    for kept in Desktop Documents Downloads; do
+      case "$here/" in "$home/$kept/"*)
+        echo "Note: this checkout is inside ~/$kept, and macOS does not let a scheduled job read it. The list stays empty until just freshness-sweep runs from a session."
+        ;;
+      esac
+    done
+
+# Stop the daily sweep on this machine. The desk mark stays, so session-start
+# still prints the list the last run wrote.
+[group('template')]
+freshness-sweep-remove:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    label="ai-backbone.freshness-sweep"
+    plist="$HOME/Library/LaunchAgents/$label.plist"
+    if [ ! -f "$plist" ]; then
+      if [ "$(uname)" != Darwin ]; then echo "No macOS schedule here. If this machine runs it from cron, remove that line: crontab -e"
+      else echo "Nothing installed here."; fi
+      exit 0
+    fi
+    launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || launchctl unload "$plist" 2>/dev/null || true
+    rm -f "$plist"
+    echo "Removed. The list stays. Put the job back with: just freshness-sweep-install"
+
 # What the things this project is built on have released: just upstream · just upstream graphify
 # Asked at most once a day per machine. The answer is shared by every project
 # that watches the same source. `just upstream --refresh` asks again.
@@ -5357,7 +5506,7 @@ _tool-pins:
     [ -f docs/upstream.toml ] || exit 0
     for pair in "just=github:casey/just pypi:rust-just" "prek=github:j178/prek pypi:prek" \
                 "graphify=github:graphify-labs/graphify pypi:graphifyy" "gh=github:cli/cli" \
-                "uv=github:astral-sh/uv pypi:uv"; do
+                "uv=github:astral-sh/uv pypi:uv" "cargo-audit=crates:cargo-audit"; do
       tool="${pair%%=*}"
       row=$(awk -v want=" ${pair#*=} " '
         function val(s) { sub(/^[^"]*"/, "", s); sub(/".*$/, "", s); return s }

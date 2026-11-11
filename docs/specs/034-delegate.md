@@ -88,7 +88,9 @@ its own worker.
       A fetch that moves origin, or a third party pushing an unrelated
       commit, is not a breach. Moving the default branch (the base, when
       `DELEGATE_BASE` is set or the branch records one), or changing the
-      branch list, still is. Any breach prints `BREACH: …` first and exits
+      branch list by a branch this run created or deleted, still is. A
+      branch another session creates in the same repository is not this
+      run's (n-dbc9e9). Any breach prints `BREACH: …` first and exits
       non-zero.
 - [x] The run stops after `DELEGATE_TIMEOUT` (default 180 min, any value for one job). The full output
       goes to `~/.cache/ai-backbone/delegate/<project>/<id>.log`, never the

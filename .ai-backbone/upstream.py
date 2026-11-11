@@ -14,13 +14,13 @@ most once a day per machine: the answer is kept under
 `~/.cache/ai-backbone/upstream/`, keyed by source, and every project that
 watches that source reads the same file. `--refresh` asks again.
 `--freshness` is the short block session start shows: what is behind, what
-moved, and one first job. It stops at ten seconds and still exits 0.
-`--advisories` reads
-a Cargo.lock against the RustSec advisories and OSV's own database, which
-also carries GitHub's GHSA ids, and `--crate-sources` says when a row reads
-from GitHub what Cargo.lock locks as a crate (spec 029); what a project has
-looked at and ships anyway is in docs/advisories.toml, and
-`--advisories gate` is a ship's yes or no (spec 030).
+moved, what is declared and not watched (n-058e8b), and one first job. It
+stops at ten seconds and still exits 0.
+`--advisories` reads a Cargo.lock with cargo-audit, RustSec's own tool
+(n-2ed2cf), and with OSV, which also carries GitHub's GHSA ids.
+`--crate-sources` says when a row reads from GitHub what Cargo.lock locks as
+a crate (spec 029); what a project has looked at and ships anyway is in
+docs/advisories.toml, and `--advisories gate` is a ship's yes or no (spec 030).
 
 Nothing here upgrades anything. It reports.
 """
@@ -77,6 +77,8 @@ NPM_BUDGET = float(os.environ.get("AI_BACKBONE_NPM_BUDGET", "8") or "8")
 # Folders that are not the project's own packages: a dependency tree, another
 # repository, a retired copy, the code map's output.
 NPM_SKIP = {"node_modules", ".git", ".references", ".archive", "graphify-out"}
+# Manifests that are build output, not the project's own list (n-058e8b).
+MANIFEST_SKIP = NPM_SKIP | {"target", "dist", "build", ".venv", "venv", "__pycache__"}
 # The deadline of the check that is running, or None when a person typed
 # `just upstream` and is waiting. A lookup uses the shorter of its own limit
 # and what is left, so one source's thirty seconds cannot spend the ten.
@@ -1142,22 +1144,34 @@ def _obtain(entry, refresh, deadline):
     return releases, "", True
 
 
-def read_list():
-    """The watch list, or None after saying why not. TOML is imported here and
-    not at the top: it arrived in Python 3.11 and a Mac's own python3 is 3.9,
-    where the import was a traceback that session-start threw away, so the
-    weekly check had silently never run there."""
+def read_doc():
+    """The parsed watch file, or None after saying why not. A missing file is
+    an empty document. TOML is imported here and not at the top: it arrived in
+    Python 3.11 and a Mac's own python3 is 3.9, where the import was a
+    traceback that session-start threw away, so the weekly check had silently
+    never run there."""
     try:
         import tomllib
     except ModuleNotFoundError:
         say(f"Needs Python 3.11 or newer for tomllib; this is {sys.version.split()[0]}."
             " uv can put one on this machine: uv python install 3.13")
         return None
+    if not LIST.is_file():
+        return {}
     try:
-        watched = tomllib.loads(LIST.read_text()).get("watch", [])
+        data = tomllib.loads(LIST.read_text())
     except (OSError, ValueError) as err:
         say(f"{LIST} could not be read: {err}")
         return None
+    if not isinstance(data, dict):
+        say(f"{LIST} could not be read: the file is not a table.")
+        return None
+    return data
+
+
+def watch_entries(data):
+    """The [[watch]] rows, or None after saying why not."""
+    watched = data.get("watch", []) if isinstance(data, dict) else []
     if not isinstance(watched, list) or not all(isinstance(e, dict) for e in watched):
         say(f"{LIST}: each thing watched is its own [[watch]] block, with two brackets.")
         return None
@@ -1166,6 +1180,14 @@ def read_list():
         if "pin" in entry:
             entry["pin"] = str(entry["pin"]).strip()
     return watched
+
+
+def read_list():
+    """The watch list, or None after saying why not."""
+    data = read_doc()
+    if data is None:
+        return None
+    return watch_entries(data)
 
 
 def recent():
@@ -1881,12 +1903,109 @@ def _merge_osv(found, crates, osv):
                 seen.setdefault(key, adv)
 
 
-def adv_check(lock, db, tomllib):
-    """Vulnerabilities and notices for one Cargo.lock, how many crates, and a
-    note when OSV could not be read."""
-    crates = cargo_locked(lock, tomllib)
+def cargo_audit_binary():
+    """cargo-audit, RustSec's reader (n-2ed2cf). The suite names its stand-in."""
+    named = os.environ.get("AI_BACKBONE_CARGO_AUDIT", "").strip()
+    if named:
+        return named
+    return shutil.which("cargo-audit") or ""
+
+
+def cargo_audit_cmd(binary, lock, db):
+    """The flags cargo-audit 0.23 takes. `cargo audit` is the same binary."""
+    cmd = [binary]
+    if Path(binary).name == "cargo":
+        cmd.append("audit")
+    cmd += ["--json", "--file", os.path.abspath(lock), "--db", os.path.abspath(str(db)), "--no-fetch"]
+    return cmd
+
+
+def audit_ignores(rows):
+    """The rows that carry a reason, as cargo-audit's ignore entries (n-2ed2cf).
+
+    The scan does not pass these in. An ignore would hide the finding, and the
+    gate still has to say when the day has passed or the fixed versions moved.
+    """
+    blocks = []
+    for rid in sorted(rows):
+        row = rows[rid]
+        why = str(row.get("why") or "").strip()
+        if not rid or not why:
+            continue
+        reason = why.replace("\\", "\\\\").replace('"', '\\"')
+        blocks.append(f'[[advisories.ignore]]\nid = "{rid}"\nreason = "{reason}"\n')
+    return "\n".join(blocks)
+
+
+def _audit_one(block):
+    """One object of cargo-audit's JSON, or None when it is not one."""
+    if not isinstance(block, dict):
+        return None
+    advisory = block.get("advisory")
+    if not isinstance(advisory, dict):
+        return None
+    package = block.get("package") if isinstance(block.get("package"), dict) else {}
+    versions = block.get("versions") if isinstance(block.get("versions"), dict) else {}
+    name = str(package.get("name") or advisory.get("package") or "").strip()
+    ver = str(package.get("version") or "").strip()
+    aliases = advisory.get("aliases") or []
+    kind = advisory.get("informational") or ""
+    adv = {"id": str(advisory.get("id") or ""), "kind": str(kind or ""),
+           "patched": list(versions.get("patched") or []),
+           "unaffected": list(versions.get("unaffected") or []),
+           "title": str(advisory.get("title") or ""),
+           "aliases": [str(a) for a in aliases if isinstance(a, str)] if isinstance(aliases, list) else []}
+    if not name or not adv["id"]:
+        return None
+    return name, ver, adv
+
+
+def cargo_audit_scan(binary, lock, db):
+    """What cargo-audit reports for one lock. Exit 1 means it found something."""
+    cmd = cargo_audit_cmd(binary, lock, db)
+    try:
+        done = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    except OSError as err:
+        raise ValueError(f"cargo-audit could not run ({err})") from err
+    text = (done.stdout or "").strip()
+    if not text:
+        raise ValueError(f"cargo-audit gave no answer ({one_line(done.stderr or f'exit {done.returncode}')})")
+    try:
+        data = json.loads(text)
+    except ValueError as err:
+        raise ValueError(f"cargo-audit did not print JSON ({one_line(err)})") from err
+    if not isinstance(data, dict):
+        raise TypeError("cargo-audit did not print a JSON object")
     found, notices = [], []
-    for name, ver in crates:
+    vulns = data.get("vulnerabilities")
+    items = vulns.get("list") if isinstance(vulns, dict) else None
+    for block in items or []:
+        parsed = _audit_one(block)
+        if parsed is None:
+            continue
+        name, ver, adv = parsed
+        if adv["kind"]:
+            notices.append((adv["kind"], name))
+        else:
+            found.append((name, ver, adv))
+    warnings = data.get("warnings")
+    if isinstance(warnings, dict):
+        for kind, blocks in warnings.items():
+            if not isinstance(blocks, list):
+                continue
+            for block in blocks:
+                parsed = _audit_one(block)
+                if parsed is None:
+                    continue
+                name, _ver, _adv = parsed
+                notices.append((str(kind), name))
+    return found, notices
+
+
+def _read_lock(lock, db, tomllib):
+    """The findings our own reader would report. Used when cargo-audit is absent."""
+    found, notices = [], []
+    for name, ver in cargo_locked(lock, tomllib):
         v = semver(ver)
         if v is None:
             continue
@@ -1897,6 +2016,20 @@ def adv_check(lock, db, tomllib):
                 notices.append((adv["kind"], name))
             else:
                 found.append((name, ver, adv))
+    return found, notices
+
+
+def adv_check(lock, db, tomllib):
+    """Vulnerabilities and notices for one Cargo.lock, how many crates, and a
+    note when OSV could not be read. cargo-audit is the reader when it is
+    installed (n-2ed2cf). Without the binary, the database copy is read here
+    so a session that has not installed it yet still speaks."""
+    crates = cargo_locked(lock, tomllib)
+    binary = cargo_audit_binary()
+    if binary:
+        found, notices = cargo_audit_scan(binary, lock, db)
+    else:
+        found, notices = _read_lock(lock, db, tomllib)
     osv, osv_note = osv_find([(name, ver) for name, ver in crates if semver(ver) is not None])
     if osv:
         _merge_osv(found, crates, osv)
@@ -2537,7 +2670,181 @@ def first_job(behind, moved, ideas):
     return "none"
 
 
-def print_fresh(watched, report):
+_SOURCE_PKG = re.compile(r"^(?:npm|crates|pypi|pub|brew):(.+)$")
+_REQ_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]*")
+_SCOPED_NAME = re.compile(r"^@[A-Za-z0-9._-]+/[A-Za-z0-9._-]+")
+
+
+def _covered_names(watched):
+    """Names a [[watch]] row already covers. The row's name, or the package
+    its registry source names (n-058e8b). A github source covers its repo name."""
+    names = set()
+    for entry in watched or []:
+        name = str(entry.get("name") or "").strip()
+        if name:
+            names.add(name)
+        source = str(entry.get("source") or "").strip()
+        matched = _SOURCE_PKG.match(source)
+        if matched:
+            names.add(matched.group(1).strip())
+            continue
+        if source.startswith("github:") and "/" in source[7:]:
+            names.add(source.rsplit("/", 1)[-1].strip())
+    return names
+
+
+def _allowed_names(data):
+    """The allow-list. `[[unwatched]]` with a name, or `unwatched = ["name"]`.
+    A wrong shape is said once and counts for nothing (n-058e8b)."""
+    if not isinstance(data, dict) or "unwatched" not in data:
+        return set()
+    rows = data.get("unwatched")
+    names = set()
+    if isinstance(rows, list):
+        for row in rows:
+            if isinstance(row, str) and row.strip():
+                names.add(row.strip())
+            elif isinstance(row, dict) and isinstance(row.get("name"), str) and row["name"].strip():
+                names.add(row["name"].strip())
+    elif isinstance(rows, dict):
+        raw = rows.get("names", [])
+        if isinstance(raw, list):
+            for name in raw:
+                if isinstance(name, str) and name.strip():
+                    names.add(name.strip())
+    else:
+        say(f"{LIST}: unwatched is a list of [[unwatched]] blocks, and this is not one.")
+    return names
+
+
+def _req_name(spec):
+    """The package name at the start of a requirement. Markers and extras go."""
+    text = str(spec).split(";", 1)[0].strip()
+    if " @ " in text:
+        text = text.split(" @ ", 1)[0].strip()
+    head = text.split("[", 1)[0].strip()
+    if head.startswith("@"):
+        found = _SCOPED_NAME.match(head)
+        return found.group(0) if found else ""
+    found = _REQ_NAME.match(head)
+    return found.group(0) if found else ""
+
+
+def _add_req_list(block, into):
+    if isinstance(block, list):
+        for spec in block:
+            if isinstance(spec, str):
+                name = _req_name(spec)
+                if name:
+                    into.add(name)
+    elif isinstance(block, dict):
+        for key, value in block.items():
+            if key == "python":
+                continue
+            name = key
+            if isinstance(value, dict) and isinstance(value.get("package"), str):
+                name = value["package"]
+            if isinstance(name, str) and name.strip() and name != "python":
+                into.add(name.strip())
+
+
+def _manifest_files(filename):
+    """Every filename the project holds, gitignored paths and build folders left
+    out. The same skip as the npm walk, plus cargo's target (n-a65306, n-058e8b)."""
+    out = []
+    for base, dirs, files in os.walk("."):
+        dirs[:] = sorted(d for d in dirs if d not in MANIFEST_SKIP)
+        if filename not in files:
+            continue
+        rel = Path(os.path.normpath(os.path.join(base, filename))).as_posix()
+        if git_ignored(rel):
+            continue
+        out.append(Path(rel))
+    return out
+
+
+def _declared_packages():
+    """Package names this project declares and a watch row could cover."""
+    found = set()
+    for path in _manifest_files("package.json"):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        for key in ("dependencies", "devDependencies"):
+            block = data.get(key)
+            if isinstance(block, dict):
+                for name in block:
+                    if isinstance(name, str) and name.strip():
+                        found.add(name.strip())
+    try:
+        import tomllib
+    except ModuleNotFoundError:
+        return found
+    for path in _manifest_files("Cargo.toml"):
+        try:
+            data = tomllib.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        ws = data.get("workspace") if isinstance(data, dict) else None
+        deps = ws.get("dependencies") if isinstance(ws, dict) else None
+        if not isinstance(deps, dict):
+            continue
+        for key, value in deps.items():
+            name = key
+            if isinstance(value, dict) and isinstance(value.get("package"), str):
+                name = value["package"]
+            if isinstance(name, str) and name.strip():
+                found.add(name.strip())
+    for path in _manifest_files("pyproject.toml"):
+        try:
+            data = tomllib.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        project = data.get("project")
+        if isinstance(project, dict):
+            _add_req_list(project.get("dependencies"), found)
+            optional = project.get("optional-dependencies")
+            if isinstance(optional, dict):
+                for block in optional.values():
+                    _add_req_list(block, found)
+        _add_req_list_groups(data.get("dependency-groups"), found)
+        poetry = data.get("tool", {})
+        poetry = poetry.get("poetry") if isinstance(poetry, dict) else None
+        if isinstance(poetry, dict):
+            _add_req_list(poetry.get("dependencies"), found)
+            _add_req_list(poetry.get("dev-dependencies"), found)
+            groups = poetry.get("group")
+            if isinstance(groups, dict):
+                for group in groups.values():
+                    if isinstance(group, dict):
+                        _add_req_list(group.get("dependencies"), found)
+    return found
+
+
+def _add_req_list_groups(groups, into):
+    if not isinstance(groups, dict):
+        return
+    for block in groups.values():
+        _add_req_list(block, into)
+
+
+def unwatched_names(data, watched):
+    """Declared packages with no watch row and no allow row, sorted."""
+    missing = _declared_packages() - _covered_names(watched) - _allowed_names(data)
+    return sorted(missing, key=str.lower)
+
+
+def _say_missing(missing):
+    for name in missing or []:
+        say(f"not watched: {name}")
+
+
+def print_fresh(watched, report, missing=None):
     """The FRESHNESS block. An idea's newer release is 'to read', never behind."""
     by_name = {(e.get("name") or e.get("source", "?")): e for e in watched}
     behind, moved, ideas = [], [], []
@@ -2570,20 +2877,25 @@ def print_fresh(watched, report):
         say("To read: nothing")
     if report["whynot"]:
         say("Could not check: " + "; ".join(f"{name} ({report['whynot'][name]})" for name in report["whynot"]))
+    # n-058e8b: a declared package with no row is said before the first job.
+    _say_missing(missing)
     say("First job: " + first_job(behind, moved, ideas))
     return [name for name, _pin, _newest in behind], moved
 
 
 def write_project_cache(rows, behind, moved):
     """The per-project cache `just projects` and `--recent` read. Ideas are not
-    put in `behind`: a newer idea is something to read, not something to upgrade."""
+    put in `behind`: a newer idea is something to read, not something to upgrade.
+    The sweep sets the variable so it does not write into another project."""
+    if os.environ.get("AI_BACKBONE_UPSTREAM_NO_WRITE"):
+        return
     if not CACHE.parent.is_dir():
         return
     released = {name: {"pin": pin, "at": "" if at == "?" else at} for name, pin, at, *_ in rows}
     CACHE.write_bytes(json.dumps({"behind": behind, "moved": moved, "released": released}, indent=1).encode("utf-8"))
 
 
-def _fresh_empty(why):
+def _fresh_empty(why, missing=None):
     stamp = datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M")
     say(f"=== FRESHNESS (checked {stamp}, no earlier result; {why}) ===")
     say("Behind: nothing")
@@ -2591,6 +2903,7 @@ def _fresh_empty(why):
     say(f"Backbone: {backbone_version()}")
     say("To read: nothing")
     say(f"Could not check: {why}")
+    _say_missing(missing)
     say("First job: none")
 
 
@@ -2602,17 +2915,21 @@ def freshness():
     previous = CALL_DEADLINE
     CALL_DEADLINE = deadline
     try:
-        if not LIST.is_file():
-            _fresh_empty(f"no {LIST}. Run: just upstream-init")
+        data = {} if not LIST.is_file() else read_doc()
+        if data is None:
             return 0
-        watched = read_list()
+        if not LIST.is_file():
+            _fresh_empty(f"no {LIST}. Run: just upstream-init", unwatched_names(data, []))
+            return 0
+        watched = watch_entries(data)
         if watched is None:
             return 0
+        missing = unwatched_names(data, watched)
         if not watched:
-            _fresh_empty(f"{LIST} watches nothing yet")
+            _fresh_empty(f"{LIST} watches nothing yet", missing)
             return 0
         report = survey(watched, False, deadline, "")
-        behind, moved = print_fresh(watched, report)
+        behind, moved = print_fresh(watched, report, missing)
         write_project_cache(report["rows"], behind, moved)
         return 0
     finally:
@@ -2635,12 +2952,17 @@ def main():
         return advisories(sys.argv[2], sys.argv[3:])
     if not LIST.is_file():
         say(f"No {LIST}. Run: just upstream-init")
+        _say_missing(unwatched_names({}, []))
         return 0
-    watched = read_list()
+    data = read_doc()
+    if data is None:
+        return 1
+    watched = watch_entries(data)
     if watched is None:
         return 1
     if not watched:
         say(f"{LIST} watches nothing yet. Add a [[watch]] block per thing this project is built on.")
+        _say_missing(unwatched_names(data, []))
         return 0
 
     refresh, rest = _take_refresh(sys.argv[1:])
@@ -2743,6 +3065,9 @@ def main():
         say("Last result, kept because this run could not check:")
         for name, reason, record in stale:
             say(f"  {name}: {age_phrase(record)} ({reason}).")
+    # n-058e8b: declared packages with no row. Quiet when every one is watched
+    # or allowed.
+    _say_missing(unwatched_names(data, watched))
 
     write_project_cache(rows, behind, moved)
     return 0

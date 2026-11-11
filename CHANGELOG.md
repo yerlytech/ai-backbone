@@ -14,6 +14,18 @@ squash that follows that version on the maintainer's machine takes the tags
 before it with the history. A newcomer reads a repository, not a diary. The
 entries below are the record of every version.
 
+## 26.11.2 — 2026-11-11
+
+**`just spec` refuses a name that starts with a dash (n-e78e2e).** `just spec --help` used to write `docs/specs/NNN-help.md`. A name that starts with `-` is refused in one line, and no file is written.
+
+**Rust checks run cargo fmt, and a ship publishes first (n-af4b74).** `just ci-check` refuses a Rust workflow that runs cargo and has dropped `cargo fmt --check`, which is how a one-line rustfmt miss passed the checks and failed when the image was built. The ship notes say a chain that ships must publish first, and that a tree comparison after main has moved is a false alarm.
+
+**The branch-list breach is this run's branches (n-dbc9e9).** The check used to compare every branch name in the repository before and after the job. A delegate branch another session created during the run was counted. The worktree hook records a branch this run creates or deletes, and only those names are compared. A lane another worktree has checked out is still not a breach.
+
+**cargo-audit reads Cargo.lock (n-2ed2cf).** `just doctor` and the advisory gate run RustSec's own `cargo-audit` 0.23.0 when it is installed, pinned in `docs/upstream.toml`. A `[[triaged]]` row with a reason is the same fact as a cargo-audit ignore entry (`id` and `reason`). The scan still reports the finding, so a row whose day has passed or whose fixed versions moved is still said. `sh .ai-backbone/setup.sh` and `just tools-update` install that pin when `cargo` is on the machine, and so does CI. Without the binary, the database copy is still read.
+
+**A declared package with no watch row is said (n-058e8b).** `just upstream` and the FRESHNESS block print `not watched: <name>` for every package in `package.json` (`dependencies` and `devDependencies`), in `[workspace.dependencies]`, and in `pyproject.toml` that has no `[[watch]]` row. A `[[unwatched]]` row is the allow-list. `just freshness-sweep` writes the `Behind:` and `not watched:` lines of every project on this machine to one file. `just freshness-sweep-install` runs that daily at 08:15 through launchd, from a copy of the script outside the checkout, and marks this checkout the desk. The desk's session start prints the file, and says when it is missing or older than 24 hours.
+
 ## 26.11.1 — 2026-11-07
 
 **A grok delegate run does not close other Grok sessions.** The sandbox profile is written to the project's `.grok/sandbox.toml`, and only when the spliced content differs. The shared `~/.grok/sandbox.toml` is left alone. Grok's guide names both files; writing the shared one closed every session already running (seen 2026-11-07 23:28). The path deny list is the same, plus `Write` and `Edit` of `.grok/sandbox.toml`. When the job ends, the recipe compares that file's hash with the hash from before the worker started, and says so if the worker changed it. If the user file already has `[profiles.ai-backbone-delegate]`, this run uses `ai-backbone-delegate-job` in the project file so the leftover user profile does not win.

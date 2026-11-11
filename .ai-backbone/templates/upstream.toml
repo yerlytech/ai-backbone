@@ -66,6 +66,14 @@
 #   A tool that lives as a binary and in no file has no pinned_in; MOVED cannot
 #   be said for it. `check` may be a multi-line string: check = """…"""
 #
+# A package in package.json (dependencies or devDependencies), in
+# [workspace.dependencies], or in pyproject.toml with no [[watch]] row is
+# reported as `not watched: <name>` (n-058e8b). Leave one out on purpose:
+#
+#   [[unwatched]]
+#   name = "left-pad"
+#   why = "not how this project is built"
+#
 # The row below is true on day one: the hook config this project started with
 # pins the secret scanner at that version. Keep it, or replace it with your own.
 

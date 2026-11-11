@@ -9,7 +9,9 @@ description: How to start and end a work session in a repo built on ai-backbone.
 
 1. Run `just session-start`. It prints a FRESHNESS block near the top: what is behind
    (pin to newest), which pins moved, the backbone's version, ideas to read,
-   and one first job. Then the last two journal entries, recent commits, the
+   packages with no watch row (`not watched:`), and one first job. On the desk
+   (`git config --local ai-backbone.desk true`) it also prints the machine's
+   sweep list. Then the last two journal entries, recent commits, the
    working tree, what the project is built on, and whether the backbone has
    updates. Something behind is the first job. An idea to read is a ten-line
    note from the worker, and the maintainer hears it only when it is worth a
@@ -87,8 +89,9 @@ claim without it is a memory, and a memory is older than the pin.
 ## When something upstream has moved
 
 Every session `just session-start` prints a FRESHNESS block: what the things
-this project is built on have released since it pinned them, and any idea it
-follows, from `docs/upstream.toml`. The online check runs at most once a day
+this project is built on have released since it pinned them, any idea it
+follows, and any declared package with no watch row (`not watched:`), from
+`docs/upstream.toml`. A `[[unwatched]]` row is left out on purpose. The online check runs at most once a day
 per machine, and later sessions that day read the shared result. `just upstream
 --refresh` asks again. Start the list with `just upstream-init` in a project
 that has none.

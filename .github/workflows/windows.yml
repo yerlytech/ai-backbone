@@ -7,7 +7,8 @@
 # for this job (about twenty-five minutes, then about forty on 2026-10-21,
 # and one run hit its 44-minute cap with every check green so far). The caps
 # stay 48 and 44: twice the 22 minutes measured 2026-10-13 (run 38400602011,
-# 727 checks).
+# 727 checks). The job cap is 60 since n-2ed2cf so the cargo-audit compile
+# fits beside the suite step, which stays 44.
 #
 # This file is the backbone's own. promote.yml judges the checks run, from
 # main's copy of itself, and does not watch this workflow. gate.sh reads the
@@ -61,7 +62,8 @@ jobs:
     name: suite (windows-latest)
     runs-on: windows-latest
     # A job with no cap runs for six hours when something hangs.
-    timeout-minutes: 48
+    # +12 for the cargo-audit compile (n-2ed2cf), outside the suite step.
+    timeout-minutes: 60
     env:
       HOMEBREW_NO_AUTO_UPDATE: 1
     steps:
@@ -88,6 +90,14 @@ jobs:
           for t in just uv prek graphify gh; do
             command -v "$t" >/dev/null || { echo "setup.sh did not leave $t on the PATH"; exit 1; }
           done
+          # cargo-audit 0.23.0, the pin in docs/upstream.toml (n-2ed2cf).
+          if ! command -v cargo >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+            . "$HOME/.cargo/env"
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+          cargo install cargo-audit --version 0.23.0 --locked
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: the private vault a fresh clone has no copy of
         run: just brain-init

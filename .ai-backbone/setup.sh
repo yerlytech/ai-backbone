@@ -83,6 +83,14 @@ if need just && ! ver_ge "$v" "$need_just"; then
 fi
 need prek     || { echo "-> prek";     uv tool install prek      || uv tool install prek; }
 need graphify || { echo "-> graphify"; uv tool install graphifyy || uv tool install graphifyy; }
+# cargo-audit is RustSec's reader (n-2ed2cf). It needs cargo, which this
+# script does not install: a machine without Rust is told the command by
+# doctor, and the exit below still counts only the tools named in the header.
+# The version is the pin in docs/upstream.toml.
+if need cargo && ! need cargo-audit; then
+  echo "-> cargo-audit"
+  cargo install cargo-audit --version 0.23.0 --locked || cargo install cargo-audit --version 0.23.0 --locked || true
+fi
 uv tool update-shell >/dev/null 2>&1 || true
 
 echo

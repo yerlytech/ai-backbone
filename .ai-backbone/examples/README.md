@@ -54,7 +54,11 @@ Then edit `stack.just` until it fits. A recipe that takes an argument carries
 bot, when there is none). After every green `checks` run on a push to main,
 GitHub builds the image from the commit the checks tested and sends it to
 ghcr.io, tagged by that commit, with the run's own token. The server pulls
-it; GitHub never holds a key to the server. Run again after a template
+it; GitHub never holds a key to the server. A chain that ships must publish
+first: a commit that is only on this machine has no green checks run for the
+image workflow to follow. A tree comparison after main has moved is a
+false alarm. The image is the commit the checks tested, and main may have gained
+commits since. Run again after a template
 update, it says when the project's copy differs from the backbone's and
 never overwrites it. `compose-service.yml` is the contract a service keeps on
 a host it shares with other projects. Neither has run on a real runner or

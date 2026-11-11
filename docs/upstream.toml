@@ -74,6 +74,13 @@ why = "installs just, prek and graphify, and finds the Python the helpers run on
 check = "whether `uv tool install`, `uv tool upgrade` and `uv python find` still answer the way setup.sh and _py read them"
 
 [[watch]]
+name = "cargo-audit"
+source = "crates:cargo-audit"
+pin = "0.23.0"
+why = "RustSec's own reader for Cargo.lock. just doctor runs it instead of the backbone's reader (n-2ed2cf). The owner chose 0.23.0 on 2026-11-11"
+check = "whether --json still gives advisory.id, versions.patched and warnings, and whether an ignore entry is still an id and a reason"
+
+[[watch]]
 name = "actions/checkout"
 source = "github:actions/checkout"
 pin = "v7"
