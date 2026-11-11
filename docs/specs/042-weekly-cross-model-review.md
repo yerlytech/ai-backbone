@@ -1,5 +1,6 @@
 ---
-status: draft
+status: approved
+approved: 2026-11-11 (the owner: "tamam önerdiğin gibi ilerleyelim", on the three suggested answers)
 date: 2026-11-11
 ---
 
