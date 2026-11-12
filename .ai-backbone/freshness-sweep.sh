@@ -5,12 +5,26 @@
 # `just freshness-sweep`. It reads projects. It does not write into them.
 set -uo pipefail
 
+# Git Bash rewrites a Unix path into a Windows path on the way into just.exe.
+# A backslash path does not glob, so the project list is empty and the file
+# the recipe names is not the path the caller still holds (spec 020).
+to_unix() {
+  local p=$1
+  if command -v cygpath >/dev/null 2>&1 && [ -n "$p" ]; then
+    p=$(cygpath -u "$p" 2>/dev/null || printf '%s' "$p")
+  fi
+  p=${p//$'\r'/}
+  printf '%s' "$p"
+}
+
 root="${1:-}"
 out="${2:-}"
 if [ -z "$root" ] || [ -z "$out" ]; then
   echo "usage: freshness-sweep.sh <checkout> <outfile>" >&2
   exit 1
 fi
+root=$(to_unix "$root")
+out=$(to_unix "$out")
 root=$(cd "$root" 2>/dev/null && pwd -P) || { echo "freshness-sweep: cannot read $1" >&2; exit 1; }
 if [ ! -f "$root/.ai-backbone/upstream.py" ]; then
   echo "freshness-sweep: $root has no .ai-backbone/upstream.py" >&2
@@ -37,7 +51,7 @@ fi
 # at brain/project-roots.txt, the same places as just projects.
 bb=""
 if [ -n "${AI_BACKBONE_PROJECTS:-}" ]; then
-  base=$AI_BACKBONE_PROJECTS
+  base=$(to_unix "$AI_BACKBONE_PROJECTS")
 else
   if [ -n "${AI_BACKBONE:-}" ] && [ -f "$AI_BACKBONE/.ai-backbone/projects.sh" ]; then
     bb=$(cd "$AI_BACKBONE" && pwd -P)
@@ -77,6 +91,7 @@ if [ -n "$roots_file" ] && [ -f "$roots_file" ]; then
     case "$line" in ""|\#*) continue ;; esac
     line="${line#"${line%%[![:space:]]*}"}"
     line="${line%"${line##*[![:space:]]}"}"
+    line=$(to_unix "$line")
     [ -d "$line" ] || continue
     line=$(cd "$line" && pwd -P) || continue
     add "$line"
@@ -97,6 +112,12 @@ printf '# freshness %s\n' "$(date '+%Y-%m-%d %H:%M')" > "$tmpout"
 any=0
 if [ -s "$list" ]; then
   sort -u "$list" -o "$list"
+  # Windows Python writes the console code page unless told. An arrow in a
+  # behind line is not in cp1252, and a CRLF would keep grep -x from matching.
+  # The sweep must not write a cache into the project it is reading.
+  export PYTHONUTF8=1
+  export PYTHONIOENCODING=utf-8
+  export AI_BACKBONE_UPSTREAM_NO_WRITE=1
   while IFS= read -r d; do
     [ -n "$d" ] || continue
     name=$(basename "$d")
@@ -105,7 +126,8 @@ if [ -s "$list" ]; then
       any=1
       continue
     fi
-    said=$(cd "$d" && AI_BACKBONE_UPSTREAM_NO_WRITE=1 "$py" "$root/.ai-backbone/upstream.py" --freshness 2>&1) || said="${said:-could not read}"
+    said=$(cd "$d" && "$py" "$root/.ai-backbone/upstream.py" --freshness 2>&1) || said="${said:-could not read}"
+    said=${said//$'\r'/}
     lines=$(printf '%s\n' "$said" | awk '/^Behind: / && $0 !~ /^Behind: nothing$/ { print } /^not watched: / { print }')
     if [ -n "$lines" ]; then
       printf '== %s ==\n%s\n\n' "$name" "$lines" >> "$tmpout"

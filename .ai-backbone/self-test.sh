@@ -87,6 +87,72 @@ export GIT_CONFIG_GLOBAL="$tmp/gitconfig"
 # written as /c/Users/... is a file that does not exist. So the name and e-mail
 # were lost and every commit in the suite failed (spec 020). cygpath exists only there.
 winpath() { if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
+# A background job on Git Bash is often not reaped. `wait` with no pid, or
+# `wait` on a killed job, or on a shell that started a native program, blocks
+# until the lane's cap (spec 020). A wait names one pid. On Windows it is a
+# poll with a bound, and a kill goes to the Windows process tree.
+suite_winpid() {
+  local pid=$1 w=""
+  if [ -r "/proc/$pid/winpid" ]; then
+    w=$(tr -cd '0-9' < "/proc/$pid/winpid" 2>/dev/null || true)
+  fi
+  printf '%s' "$w"
+}
+suite_alive() {
+  local pid=$1 st
+  kill -0 "$pid" 2>/dev/null || return 1
+  if ! command -v cygpath >/dev/null 2>&1; then return 0; fi
+  st=$(ps -p "$pid" -o stat= 2>/dev/null || true)
+  st=${st//[[:space:]]/}
+  case "$st" in
+    Z*) return 1 ;;
+    "") ps -p "$pid" >/dev/null 2>&1 || return 1 ;;
+  esac
+  return 0
+}
+suite_stop() {
+  local pid=$1 w i
+  case "$pid" in
+    ""|*[!0-9]*) return 0 ;;
+  esac
+  if command -v cygpath >/dev/null 2>&1; then
+    w=$(suite_winpid "$pid")
+    if [ -n "$w" ]; then
+      if command -v taskkill >/dev/null 2>&1; then
+        taskkill //F //T //PID "$w" >/dev/null 2>&1 || true
+      elif command -v taskkill.exe >/dev/null 2>&1; then
+        taskkill.exe //F //T //PID "$w" >/dev/null 2>&1 || true
+      fi
+    fi
+    kill -TERM "$pid" 2>/dev/null || true
+    kill -KILL "$pid" 2>/dev/null || true
+    i=0
+    while suite_alive "$pid" && [ "$i" -lt 20 ]; do
+      sleep 0.1
+      i=$((i + 1))
+    done
+    return 0
+  fi
+  kill -TERM "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  return 0
+}
+suite_wait() {
+  local pid=$1 bound=${2:-60} i=0
+  case "$pid" in
+    ""|*[!0-9]*) return 0 ;;
+  esac
+  if ! command -v cygpath >/dev/null 2>&1; then
+    wait "$pid" 2>/dev/null || true
+    return 0
+  fi
+  while suite_alive "$pid" && [ "$i" -lt "$bound" ]; do
+    sleep 1
+    i=$((i + 1))
+  done
+  if suite_alive "$pid"; then suite_stop "$pid"; fi
+  return 0
+}
 # The same for what reads a path inside a text rather than as an argument, which
 # Git Bash converts on its own: Python source, a URL, a git config value.
 rootw=$(winpath "$root")
@@ -681,7 +747,12 @@ printf '{ // a comment\n  "hooks": {} }\n' > "$tmp/hook/jsonc.json"
 check "a settings file that is not plain JSON is left alone and said" "! '$py' '$root/.ai-backbone/budget.py' hook add '$tmp/hook/jsonc.json' 2>/dev/null && grep -q '// a comment' '$tmp/hook/jsonc.json'"
 check "the same call counted once, however many times the hook sees it" "hcall s9 Agent t10 >/dev/null; hcall s9 Agent t10 >/dev/null; [ \$(grep -c '^t10\$' '$hk/ai-backbone-agents/s9/started') -eq 1 ]"
 # Twelve at once, the shape of an audit's lenses: eight pass, four are refused.
-for i in $(seq 1 12); do ( hcall s12 Agent p$i > "$hk/p$i.out" 2>&1 ) & done; wait
+cap_pids=""
+for i in $(seq 1 12); do
+  ( hcall s12 Agent p$i > "$hk/p$i.out" 2>&1 ) &
+  cap_pids="$cap_pids $!"
+done
+for cap_pid in $cap_pids; do suite_wait "$cap_pid" 60; done
 check "twelve agents started in one breath: eight pass and four are refused" "[ \$(grep -l deny '$hk'/p*.out | wc -l | tr -d ' ') -eq 4 ] && [ \$(wc -l < '$hk/ai-backbone-agents/s12/started' | tr -d ' ') -eq 8 ]"
 echo 4 > "$hk/ai-backbone-agents/today-cap"
 for i in 1 2 3 4; do hcall s13 Agent q$i >/dev/null; done
@@ -2043,7 +2114,7 @@ ks041_unlock_dir() {
   local dir=$1 pid
   if [ -f "$tmp/ks041-hold-pid" ]; then
     pid=$(cat "$tmp/ks041-hold-pid" 2>/dev/null || true)
-    if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; fi
+    if [ -n "$pid" ]; then suite_stop "$pid"; fi
     rm -f "$tmp/ks041-hold-pid"
   fi
   if command -v cygpath >/dev/null 2>&1 && command -v icacls >/dev/null 2>&1; then
@@ -3248,10 +3319,11 @@ mkdir -p "$lock"
 check "a lock from before 3.13.1, with no process in it, does not stop it" "says 'finished, exit 0' env AI_AGENT_CMD='true {prompt}' sh .ai-backbone/routine.sh"
 printf 'sleep 3\n' > "$tmp/slow-agent.sh"
 AI_AGENT_CMD="sh $tmp/slow-agent.sh {prompt}" sh .ai-backbone/routine.sh >/dev/null 2>&1 &
+routine_pid=$!
 # Until the first run holds the lock: a second on Windows was not always enough.
 i=0; until [ -s "$lock/pid" ] || [ $i -ge 50 ]; do sleep 0.2; i=$((i+1)); done
 check "a second run while one is going does nothing"  "says 'already going' env AI_AGENT_CMD='true {prompt}' sh .ai-backbone/routine.sh"
-wait
+suite_wait "$routine_pid" 30
 check "the lock is gone once the first run ends"      "[ ! -e '$lock' ]"
 git checkout -q -- .pre-commit-config.yaml
 
@@ -4486,15 +4558,20 @@ cd "$tmp" || exit 1
 cd "$bo/proj" || exit 1
 bq="$AI_BACKBONE_BUILD_QUEUE"; rm -rf "$bq"; : > "$tmp/q-order"
 sleep 120 & h1=$!; sleep 120 & h2=$!; sleep 120 & h3=$!
-waiter() { ( bw env BUILD_WAIT_HOLDER="$2" BUILD_WAIT_MINUTES=2 just _build-wait >/dev/null 2>"$tmp/q-err$1"; echo "$1" >> "$tmp/q-order" ) & }
+: > "$tmp/q-pids"
+waiter() {
+  ( bw env BUILD_WAIT_HOLDER="$2" BUILD_WAIT_MINUTES=2 just _build-wait >/dev/null 2>"$tmp/q-err$1"; echo "$1" >> "$tmp/q-order" ) &
+  printf '%s\n' "$!" >> "$tmp/q-pids"
+}
 waiter 1 "$h1"; sleep 2; waiter 2 "$h2"; sleep 2; waiter 3 "$h3"; sleep 3
 check "three waiting builds: the first goes at once, the other two wait their turn" "[ \"\$(tr '\n' ' ' < '$tmp/q-order')\" = '1 ' ] && grep -q '^2 other build(s) on this machine came first' '$tmp/q-err3'"
-{ kill "$h1"; wait "$h1"; } 2>/dev/null; sleep 7
+suite_stop "$h1"; sleep 7
 check "when the first one's holder ends, the second goes and the third still waits" "[ \"\$(tr '\n' ' ' < '$tmp/q-order')\" = '1 2 ' ]"
-{ kill "$h2"; wait "$h2"; } 2>/dev/null; sleep 7
+suite_stop "$h2"; sleep 7
 check "and then the third: one at a time, oldest first" "[ \"\$(tr '\n' ' ' < '$tmp/q-order')\" = '1 2 3 ' ] && grep -q '^Its turn: going on' '$tmp/q-err3'"
-{ kill "$h3"; wait "$h3"; } 2>/dev/null; wait 2>/dev/null
-sleep 0 & gone=$!; wait "$gone" 2>/dev/null
+suite_stop "$h3"
+while IFS= read -r qpid; do suite_wait "$qpid" 20; done < "$tmp/q-pids"
+sleep 0 & gone=$!; suite_wait "$gone" 5
 printf '%s\n' "$gone" > "$bq/t-0000000001-00000001"
 s=$SECONDS; bw env BUILD_WAIT_MINUTES=2 just _build-wait >/dev/null 2>&1; took=$((SECONDS - s))
 check "a ticket whose holder is gone holds nobody, and is thrown away" "[ $took -lt 4 ] && [ ! -e '$bq/t-0000000001-00000001' ]"
@@ -4502,7 +4579,7 @@ sleep 120 & hs=$!
 printf '%s %s\n' "$hs" "$(( $(date +%s) - 300 ))" > "$bq/t-0000000002-00000002"
 s=$SECONDS; bw env BUILD_WAIT_MINUTES=2 just _build-wait >/dev/null 2>&1; took=$((SECONDS - s))
 check "a build that went longer ago than the limit holds nobody" "[ $took -lt 4 ]"
-sleep 0 & gone=$!; wait "$gone" 2>/dev/null
+sleep 0 & gone=$!; suite_wait "$gone" 5
 printf '%s\n' "$hs" > "$bq/t-0000000004-$(printf '%08d' "$gone")"
 s=$SECONDS; bw env BUILD_WAIT_MINUTES=2 just _build-wait >/dev/null 2>&1; took=$((SECONDS - s))
 check "a ticket still waiting whose waiter is gone holds nobody, though its holder lives" "[ $took -lt 4 ] && [ ! -e '$bq/t-0000000004-$(printf '%08d' "$gone")' ]"
@@ -4515,12 +4592,11 @@ printf '%s %s\n' "$hs" "$(( $(date +%s) - 60 ))" > "$bq/t-0000000007-00000007"
 wh=$!
 sleep 4
 check "BUILD_WAIT_HOLD=whole keeps a minute-old turn while its holder lives" "kill -0 $wh && ! grep -qx done '$tmp/q-hold'"
-{ kill "$hs"; wait "$hs"; } 2>/dev/null
+suite_stop "$hs"
 sleep 8
 check "and lets that turn go when the holder ends" "grep -qx done '$tmp/q-hold' && grep -q 'Its turn: going on' '$tmp/q-hold'"
-wait "$wh" 2>/dev/null || true
-hs=""
-{ kill "$hs"; wait "$hs"; } 2>/dev/null; wait 2>/dev/null; rm -f "$bq"/t-*
+suite_wait "$wh" 15
+rm -f "$bq"/t-*
 # One limit for the whole wait (spec 032): the queue and a running compiler
 # together, not each in full; and the wait names the project that holds the turn.
 sleep 120 & hs=$!
@@ -4528,7 +4604,8 @@ printf '%s %s %s\n' "$hs" "$(( $(date +%s) - 5 ))" "/x/other-proj" > "$bq/t-0000
 s=$SECONDS; out=$(bw env PS_BUSY=99 BUILD_WAIT_MINUTES=0.2 just _build-wait 2>"$tmp/q-err6"); took=$((SECONDS - s))
 check "behind a turn and a running compiler, the wait is one limit in all, then half the cores" "[ $took -ge 10 ] && [ $took -lt 20 ] && [ \"\$out\" = 'CARGO_BUILD_JOBS=$half' ]"
 check "and it names the project that holds the turn" "grep -q 'came first (the turn is other-proj, for under a minute)' '$tmp/q-err6'"
-{ kill "$hs"; wait "$hs"; } 2>/dev/null; wait 2>/dev/null; rm -f "$bq"/t-*
+suite_stop "$hs"
+rm -f "$bq"/t-*
 # Where ps lists parents, a ticket whose holder is this caller, or above it, is
 # this build's own (a recipe that waits and then calls another that waits).
 if "$REAL_PS" -A -o pid= -o ppid= >/dev/null 2>&1; then
@@ -4588,7 +4665,7 @@ if "$py" -c 'import fcntl' 2>/dev/null; then
   "$py" -c "import fcntl, os, sys, time; fd = os.open('$tt/target/release/.cargo-build-lock', os.O_RDWR); fcntl.flock(fd, fcntl.LOCK_EX); open('$tt/locked', 'w').close(); time.sleep(60)" & lk=$!
   i=0; until [ -e "$tt/locked" ] || [ "$i" -ge 50 ]; do sleep 0.1; i=$((i + 1)); done
   out=$(trimpy "$tt/target" "$(kb 100)" --now 2>&1)
-  { kill "$lk"; wait "$lk"; } 2>/dev/null
+  suite_stop "$lk"
   check "over its cap, a cargo folder loses its old pieces, whole units at a time" "[ ! -e '$tt/target/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && [ ! -e '$tt/target/debug/deps/old-aaaaaaaaaaaaaaaa.d' ] && [ ! -d '$tt/target/debug/.fingerprint/old-aaaaaaaaaaaaaaaa' ] && [ ! -d '$tt/target/debug/incremental/old-2axyao3nv6b3e' ] && [ ! -e '$tt/target/debug/deps/libmid-bbbbbbbbbbbbbbbb.rlib' ]"
   check "and keeps a piece younger than 6 hours, the program itself, and a profile whose build is running" "[ -e '$tt/target/debug/deps/libnew-cccccccccccccccc.rlib' ] && [ -e '$tt/target/debug/app' ] && [ -e '$tt/target/release/deps/librel-dddddddddddddddd.rlib' ] && grep -q 'removed .* in 3 pieces' <<<\"\$out\" && grep -q 'release in use by a build or its programs, left alone' <<<\"\$out\""
   check "the run is one line in the folder's log" "[ \$(wc -l < '$tt/target/ai-backbone-trim.log') -eq 1 ] && grep -q 'over the cap' '$tt/target/ai-backbone-trim.log'"
@@ -4617,7 +4694,7 @@ if "$py" -c 'import fcntl' 2>/dev/null; then
   "$py" -c "import fcntl, os, time; fd = os.open('$t5/ai-backbone-trim.lock', os.O_RDWR | os.O_CREAT); fcntl.flock(fd, fcntl.LOCK_EX); open('$t5/held', 'w').close(); time.sleep(60)" & tl=$!
   i=0; until [ -e "$t5/held" ] || [ "$i" -ge 50 ]; do sleep 0.1; i=$((i + 1)); done
   check "one run at a time" "says 'Another trim of this folder is running' trimpy '$t5' '$(kb 100)' --now && [ -e '$t5/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ]"
-  { kill "$tl"; wait "$tl"; } 2>/dev/null
+  suite_stop "$tl"
   check "with less than 15% of the disk free the cap is halved" "\"\$py\" -c 'import importlib.util as i, collections, sys; s = i.spec_from_file_location(\"b\", \"$rootw/.ai-backbone/buildtrim.py\"); b = i.module_from_spec(s); s.loader.exec_module(b); D = collections.namedtuple(\"D\", \"total used free\"); b.shutil.disk_usage = lambda p: D(100, 90, 10); line = b.trim(b.Path(\"$t4\"), 1024 ** 3)[0]; sys.exit(0 if \"halved: 10% of the disk is free\" in line else 1)'"
 else
   out=$(trimpy "$tt/target" "$(kb 100)" --now 2>&1)
@@ -5763,7 +5840,7 @@ dst=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" just -f "$root/Justfile" -d
 # The job deletes its lock as it exits, so remember the file before letting it go.
 if [ -s "$dhome/.cache/ai-backbone/delegate/delegate-running/running/branch" ]; then lock_seen=yes; else lock_seen=no; fi
 touch "$dgo"
-wait "$dbg" || true
+suite_wait "$dbg" 120
 check "while a job runs, a second delegate is refused in one line and status names its branch" \
   "[ \"\$lock_seen\" = yes ] && [ \$d_rc -ne 0 ] && d_one && grep -q 'refuses: a job is already running on delegate/' <<<\"\$d_out\" && grep -q 'job: running on delegate/' <<<\"\$dst\""
 d_new report
@@ -5982,8 +6059,7 @@ d_run ok "" "" delegate-accept
 run_hooks_after=$(git -C "$dproj" config --worktree --get core.hooksPath 2>/dev/null || true)
 run_main_after=$(git -C "$dproj" rev-parse refs/heads/main)
 if git -C "$dproj" show-ref --verify --quiet "refs/heads/$run_br"; then run_still=yes; else run_still=no; fi
-kill "$run_live" 2>/dev/null || true
-wait "$run_live" 2>/dev/null || true
+suite_stop "$run_live"
 rm -rf "$run_lock"
 check "accept refuses while a job is running, and does not skip that job's hook" \
   "[ \$d_rc -ne 0 ] && d_one && grep -qx 'refuses: a job is running' <<<\"\$d_out\" && [ \"\$run_still\" = yes ] && [ \"\$run_main\" = \"\$run_main_after\" ] && samepath \"\$run_hooks_after\" \"\$run_hooks\" && [ -f \"\$run_hooks/reference-transaction\" ]"
@@ -6075,7 +6151,7 @@ while [ "$i" -lt 80 ]; do
   i=$((i+1)); sleep 0.1
 done
 if [ -s "$hook_lock" ]; then kill -TERM "$(cat "$hook_lock")" 2>/dev/null || true; fi
-wait "$hooksig" 2>/dev/null || true
+suite_wait "$hooksig" 60
 hook_after=$(git -C "$dproj" config --worktree --get core.hooksPath 2>/dev/null || true)
 check "a delegate stopped by a signal puts the previous hooks path back (n-70dcaf)" \
   "[ -n \"\$saw_job_hooks\" ] && ! samepath \"\$saw_job_hooks\" '$tmp/prev-hooks' && samepath \"\$hook_after\" '$tmp/prev-hooks'"
@@ -6136,8 +6212,7 @@ t0=$SECONDS
 d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=stdin FAKE_WORKER_PROMPT="$dprompt" \
   WORKER=grok DELEGATE_TIMEOUT=0.25 just -f "$root/Justfile" -d "$dproj" delegate "read nothing" 2>&1 <"$sessin") && d_rc=0 || d_rc=$?
 elapsed=$((SECONDS - t0))
-kill "$sessin_pid" 2>/dev/null || true
-wait "$sessin_pid" 2>/dev/null || true
+suite_stop "$sessin_pid"
 check "a worker never waits on the session's open input: the job ends when the worker does" \
   "[ \$d_rc -eq 0 ] && [ \$elapsed -lt 10 ] && grep -qx 'exit status: 0' <<<\"\$d_out\" && grep -q '^report$' <<<\"\$d_out\""
 d_new push
@@ -6916,8 +6991,34 @@ check "freshness names each unwatched package and skips a watch, an allow row an
 check "just upstream names the same unwatched packages" "nw_has '$tmp/nw-up.out'"
 env AI_BACKBONE_PROJECTS="$sw" AI_BACKBONE_FRESHNESS_FILE="$tmp/sweep-list.txt" AI_BACKBONE_UPSTREAM_CACHE="$(winpath "$tmp/sweep-cache")" \
   just -f "$root/Justfile" -d "$root" freshness-sweep >"$tmp/sweep-run.txt" 2>&1 || true
-check "the sweep writes one behind line and the unwatched lines, per project" \
-  "grep -q 'Wrote $tmp/sweep-list.txt' '$tmp/sweep-run.txt' && grep -qx '== alpha ==' '$tmp/sweep-list.txt' && grep -qx '== beta ==' '$tmp/sweep-list.txt' && grep -qx 'not watched: left-pad' '$tmp/sweep-list.txt' && grep -qx 'not watched: typescript' '$tmp/sweep-list.txt' && grep -qxF 'Behind: demo-crate 1.0.0 → 2.0.0' '$tmp/sweep-list.txt' && ! grep -qx 'not watched: requests' '$tmp/sweep-list.txt' && ! grep -qx 'not watched: ignored-pkg' '$tmp/sweep-list.txt'"
+# Git Bash may spell the same file as C:/... or /c/... after just.exe (spec 020).
+# A silent grep used to fail with the previous command's text still in $out.
+sweep_ok() {
+  local line path want
+  want=$tmp/sweep-list.txt
+  line=$(grep '^Wrote ' "$tmp/sweep-run.txt" 2>/dev/null || true)
+  line=${line%%$'\n'*}
+  line=${line%$'\r'}
+  path=${line#Wrote }
+  path=${path%$'\r'}
+  if [ "$path" != "$want" ]; then
+    if [ -z "$path" ] || [ ! -f "$want" ] || [ ! -f "$path" ] || [ ! "$path" -ef "$want" ]; then
+      printf '%s\n' "wrote: ${line:-<none>}" "wanted: $want" "---- run ----"
+      cat "$tmp/sweep-run.txt" 2>/dev/null || true
+      return 1
+    fi
+  fi
+  if [ ! -f "$want" ]; then printf '%s\n' "no list"; return 1; fi
+  grep -qx '== alpha ==' "$want" || { printf '%s\n' "no alpha"; cat "$want"; return 1; }
+  grep -qx '== beta ==' "$want" || { printf '%s\n' "no beta"; cat "$want"; return 1; }
+  grep -qx 'not watched: left-pad' "$want" || { printf '%s\n' "no left-pad"; cat "$want"; return 1; }
+  grep -qx 'not watched: typescript' "$want" || { printf '%s\n' "no typescript"; cat "$want"; return 1; }
+  grep -qxF 'Behind: demo-crate 1.0.0 → 2.0.0' "$want" || { printf '%s\n' "no behind"; cat "$want"; return 1; }
+  if grep -qx 'not watched: requests' "$want"; then printf '%s\n' "requests was listed"; return 1; fi
+  if grep -qx 'not watched: ignored-pkg' "$want"; then printf '%s\n' "ignored-pkg was listed"; return 1; fi
+  return 0
+}
+check "the sweep writes one behind line and the unwatched lines, per project" sweep_ok
 mkdir -p "$tmp/sweep-inst/.ai-backbone" "$tmp/sweep-home/Library/LaunchAgents" "$tmp/sweep-sched"
 cp "$root/.ai-backbone/freshness-sweep.sh" "$tmp/sweep-inst/.ai-backbone/"
 git -C "$tmp/sweep-inst" init -q

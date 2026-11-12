@@ -332,24 +332,44 @@ windows_put() {
 
 # One spelling for both sides of a prefix check. Git Bash's pwd -P is
 # /tmp or /c/..., and Perl's abs_path is often C:\... (spec 020, spec 041).
+canon_abs() {
+  perl -MCwd=abs_path -e 'my $p = abs_path($ARGV[0]); print $p if defined $p' "$1" 2>/dev/null || true
+}
 canon() {
-  local raw p dir t
-  raw=$(perl -MCwd=abs_path -e 'my $p = abs_path($ARGV[0]); print $p if defined $p' "$1" 2>/dev/null || true)
-  # Perl's abs_path is empty when the path is a native Windows link whose
-  # target Git Bash still writes as /d/... (spec 041). readlink plus the
-  # parent folder is the same file.
-  if [ -z "$raw" ] && [ -L "$1" ]; then
-    t=$(readlink "$1" 2>/dev/null || true)
+  local raw p dir t path
+  path=$1
+  raw=""
+  # A native Windows link is one file with its target. Perl follows an
+  # absolute target written as D:/... (cygpath -m). It does not follow a
+  # relative one, the shape secrets-to-brain leaves at .env: abs_path names
+  # the link, so the old "only when perl is empty" readlink never ran, and
+  # the link and the file became two accounts. readlink keeps the
+  # backslashes Windows stored (spec 020, spec 041).
+  if [ -L "$path" ]; then
+    t=$(readlink "$path" 2>/dev/null || true)
+    t=$(printf '%s' "$t" | tr '\\' '/')
+    t=${t//$'\r'/}
+    # \??\D:\foo and \\?\D:\foo are not paths Perl can open.
+    t=${t#//??/}
+    t=${t#//?/}
     if [ -n "$t" ]; then
       case "$t" in
-        /*|[A-Za-z]:[\\/]*) ;;
+        /*|[A-Za-z]:/*)
+          if command -v cygpath >/dev/null 2>&1; then
+            t=$(cygpath -u "$t" 2>/dev/null || printf '%s' "$t")
+          fi
+          ;;
         *)
-          dir=$(CDPATH= cd "$(dirname -- "$1")" && pwd)
+          dir=$(unset CDPATH; cd "$(dirname -- "$path")" && pwd -P) || dir=$(dirname -- "$path")
           t="$dir/$t"
           ;;
       esac
-      raw=$(perl -MCwd=abs_path -e 'my $p = abs_path($ARGV[0]); print $p if defined $p' "$t" 2>/dev/null || printf '%s' "$t")
+      raw=$(canon_abs "$t")
+      if [ -z "$raw" ]; then raw=$t; fi
     fi
+  fi
+  if [ -z "$raw" ]; then
+    raw=$(canon_abs "$path")
   fi
   [ -n "$raw" ] || return 0
   p=$(printf '%s' "$raw" | tr '\\' '/')
