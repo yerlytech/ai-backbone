@@ -127,13 +127,13 @@ jobs:
       - run: |
           mkdir -p "$RUNNER_TEMP/lanes"
           export AI_BACKBONE_SUITE_LANE=win
-          bash .ai-backbone/self-test.sh > "$RUNNER_TEMP/lanes/win.txt" 2>&1 &
+          timeout 40m bash .ai-backbone/self-test.sh > "$RUNNER_TEMP/lanes/win.txt" 2>&1 &
           w=$!
           export AI_BACKBONE_SUITE_LANE=rest
-          bash .ai-backbone/self-test.sh > "$RUNNER_TEMP/lanes/rest.txt" 2>&1 &
+          timeout 40m bash .ai-backbone/self-test.sh > "$RUNNER_TEMP/lanes/rest.txt" 2>&1 &
           r=$!
           export AI_BACKBONE_SUITE_LANE=delegate
-          bash .ai-backbone/self-test.sh > "$RUNNER_TEMP/lanes/delegate.txt" 2>&1 &
+          timeout 40m bash .ai-backbone/self-test.sh > "$RUNNER_TEMP/lanes/delegate.txt" 2>&1 &
           d=$!
           fail=0
           wait "$w" || fail=1
