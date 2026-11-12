@@ -361,23 +361,28 @@ The backbone's own scheduled agent is a Claude Code routine, every third day. It
 pushes to the branch `cloud`, never to `main`. Every push there is tested by
 GitHub on a clean Linux and a clean Mac (`checks.yml`) and, when the push
 changes code, on a clean Windows machine (`windows.yml`, the same steps and
-the caps of 48 and 44 minutes). Since 2026-11-11 the gate carries the commit
-to `main` when Linux, macOS and Windows are all green, code included.
+the caps of 48 and 44 minutes). Since 2026-11-12 the gate carries the commit
+to `main` when Linux and macOS are green, code included. A red or unfinished
+Windows run does not hold `main` back; a red one writes one `gate: windows red`
+line on cloud.
 `just carry <commit>` still moves a green commit now: it uses `main`'s own
 `gate.sh`, prints the Windows line (green, red with up to five FAIL names,
 still running, or none) and tags the version. It does not refuse on Windows.
 `just release`, in a project that has `windows.yml`, refuses to tag while
 that run is red, still going, or missing, and says which. Windows decided
 from spec 020 (the maintainer, 2026-09-24) until spec 037; the owner put it
-back into the carry on 2026-11-11.
+back into the carry on 2026-11-11 and took that requirement off the carry on
+2026-11-12. A release still needs Windows green.
 A push that changes only the agent's own files (its log, the
 backlog, the radar's markers, a spec) is carried without the suite, and
 without waiting for Windows. `promote.yml` runs from `main`'s own copy of
 itself and of `.ai-backbone/gate.sh`, so a run can change what is tested and
 never how it is judged. It wakes when either workflow finishes. Windows still
-running, or not started, writes nothing. A red gate leaves `main` behind and
-writes one `gate:` line at the end of `docs/routine-log.md` on `cloud` that
-says why. `just carry` alone lists what `cloud` still has over `main`, and
+running, or not started, writes nothing and does not hold the carry. A red
+Windows run writes one `gate: windows red` line, and the code is still carried
+when Linux and macOS were green. A red Linux or macOS gate leaves `main`
+behind and writes one `gate:` line at the end of `docs/routine-log.md` on
+`cloud` that says why. `just carry` alone lists what `cloud` still has over `main`, and
 `just session-start` in the backbone says so. `STABLE` is still not taken by
 the gate.
 The next run reads those lines first. The agent's sandbox keeps nothing, so it writes one line per run at the
@@ -392,7 +397,7 @@ Before the backlog, every run looks at the tools the backbone is built on
 (`docs/upstream.toml`). When one has a new release, moving to it is that run's
 item, and the gate tests it on Linux, macOS and Windows before it reaches
 `main` (spec 017). The scheduled agent still does not edit a workflow
-(spec 021); a workflow change that is green on all three is carried.
+(spec 021); a workflow change that is green on Linux and macOS is carried.
 
 Every second run (it runs every third day, so about every six days) its one
 item is the radar: it looks outward instead of at the

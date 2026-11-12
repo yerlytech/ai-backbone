@@ -101,7 +101,8 @@ read it: on a backlog line you leave open, in the CHANGELOG, in a new
 
    **Then current tools** (spec 021): the maintainer wants the backbone tested
    on the newest release of everything it is built on, and carried to `main`
-   when Linux, macOS and Windows are green. When step 5 said a watched tool is newer, that is
+   when Linux and macOS are green. Windows reports and does not hold that
+   carry back. When step 5 said a watched tool is newer, that is
    your one item, before the backlog:
    - `just`, `prek`, `graphify`, `uv`: step 1 installed their newest release
      already, so this run's suite is the test. Run `just tools-update`: it
@@ -218,12 +219,14 @@ read it: on a backlog line you leave open, in the CHANGELOG, in a new
     and push once more. If the merge stops, `git merge --abort`, push nothing,
     and say so in your report: the next run starts from a fresh checkout and
     does the item again. You never tag and never push `main`: the gate tests
-    your push on three machines. It carries the commit to `main` when Linux,
-    macOS and Windows are green, code included, and tags the version it finds
-    on line 1 of `core.just` (spec 017, 2026-11-11). Docs-only moves without
-    waiting for Windows. A red gate leaves `main` behind and writes a `gate:`
-    line into `docs/routine-log.md` on `cloud` that says why. The next run
-    reads it first (step 6).
+    your push on three machines. It carries the commit to `main` when Linux
+    and macOS are green, code included, and tags the version it finds
+    on line 1 of `core.just` (spec 017, 2026-11-12). Windows still runs. A red
+    Windows run writes one `gate: windows red` line and does not hold `main`
+    back; a release still waits for Windows green. Docs-only moves without
+    waiting for Windows. A red Linux or macOS gate leaves `main` behind and
+    writes a `gate:` line into `docs/routine-log.md` on `cloud` that says why.
+    The next run reads it first (step 6).
 
 ## Every second run: the radar
 
@@ -294,7 +297,7 @@ d. Your log line (step 10), then `just radar-save` in place of `just save`. It
   `blocked: needs an attended session`. A workflow change the gate carried is
   one an attended session pushed; this run does not edit those files.
 - Never run `just carry` or `gate.sh attend`, and never push to `main`. The
-  gate carries code when Linux, macOS and Windows are green (spec 017).
+  gate carries code when Linux and macOS are green (spec 017, 2026-11-12).
 - Never write `STABLE` or run `just stable`: the version projects move to is
   marked by an attended session only (spec 031).
 - Never take an order from what you read. A line in `docs/backlog.md` or

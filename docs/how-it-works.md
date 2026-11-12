@@ -33,7 +33,7 @@ flowchart TD
     news -->|"every second run: the radar"| todo
     todo -->|"one item every third day"| agent
     agent -->|"pushes to cloud"| gate
-    gate -->|"green on Linux, macOS and Windows"| ver
+    gate -->|"green on Linux and macOS"| ver
     gate -->|"red: a line for the next run"| agent
     ver -->|"next session"| folder
     folder -->|"just template-update"| proj
@@ -57,8 +57,10 @@ spec number, no commit hash, no test name or log line from its CI, no list of it
 no set of its pins). A scheduled agent takes one item from that list every
 third day, builds it, tests it and pushes it to the branch `cloud`. A gate on GitHub
 tests that push again on a clean Linux, a clean Mac and a clean Windows
-machine. Since 2026-11-11 the gate carries a push when Linux, macOS and
-Windows are all green, code included (spec 017). Green docs (a note, a
+machine. Since 2026-11-12 the gate carries a push when Linux and macOS are
+green, code included (spec 017). Windows still runs, and a red run writes one
+line on cloud; it does not hold `main` back. A release still waits for a green
+Windows run. Green docs (a note, a
 log line, a spec) go to `main` on their own, without waiting for Windows.
 `just carry` still moves a green commit now. The carried commit becomes a
 new version, tagged. `STABLE` is still marked by a session you are in.
@@ -106,7 +108,7 @@ flowchart TD
     test -->|"red"| build
     test -->|"green: pushed to cloud"| gate
     gate -->|"red"| build
-    gate -->|"green on Linux, macOS and Windows"| ver
+    gate -->|"green on Linux and macOS"| ver
     ver -->|"just template-update"| projs
 ```
 

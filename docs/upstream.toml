@@ -1,4 +1,8 @@
+# What this backbone is built on, and what to read when it moves.
+# `just upstream` says what has been released since each pin. Neither upgrades
+# anything. The pin on each row is the version this file holds, not the newest.
 
+[[watch]]
 name = "just"
 source = "pypi:rust-just"
 pin = "1.59.0"
@@ -48,7 +52,7 @@ pin = "v7"
 major = true
 pinned_in = ".github/workflows/checks.yml"
 why = "the first step of every job of the gate, and of the workflow ci-init writes into a project"
-check = "what the new major drops or changes (fetch-depth, credentials, the Node it runs on); the workflows are carried to main by an attended session only"
+check = "what the new major drops or changes (fetch-depth, credentials, the Node it runs on); the workflows are carried when Linux and macOS are green"
 
 [[watch]]
 name = "grok"

@@ -1549,13 +1549,14 @@ s=$(pushed "echo g > docs/01-getting-started.md" "docs: a page the suite reads")
 check "look: any other page under docs/ runs the suite" "[ \"\$(gate)\" = suite ]"
 ( cd "$gt/shallow" && git fetch -q --depth 1 origin cloud && git checkout -q FETCH_HEAD ) >/dev/null 2>&1
 check "in a checkout of depth one too"                  "[ \"\$(gate '$gt/shallow')\" = suite ]"
-s=$(pushed "printf '# .ai-backbone/core.just — recipes, version 1.0.1\n' > .ai-backbone/core.just" "feat: 1.0.1")
+s=$(pushed "echo code >> README.md" "feat: code, Windows not started")
 check "look: code runs the suite"                       "[ \"\$(gate)\" = suite ]"
-# 2026-11-11: green code stays while Windows has not finished, and writes no line.
-# This commit is left off main so the attend checks below can still take it.
+# 2026-11-12: Linux and macOS green carries. Windows not started writes no line.
+# The version bump below is a fresh commit, so attend still has something off main.
 lines=$(loglines)
-check "carry: green code stays while Windows has not finished, and writes no line" "says 'Windows is none' judge $s success '$GREEN' && [ \$(hubmain) != $s ] && [ -z \"\$(hubtag v1.0.1)\" ] && [ \$(loglines) -eq $lines ]"
-check "and the backbone's session start names what waits" "git -C '$gt/work' fetch -q origin && says '^Gate: cloud holds code main does not have.*-> just carry\$' env JUST_JUSTFILE='$root/Justfile' JUST_WORKING_DIRECTORY='$gt/work' just _gate-waits"
+check "and the backbone's session start names what waits" "git -C '$gt/work' fetch -q origin && says '^Gate: cloud holds code main does not have.*once Linux and macOS are green -> just carry\$' env JUST_JUSTFILE='$root/Justfile' JUST_WORKING_DIRECTORY='$gt/work' just _gate-waits"
+check "carry: green code is carried while Windows has not finished, and writes no line" "says 'carried .* to main' judge $s success '$GREEN' && [ \$(hubmain) = $s ] && [ \$(loglines) -eq $lines ] && ! says 'windows red' cloudlog && ! says 'not promoted' cloudlog"
+s=$(pushed "printf '# .ai-backbone/core.just — recipes, version 1.0.1\n' > .ai-backbone/core.just" "feat: 1.0.1")
 check "attend: a commit still being tested is refused" "says 'still going' attend $s '$GREEN' '77${TAB}in_progress${TAB}' && [ \$(hubmain) != $s ]"
 MACRED="1${TAB}look${TAB}success|2${TAB}suite (ubuntu-latest)${TAB}success|3${TAB}suite (macos-latest)${TAB}failure"
 check "attend: one not green on Linux and macOS is refused, and says why" "says 'not green on Linux and macOS' attend $s '$MACRED' && [ \$(hubmain) != $s ]"
@@ -1568,16 +1569,24 @@ synced; lines=$(loglines)
 check "carried again, it says so and writes nothing"    "says 'on main already' judge $s success '$GREEN' && [ \$(loglines) -eq $lines ]"
 s=$(pushed "echo y >> README.md" "feat: red")
 check "a cancelled run is not judged"                   "says 'was cancelled' judge $s cancelled && [ \$(hubmain) != $s ] && [ \$(loglines) -eq $lines ]"
-# Spec 037: a Windows job still inside the checks run is ignored. Linux and
-# macOS green is green, whether that job was cancelled by its cap or red.
+# Spec 037, and 2026-11-12: a Windows job still inside the checks run is ignored.
+# Linux and macOS green is a carry. windows.yml is a different run; with none
+# started, no windows line is written. Each case pushes its own commit, because
+# the carry moves main and the next case would otherwise already be there.
 CUT="1${TAB}look${TAB}success|2${TAB}suite (ubuntu-latest)${TAB}success|3${TAB}suite (macos-latest)${TAB}success|4${TAB}suite (windows-latest)${TAB}cancelled"
 s=$(pushed "echo cut >> README.md" "feat: windows cut by its cap")
-check "a windows job cancelled in the checks run is ignored: Linux and macOS decide, and Windows has not finished" "o=\$(judge $s cancelled '$CUT' 2>&1); grep -q 'every suite job was green: they decide' <<<\"\$o\" && grep -q 'Windows is none' <<<\"\$o\" && ! grep -q 'not promoted' <<<\"\$o\" && [ \$(hubmain) != $s ] && [ \$(loglines) -eq $lines ]"
-check "and a red windows job in the checks run is ignored the same way" "o=\$(judge $s failure '$WINRED' 2>&1); grep -q 'every suite job was green: they decide' <<<\"\$o\" && grep -q 'Windows is none' <<<\"\$o\" && ! grep -q 'not promoted' <<<\"\$o\" && [ \$(hubmain) != $s ]"
+lines=$(loglines)
+check "a windows job cancelled in the checks run is ignored: Linux and macOS carry, and no windows line is written" "o=\$(judge $s cancelled '$CUT' 2>&1); grep -q 'every suite job was green: they decide' <<<\"\$o\" && grep -q 'carried .* to main' <<<\"\$o\" && ! grep -q 'not promoted' <<<\"\$o\" && ! grep -q 'windows red' <<<\"\$o\" && [ \$(hubmain) = $s ] && [ \$(loglines) -eq $lines ]"
+s=$(pushed "echo winred >> README.md" "feat: red windows job in the checks run")
+lines=$(loglines)
+check "and a red windows job in the checks run is ignored the same way" "o=\$(judge $s failure '$WINRED' 2>&1); grep -q 'every suite job was green: they decide' <<<\"\$o\" && grep -q 'carried .* to main' <<<\"\$o\" && ! grep -q 'not promoted' <<<\"\$o\" && ! grep -q 'windows red' <<<\"\$o\" && [ \$(hubmain) = $s ] && [ \$(loglines) -eq $lines ]"
 GHOST="1${TAB}look${TAB}success|2${TAB}suite (ubuntu-latest)${TAB}success|3${TAB}suite (macos-latest)${TAB}success|4${TAB}suite (windows-latest)${TAB}success|5${TAB}something else${TAB}cancelled"
-check "a run cancelled by a job that is not a suite job, all three suites green, is judged green and waits for Windows" "o=\$(judge $s cancelled '$GHOST' 2>&1); grep -q 'every suite job was green: they decide' <<<\"\$o\" && grep -q 'Windows is none' <<<\"\$o\" && [ \$(hubmain) != $s ]"
+s=$(pushed "echo ghost >> README.md" "feat: cancelled by a job that is not a suite job")
+lines=$(loglines)
+check "a run cancelled by a job that is not a suite job, with Linux and macOS green, is carried and does not wait for Windows" "o=\$(judge $s cancelled '$GHOST' 2>&1); grep -q 'every suite job was green: they decide' <<<\"\$o\" && grep -q 'carried .* to main' <<<\"\$o\" && ! grep -q 'not promoted' <<<\"\$o\" && [ \$(hubmain) = $s ] && [ \$(loglines) -eq $lines ]"
+s=$(pushed "echo attend >> README.md" "feat: attended after that carry")
 check "attend: and an attended carry takes it"            "says 'carried .* to main' attend $s '$GHOST' && [ \$(hubmain) = $s ]"
-synced; lines=$(loglines); s=$(pushed "echo y2 >> README.md" "feat: red again")   # synced and counted again: the red Windows line above moved cloud
+synced; lines=$(loglines); s=$(pushed "echo y2 >> README.md" "feat: red again")   # cloud is unchanged by a carry; the count is taken after the pull anyway
 RED="1${TAB}look${TAB}success|2${TAB}suite (ubuntu-latest)${TAB}success|9${TAB}suite (macos-latest)${TAB}failure|10${TAB}suite (windows-latest)${TAB}failure"
 LOG="suite (macos-latest)${TAB}the suite${TAB}2026-01-02T03:00:00Z   FAIL  a mac check|suite (macos-latest)${TAB}the suite${TAB}2026-01-02T03:00:01Z   FAIL  another one|suite (windows-latest)${TAB}the suite${TAB}2026-01-02T03:00:02Z   FAIL  windows noise"
 check "a red run writes one line on cloud naming each red machine and its FAIL names" "says 'not promoted' judge $s failure '$RED' '$LOG' && [ \$(loglines) -eq $((lines+1)) ] && says '^- [0-9-]+ gate: cloud not promoted — the checks ended failure: suite \(macos-latest\) failure FAIL: a mac check;another one; suite \(windows-latest\) failure FAIL: windows noise;\$' cloudlog && [ \$(hubmain) != $s ]"
@@ -1604,9 +1613,9 @@ wrun=$(grep -c 'windows run ended' <<<"$(cloudlog)" || true)
 s=$(pushed "echo winrun >> README.md" "feat: windows still running")
 check "a windows run that is still going does not hold the carry and adds no gate line" "FAKE_WINDOWS='88${TAB}in_progress${TAB}' says 'carried .* to main' judge $s success '$GREEN' && [ \$(loglines) -eq $lines ] && [ \$(grep -c 'windows run ended' <<<\"\$(cloudlog)\" || true) -eq $wrun ] && [ \$(hubmain) = $s ]"
 synced; s=$(pushed "echo 'on: pull_request' > .github/workflows/checks.yml" "ci: weaken")
-check "a push that changes the workflows is carried when Linux, macOS and Windows are green" "FAKE_WINDOWS='88${TAB}completed${TAB}success' says 'carried .* to main' judge $s success '$GREEN' && [ \$(hubmain) = $s ]"
+check "a push that changes the workflows is carried when Linux and macOS are green, without waiting for Windows" "says 'carried .* to main' judge $s success '$GREEN' && [ \$(hubmain) = $s ]"
 synced; s=$(pushed "git checkout origin/main -- .github/workflows && echo '# x' >> .ai-backbone/gate.sh" "ci: weaken the judge")
-check "and so is one that changes gate.sh, when Windows is green" "FAKE_WINDOWS='88${TAB}completed${TAB}success' says 'carried .* to main' judge $s success '$GREEN' && [ \$(hubmain) = $s ]"
+check "and so is one that changes gate.sh, without waiting for Windows" "says 'carried .* to main' judge $s success '$GREEN' && [ \$(hubmain) = $s ]"
 synced; s=$(pushed "git checkout origin/main -- .ai-backbone/gate.sh && echo w >> README.md" "feat: code")
 check "a green run whose suite never ran is refused: a look weakened on cloud passes no code" "says 'suite was due' judge $s success '1${TAB}look${TAB}success' && [ \$(hubmain) != $s ]"
 # gh answers nothing while GitHub is still processing a run's results (2026-10-22:
@@ -1623,7 +1632,7 @@ git -C "$gt/hub.git" tag v1.0.2 "$(git -C "$gt/hub.git" rev-parse 'main~2')" >/d
 synced; s=$(pushed "printf '# .ai-backbone/core.just — recipes, version 1.0.2\n' > .ai-backbone/core.just" "feat: 1.0.2")
 check "a tag GitHub has elsewhere is left alone and main is carried on its own" "says 'carried .* to main; v1.0.2 was tagged before' attend $s '$GREEN' && [ \$(hubmain) = $s ] && [ \"\$(hubtag v1.0.2)\" != $s ]"
 synced; s=$(pushed "printf '# .ai-backbone/core.just — recipes, version 1.0.3\n' > .ai-backbone/core.just" "feat: 1.0.3")
-check "carry: green on Linux, macOS and Windows carries code and tags the version" "FAKE_WINDOWS='88${TAB}completed${TAB}success' says 'carried .* to main and tagged v1.0.3' judge $s success '$GREEN' && [ \$(hubmain) = $s ] && [ \"\$(hubtag v1.0.3)\" = $s ]"
+check "carry: green on Linux and macOS carries code and tags the version, without waiting for Windows" "says 'carried .* to main and tagged v1.0.3' judge $s success '$GREEN' && [ \$(hubmain) = $s ] && [ \"\$(hubtag v1.0.3)\" = $s ]"
 synced; s=$(pushed "echo '# changed' >> .ai-backbone/gate.sh" "ci: the gate itself")
 inwork()   { env PATH="$gt/gh:$PATH" JUST_JUSTFILE="$root/Justfile" JUST_WORKING_DIRECTORY="$gt/work" "$@"; }
 check "just carry is the backbone's own: no project gets it" "grep -q '^carry ' '$root/Justfile' && ! grep -q '^carry ' '$root/.ai-backbone/core.just' '$root/.ai-backbone/seed/Justfile'"
@@ -1631,7 +1640,7 @@ check "a green change to gate.sh is carried when Windows is green" "FAKE_WINDOWS
 synced; s=$(pushed "echo '# changed again' >> .ai-backbone/gate.sh" "ci: the gate itself again")
 check "attend: a green change to gate.sh is named" "says 'carried .* to main.*; it changed the gate.s own files: \.ai-backbone/gate\.sh\$' attend $s '$GREEN' && [ \$(hubmain) = $s ]"
 synced; s=$(pushed "echo '# readme' > README.md" "feat: the backbone's own readme")
-check "just carry lists the code that waits and, when it is green, the commit to carry" "says 'once Linux, macOS and Windows are green' inwork just carry && says \"  ${s:0:7} feat: the backbone's own readme\" inwork just carry && says '^Checks: ${s:0:7} is green.*-> just carry ${s:0:7}\$' inwork env FAKE_RUN='completed success' just carry"
+check "just carry lists the code that waits and, when it is green, the commit to carry" "says 'once Linux and macOS are green' inwork just carry && says \"  ${s:0:7} feat: the backbone's own readme\" inwork just carry && says '^Checks: ${s:0:7} is green -> just carry ${s:0:7}\$' inwork env FAKE_RUN='completed success' just carry"
 check "and just carry <commit> takes it to main with main's own gate.sh and prints the windows line" "out=\$(inwork env FAKE_RUN='77${TAB}completed${TAB}success' FAKE_JOBS='$GREEN' FAKE_WINDOWS='88${TAB}completed${TAB}success' just carry $s 2>&1); grep -q 'carried ${s:0:7} to main' <<<\"\$out\" && grep -q '^Windows: green$' <<<\"\$out\" && [ \$(hubmain) = $s ]"
 check "after which nothing waits"                       "says '^Nothing waits' inwork just carry"
 synced; lines=$(loglines); s=$(pushed "echo trig >> README.md && printf '# .ai-backbone/core.just — recipes, version 1.0.4\n' > .ai-backbone/core.just" "feat: 1.0.4")
@@ -3264,8 +3273,8 @@ check "the backbone watches opencode on the Homebrew formula it installs from" \
   "grep -qx 'name = \"opencode\"' '$root/docs/upstream.toml' && grep -qx 'source = \"brew:opencode\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"2.1.2\"' '$root/docs/upstream.toml' && ! grep -qx 'source = \"github:anomalyco/opencode\"' '$root/docs/upstream.toml'"
 check "the backbone watches kimi on the Homebrew formula it installs from" \
   "grep -qx 'name = \"kimi\"' '$root/docs/upstream.toml' && grep -qx 'source = \"brew:kimi-code\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"2.4.0\"' '$root/docs/upstream.toml'"
-check "the two ideas are pinned at what was read on 2026-10-20" \
-  "grep -qx 'pin = \"v0.14.3\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"8e2ea57c9b8e6f0790b1596d98e35632ca48a59c\"' '$root/docs/upstream.toml'"
+check "the two ideas are no longer pinned: the watch list holds no idea row" \
+  "! grep -q 'kind = \"idea\"' '$root/docs/upstream.toml' && ! grep -q '^look_for = ' '$root/docs/upstream.toml' && ! grep -qx 'pin = \"v0.14.3\"' '$root/docs/upstream.toml' && ! grep -qx 'pin = \"8e2ea57c9b8e6f0790b1596d98e35632ca48a59c\"' '$root/docs/upstream.toml'"
 check "the template says what an idea row is" "grep -q 'kind' '$root/.ai-backbone/templates/upstream.toml' && grep -q 'look_for' '$root/.ai-backbone/templates/upstream.toml'"
 check "just upstream --refresh is a real run, and offline it says so" \
   "says offline env AI_BACKBONE_UPSTREAM_CACHE='$tmp/spec035-refresh' just upstream --refresh && env AI_BACKBONE_UPSTREAM_CACHE='$tmp/spec035-refresh' just upstream --refresh >/dev/null"

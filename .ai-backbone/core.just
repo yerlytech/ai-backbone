@@ -4717,12 +4717,13 @@ _newer a b:
     [ -n "$1" ] && [ -n "$2" ] && [ "$1" != "$2" ] || exit 1
     [ "$(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)" = "$1" ]
 
-# One line when cloud holds code main does not have (spec 017, 2026-11-11)
+# One line when cloud holds code main does not have (spec 017, 2026-11-12).
+# Windows reports. It does not hold this line's carry back.
 _gate-waits:
     #!/usr/bin/env bash
     [ -n "$(git rev-list -n1 origin/main..origin/cloud 2>/dev/null)" ] || exit 0
     [ "$(bash .ai-backbone/gate.sh look origin/cloud 2>/dev/null | tail -1)" = suite ] || exit 0
-    echo "Gate: cloud holds code main does not have ($(git rev-list --no-merges --count origin/main..origin/cloud) commit(s)); the gate carries it once Linux, macOS and Windows are green -> just carry"
+    echo "Gate: cloud holds code main does not have ($(git rev-list --no-merges --count origin/main..origin/cloud) commit(s)); the gate carries it once Linux and macOS are green -> just carry"
 
 # Let this repo work on itself once a week, unattended: just routine-install
 [group('template')]

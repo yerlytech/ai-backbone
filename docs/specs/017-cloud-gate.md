@@ -17,22 +17,28 @@ in the same push. Projects keep taking `main`. The scheduled agent starts each
 run from `cloud`, merges in the notes that reached `main`, and treats a red gate
 as its first item, before the backlog. The stored routine prompt does not change.
 
-## Update 2026-11-11
+## Update 2026-11-12
 
-The owner: no attended carry. When `checks.yml` and `windows.yml` are both
-green (Linux, macOS and Windows) for a push to `cloud`, `promote.yml` carries
-the commit to `main` by itself, code included, and tags the version. A change
-to `.github/workflows/` or `gate.sh` is carried the same way. A red gate
-leaves `main` behind and writes one `gate:` line that says why. Windows still
-running, or not started, writes nothing; the completion that can see both
-runs is the one that judges. Docs-only still carries when the checks run is
-green, without waiting for Windows. `STABLE` is still not taken by the gate.
+The maintainer: code is carried when Linux and macOS are green. `windows.yml`
+still runs on every code push and reports. A red Windows run writes one
+`gate: windows red on <sha>, which Linux and macOS judged — ...` line on
+`cloud` and does not hold `main` back. A Windows run that is still going, or
+has not started, writes nothing and does not hold `main` back either. A
+release (`just release`) still refuses unless that commit's Windows run is
+green. Where this disagrees with the 2026-11-11 note and the historical
+sections below, this update wins.
+
+On 2026-11-11 the owner had required `checks.yml` and `windows.yml` both green
+before a carry, including a change to `.github/workflows/` or `gate.sh`. That
+requirement is what 2026-11-12 removes from the carry. What stays from that
+day: `promote.yml` carries by itself (no attended carry), docs-only still
+moves on the checks run alone, `STABLE` is still not taken by the gate,
 `just carry <commit>` remains the manual backstop and still uses `main`'s
-`gate.sh`. Every commit a workflow writes is authored as the identity in the
-repository's Actions variables `GATE_GIT_NAME` and `GATE_GIT_EMAIL`, set with
-`git config` in the workflow and in `gate.sh`, never as `github-actions[bot]`.
-`promote.yml` wakes for both workflows. **Update 2026-11-12 (the maintainer):** code is carried when Linux and macOS are green; a red or unfinished Windows run no longer holds `main` back, it writes one `gate: windows red` line instead. A release still needs a green Windows run. Where the historical sections below
-disagree with this update, this update wins.
+`gate.sh`, and every commit a workflow writes is authored as the identity in
+the repository's Actions variables `GATE_GIT_NAME` and `GATE_GIT_EMAIL`, set
+with `git config` in the workflow and in `gate.sh`, never as
+`github-actions[bot]`. `promote.yml` wakes for both workflows. A red Linux or
+macOS gate leaves `main` behind and writes one `gate:` line that says why.
 
 ## Why
 
