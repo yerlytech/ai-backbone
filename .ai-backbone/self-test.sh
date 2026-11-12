@@ -53,6 +53,11 @@ if [ -z "${PREK_HOME:-}" ] && [ -d "$HOME/.cache/prek" ] && ! python3 -c 'import
 fi
 export AI_BACKBONE="$root"
 export AI_BACKBONE_OFFLINE=1   # never reach GitHub or a registry from a test
+# Python on Windows writes to a pipe in cp1252 and stops at the first letter
+# outside it (Turkish ı, an arrow, an em dash). Recipes get UTF-8 from
+# core.just; the suite starts python itself, including `python3 -c`.
+export PYTHONUTF8=1
+export PYTHONIOENCODING=utf-8
 # Nor the real usage meter, the real transcripts or the real temp folder: the
 # session line reads these (spec 014), and the budget section points them at its
 # own fixtures. Until then: no meter, no transcripts, one quiet line.
@@ -258,7 +263,7 @@ if lane_wants suite; then
 section "the suite itself"
 # The guard for the line above: a pipe into grep anywhere here is the race back.
 check "an unset lane runs every section, and the three Windows lanes share the work" \
-  "lane_wants suite && lane_wants delegate && lane_wants budget && ( export AI_BACKBONE_SUITE_LANE=win; lane_wants keystore && lane_wants project && lane_wants advisory && ! lane_wants budget && ! lane_wants delegate ) && ( export AI_BACKBONE_SUITE_LANE=rest; lane_wants lint && lane_wants project && lane_wants plain && lane_wants checks && ! lane_wants keystore && ! lane_wants advisory ) && ( export AI_BACKBONE_SUITE_LANE=delegate; lane_wants delegate && ! lane_wants budget && ! lane_wants keystore ) && ( export AI_BACKBONE_SUITE_LANE=nope; lane_wants suite ); [ \$? -eq 2 ]"
+  "( unset AI_BACKBONE_SUITE_LANE; lane_wants suite && lane_wants delegate && lane_wants budget ) && ( export AI_BACKBONE_SUITE_LANE=win; lane_wants keystore && lane_wants project && lane_wants advisory && ! lane_wants budget && ! lane_wants delegate ) && ( export AI_BACKBONE_SUITE_LANE=rest; lane_wants lint && lane_wants project && lane_wants plain && lane_wants checks && ! lane_wants keystore && ! lane_wants advisory ) && ( export AI_BACKBONE_SUITE_LANE=delegate; lane_wants delegate && ! lane_wants budget && ! lane_wants keystore ) && { ( export AI_BACKBONE_SUITE_LANE=nope; lane_wants suite ); [ \$? -eq 2 ]; }"
 check "no check pipes a command into grep"            "! grep -E '^[^#]*\\| *grep' '$root/.ai-backbone/self-test.sh'"
 # A recipe that takes a parameter reads it as $1 and never writes {{param}} into its
 # script: text spliced into a script runs (3.20.0). The attribute sits on the line
@@ -911,8 +916,11 @@ git -C "$mapproj" add src.py
 git -C "$mapproj" commit -qm "chore: 40"
 plain=$tmp/plain-bin
 mkdir -p "$plain"
-ln -s "$(command -v just)" "$plain/just"
-ln -s "$(command -v git)" "$plain/git"
+# Git Bash `ln -s` of just.exe as the name `just` is not runnable (no PATHEXT
+# match). A wrapper keeps the real binary and hides graphify (spec 020).
+printf '#!/bin/sh\nexec "%s" "$@"\n' "$(command -v just)" > "$plain/just"
+printf '#!/bin/sh\nexec "%s" "$@"\n' "$(command -v git)" > "$plain/git"
+chmod +x "$plain/just" "$plain/git"
 mapplain() { PATH="$plain:/usr/bin:/bin" just -f "$mapproj/Justfile" -d "$mapproj" "$@"; }
 check "without graphify a map 40 commits behind names update-map" \
   "says 'Code map: 40 commits behind HEAD -> just update-map' mapplain _map-if-stale && [ ! -s \"$fm/calls\" ]"
@@ -2003,10 +2011,16 @@ ks041_note() { ks041_bad=1; ks041_notes="${ks041_notes:-}$1"$'\n'; }
 # create a native link (spec 020, measured 2026-10-21). nativestrict fails
 # instead of copying when it cannot.
 ks041_ln() {
+  local target=$1 link=$2
   if command -v cygpath >/dev/null 2>&1; then
-    ( export MSYS=winsymlinks:nativestrict; ln -s "$1" "$2" )
+    # A native Windows link whose target is /d/... does not resolve; git.exe
+    # and Perl then treat the link and its target as two files (spec 041).
+    case "$target" in
+      /*|[A-Za-z]:*) target=$(cygpath -m "$target") ;;
+    esac
+    ( export MSYS=winsymlinks:nativestrict; ln -s "$target" "$link" )
   else
-    ln -s "$1" "$2"
+    ln -s "$target" "$link"
   fi
 }
 # chmod 555 does not stop MSYS rm: it clears the read-only bit and deletes.
@@ -2018,11 +2032,20 @@ ks041_lock_dir() {
     icacls "$(cygpath -w "$dir")" /deny '*S-1-1-0:(DC)' >/dev/null 2>&1 || true
     if [ -f "$dir/config.env" ]; then
       icacls "$(cygpath -w "$dir/config.env")" /deny '*S-1-1-0:(D)' >/dev/null 2>&1 || true
+      # icacls deny is not enough: MSYS rm still deletes. A process holding
+      # the file open is what makes the rollback's rm fail (spec 041).
+      "$py" -c "import sys,time; f=open(sys.argv[1],'rb'); time.sleep(120)" "$(cygpath -w "$dir/config.env")" &
+      printf '%s\n' "$!" > "$tmp/ks041-hold-pid"
     fi
   fi
 }
 ks041_unlock_dir() {
-  local dir=$1
+  local dir=$1 pid
+  if [ -f "$tmp/ks041-hold-pid" ]; then
+    pid=$(cat "$tmp/ks041-hold-pid" 2>/dev/null || true)
+    if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; fi
+    rm -f "$tmp/ks041-hold-pid"
+  fi
   if command -v cygpath >/dev/null 2>&1 && command -v icacls >/dev/null 2>&1; then
     icacls "$(cygpath -w "$dir")" /remove:d '*S-1-1-0' >/dev/null 2>&1 || true
     if [ -f "$dir/config.env" ]; then
@@ -4646,11 +4669,14 @@ for n in p1 p2; do
   printf 'import "stack.just"\n' > "$rp/$n/Justfile"
 done
 mkdir -p "$tmp/fakedf3"; sed 's/100000000 50000000 50000000/1000000000 500000000 500000000/' "$tmp/fakedf2/df" > "$tmp/fakedf3/df"; chmod +x "$tmp/fakedf3/df"
-out=$(tcap 30 env AI_BACKBONE_PROJECTS="$rp" PATH="$tmp/fakedf2:$PATH" just doctor 2>&1)
+# Fake df first, then the suite's cargo: without it, doctor runs real
+# `cargo metadata` and on Windows that waits on the registry lock the
+# job's cargo-audit install left (the rest lane's 40-minute cut).
+out=$(tcap 30 env AI_BACKBONE_PROJECTS="$rp" PATH="$tmp/fakedf2:$bo/bin:$PATH" just doctor 2>&1)
 check "doctor says when the build caps of the machine's Rust projects pass half the disk, with a cap that fits" "grep -q 'build caps of this machine.s 3 Rust projects add up to 90 GB, more than half the 95 GB disk' <<<\"\$out\" && grep -q 'A cap that fits: git config --global ai-backbone.build-cap 15' <<<\"\$out\""
-out=$(tcap 30 env AI_BACKBONE_PROJECTS="$rp" PATH="$tmp/fakedf3:$PATH" just doctor 2>&1)
+out=$(tcap 30 env AI_BACKBONE_PROJECTS="$rp" PATH="$tmp/fakedf3:$bo/bin:$PATH" just doctor 2>&1)
 check "and nothing when they fit" "! grep -q 'build caps of this machine' <<<\"\$out\""
-out=$(tcap off env AI_BACKBONE_PROJECTS="$rp" PATH="$tmp/fakedf2:$PATH" just doctor 2>&1)
+out=$(tcap off env AI_BACKBONE_PROJECTS="$rp" PATH="$tmp/fakedf2:$bo/bin:$PATH" just doctor 2>&1)
 check "a cap that is off adds nothing" "! grep -q 'build caps of this machine' <<<\"\$out\""
 # Under 15% free, a build's trim goes into the idle sibling's folder too, where cargo's locks can be read.
 if "$py" -c 'import fcntl' 2>/dev/null; then
@@ -4906,7 +4932,7 @@ if "$py" -c 'import tomllib' 2>/dev/null && cd "$tmp/s29"; then
   # A querybatch answer names only the id and when it changed; the detail comes
   # from /v1/vulns/<id>. Both are files, so the suite never reaches the network.
   osv31="$tmp/s31-osv"; mkdir -p "$osv31/vulns"
-  osv31url() { printf 'file://%s' "$(winpath "$osv31/querybatch")"; }
+  osv31url() { fileurl "$osv31/querybatch"; }
   u31() { env AI_BACKBONE_ADVISORY_DB="$(winpath "$db30")" AI_BACKBONE_OSV_URL="$(osv31url)" \
     "$py" "$root/.ai-backbone/upstream.py" --advisories "$@"; }
   cat > "$osv31/querybatch" <<'JSON'
@@ -5464,10 +5490,25 @@ d_run() {
   # is the runner's, not the recipe's report (measured where setpgid is refused).
   local kept="" line
   while IFS= read -r line; do
-    case "$line" in *child\ setpgid*) continue ;; esac
+    case "$line" in
+      *child\ setpgid*) continue ;;
+      *'LF will be replaced by CRLF'*) continue ;;
+    esac
     kept="$kept$line"$'\n'
   done <<< "$d_out"
   d_out=${kept%$'\n'}
+}
+# Git for Windows may store a hooksPath as D:/... when the suite wrote /d/...
+samepath() {
+  local a=$1 b=$2 ua ub
+  [ "$a" = "$b" ] && return 0
+  if [ -z "$a" ] || [ -z "$b" ]; then return 1; fi
+  if command -v cygpath >/dev/null 2>&1; then
+    ua=$(cygpath -u "$a" 2>/dev/null || printf '%s' "$a")
+    ub=$(cygpath -u "$b" 2>/dev/null || printf '%s' "$b")
+    [ "$ua" = "$ub" ] && return 0
+  fi
+  return 1
 }
 d_one() {
   local n=0 line
@@ -5744,7 +5785,7 @@ mkdir -p "$leftdir"
 printf '%s\n' '#!/bin/sh' 'echo staged-by-hook > leftover.txt' 'git add leftover.txt' 'echo refuses: leftover hook >&2' 'exit 1' > "$leftdir/reference-transaction"
 chmod +x "$leftdir/reference-transaction"
 git -C "$dproj" config --local extensions.worktreeConfig true
-git -C "$dproj" config --worktree core.hooksPath "$leftdir"
+git -C "$dproj" config --worktree core.hooksPath "$(winpath "$leftdir")"
 d_run ok "" "" delegate-accept
 check "accept of a multi-commit branch under leftover hooksPath leaves a clean tree" \
   "[ \$d_rc -eq 0 ] && grep -q '^accepted delegate/.* onto main$' <<<\"\$d_out\" && [ \"\$(git -C \"\$dproj\" symbolic-ref --short HEAD)\" = main ] && [ -z \"\$(git -C \"\$dproj\" status --porcelain)\" ] && [ ! -f \"\$dproj/leftover.txt\" ] && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ] && [ -f \"\$dproj/worker-did.txt\" ]"
@@ -5931,7 +5972,7 @@ mkdir -p "$run_hooks"
 printf '%s\n' '#!/bin/sh' 'exit 0' > "$run_hooks/reference-transaction"
 chmod +x "$run_hooks/reference-transaction"
 git -C "$dproj" config --local extensions.worktreeConfig true
-git -C "$dproj" config --worktree core.hooksPath "$run_hooks"
+git -C "$dproj" config --worktree core.hooksPath "$(winpath "$run_hooks")"
 run_lock="$dhome/.cache/ai-backbone/delegate/$(basename "$dproj")/running"
 mkdir -p "$run_lock"
 python3 -c 'import time; time.sleep(180)' &
@@ -5945,7 +5986,7 @@ kill "$run_live" 2>/dev/null || true
 wait "$run_live" 2>/dev/null || true
 rm -rf "$run_lock"
 check "accept refuses while a job is running, and does not skip that job's hook" \
-  "[ \$d_rc -ne 0 ] && d_one && grep -qx 'refuses: a job is running' <<<\"\$d_out\" && [ \"\$run_still\" = yes ] && [ \"\$run_main\" = \"\$run_main_after\" ] && [ \"\$run_hooks_after\" = \"\$run_hooks\" ] && [ -x \"\$run_hooks/reference-transaction\" ]"
+  "[ \$d_rc -ne 0 ] && d_one && grep -qx 'refuses: a job is running' <<<\"\$d_out\" && [ \"\$run_still\" = yes ] && [ \"\$run_main\" = \"\$run_main_after\" ] && samepath \"\$run_hooks_after\" \"\$run_hooks\" && [ -f \"\$run_hooks/reference-transaction\" ]"
 d_new sandedit
 d_run sandboxedit grok "" delegate "touch the profile"
 check "a worker that rewrites the project sandbox profile is named when the job ends" \
@@ -6012,14 +6053,14 @@ mkdir -p "$tmp/prev-hooks"
 printf '%s\n' '#!/bin/sh' 'exit 0' > "$tmp/prev-hooks/pre-commit"
 chmod +x "$tmp/prev-hooks/pre-commit"
 git -C "$dproj" config --local extensions.worktreeConfig true
-git -C "$dproj" config --worktree core.hooksPath "$tmp/prev-hooks"
+git -C "$dproj" config --worktree core.hooksPath "$(winpath "$tmp/prev-hooks")"
 d_run ok grok "" delegate "add a line"
 hook_after=$(git -C "$dproj" config --worktree --get core.hooksPath 2>/dev/null || true)
 check "a finished delegate puts the previous hooks path back (n-70dcaf)" \
-  "[ \$d_rc -eq 0 ] && [ \"\$hook_after\" = '$tmp/prev-hooks' ]"
+  "[ \$d_rc -eq 0 ] && samepath \"\$hook_after\" '$tmp/prev-hooks'"
 d_new hooksig
 git -C "$dproj" config --local extensions.worktreeConfig true
-git -C "$dproj" config --worktree core.hooksPath "$tmp/prev-hooks"
+git -C "$dproj" config --worktree core.hooksPath "$(winpath "$tmp/prev-hooks")"
 rm -f "$dgo"
 env -u WORKER -u WORKER_MODEL -u DELEGATE_TIMEOUT -u DELEGATE_IDLE -u WORKER_BIN -u DELEGATE_BASE -u DELEGATE_YES \
   HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE=slow FAKE_WORKER_GO="$dgo" \
@@ -6037,7 +6078,7 @@ if [ -s "$hook_lock" ]; then kill -TERM "$(cat "$hook_lock")" 2>/dev/null || tru
 wait "$hooksig" 2>/dev/null || true
 hook_after=$(git -C "$dproj" config --worktree --get core.hooksPath 2>/dev/null || true)
 check "a delegate stopped by a signal puts the previous hooks path back (n-70dcaf)" \
-  "[ -n '$saw_job_hooks' ] && [ '$saw_job_hooks' != '$tmp/prev-hooks' ] && [ '$hook_after' = '$tmp/prev-hooks' ]"
+  "[ -n \"\$saw_job_hooks\" ] && ! samepath \"\$saw_job_hooks\" '$tmp/prev-hooks' && samepath \"\$hook_after\" '$tmp/prev-hooks'"
 # Git Bash on Windows has no process groups in ps (measured on windows-latest,
 # 2026-10-22), so the idle stop never fires there and the job ends at the timeout.
 if ps -A -o pid=,pgid= 2>/dev/null | awk 'NF == 2 { ok = 1 } END { exit !ok }'; then
@@ -6177,7 +6218,7 @@ git -C "$dproj" worktree add -q -b lane/side "$side" main
 mkdir -p "$tmp/real-hooks"
 printf '#!/bin/sh\nexit 0\n' > "$tmp/real-hooks/pre-commit"
 chmod +x "$tmp/real-hooks/pre-commit"
-git -C "$dproj" config --local core.hooksPath "$tmp/real-hooks"
+git -C "$dproj" config --local core.hooksPath "$(winpath "$tmp/real-hooks")"
 d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=hookwt FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_SIDE="$side" \
   WORKER=grok just -f "$root/Justfile" -d "$dproj" delegate "merge beside a lane" 2>&1) && d_rc=0 || d_rc=$?
 dlog=""
@@ -6192,7 +6233,7 @@ workh=$(git -C "$dproj" config --worktree --get core.hooksPath 2>/dev/null || tr
 ext=$(git -C "$dproj" config --local --get extensions.worktreeConfig 2>/dev/null || true)
 sideparents=$(git -C "$dproj" rev-list --parents -n 1 lane/side | wc -w | tr -d ' ')
 check "a running job's hooksPath locks only its worktree, and the sibling can merge" \
-  "[ \$d_rc -eq 0 ] && ! grep -q '^BREACH:' <<<\"\$d_out\" && [ -n \"\$dlog\" ] && grep -q 'refuses: a merge is not a commit on this branch' \"\$dlog\" && [ \"\$(cat \"\$dprompt.side-merge\")\" = side-merge-ok ] && [ \"\$(cat \"\$dprompt.worker-merge\")\" = worker-merge-fail ] && [ \"\$sideh\" = \"\$tmp/real-hooks\" ] && [ \"\$hereh\" != \"\$tmp/real-hooks\" ] && case \"\$hereh\" in *.hooks*) true ;; *) false ;; esac && [ \"\$localh\" = \"\$tmp/real-hooks\" ] && [ -z \"\$workh\" ] && [ \"\$ext\" = true ] && [ \"\$sideparents\" -gt 2 ]"
+  "[ \$d_rc -eq 0 ] && ! grep -q '^BREACH:' <<<\"\$d_out\" && [ -n \"\$dlog\" ] && grep -q 'refuses: a merge is not a commit on this branch' \"\$dlog\" && [ \"\$(cat \"\$dprompt.side-merge\")\" = side-merge-ok ] && [ \"\$(cat \"\$dprompt.worker-merge\")\" = worker-merge-fail ] && samepath \"\$sideh\" \"\$tmp/real-hooks\" && ! samepath \"\$hereh\" \"\$tmp/real-hooks\" && case \"\$hereh\" in *.hooks*) true ;; *) false ;; esac && samepath \"\$localh\" \"\$tmp/real-hooks\" && [ -z \"\$workh\" ] && [ \"\$ext\" = true ] && [ \"\$sideparents\" -gt 2 ]"
 git -C "$dproj" worktree remove --force "$side" 2>/dev/null || true
 git -C "$dproj" branch -D lane/side >/dev/null 2>&1 || true
 d_new laneown
@@ -6873,7 +6914,7 @@ nw_has() {
 check "freshness names each unwatched package and skips a watch, an allow row and a gitignored package" "nw_has '$tmp/nw-fresh.out' && grep -q '=== FRESHNESS' '$tmp/nw-fresh.out'"
 ( cd "$sw/alpha" && "$py" "$root/.ai-backbone/upstream.py" >"$tmp/nw-up.out" 2>&1 ) || true
 check "just upstream names the same unwatched packages" "nw_has '$tmp/nw-up.out'"
-env AI_BACKBONE_PROJECTS="$sw" AI_BACKBONE_FRESHNESS_FILE="$tmp/sweep-list.txt" AI_BACKBONE_UPSTREAM_CACHE="$tmp/sweep-cache" \
+env AI_BACKBONE_PROJECTS="$sw" AI_BACKBONE_FRESHNESS_FILE="$tmp/sweep-list.txt" AI_BACKBONE_UPSTREAM_CACHE="$(winpath "$tmp/sweep-cache")" \
   just -f "$root/Justfile" -d "$root" freshness-sweep >"$tmp/sweep-run.txt" 2>&1 || true
 check "the sweep writes one behind line and the unwatched lines, per project" \
   "grep -q 'Wrote $tmp/sweep-list.txt' '$tmp/sweep-run.txt' && grep -qx '== alpha ==' '$tmp/sweep-list.txt' && grep -qx '== beta ==' '$tmp/sweep-list.txt' && grep -qx 'not watched: left-pad' '$tmp/sweep-list.txt' && grep -qx 'not watched: typescript' '$tmp/sweep-list.txt' && grep -qxF 'Behind: demo-crate 1.0.0 → 2.0.0' '$tmp/sweep-list.txt' && ! grep -qx 'not watched: requests' '$tmp/sweep-list.txt' && ! grep -qx 'not watched: ignored-pkg' '$tmp/sweep-list.txt'"

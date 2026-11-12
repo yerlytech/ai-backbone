@@ -87,6 +87,11 @@ if [ -n "$roots_file" ] && [ -f "$roots_file" ]; then
   done < "$roots_file"
 fi
 
+# Python on Windows does not read a Git Bash path in an env var (spec 020).
+if command -v cygpath >/dev/null 2>&1 && [ -n "${AI_BACKBONE_UPSTREAM_CACHE:-}" ]; then
+  AI_BACKBONE_UPSTREAM_CACHE=$(cygpath -m "$AI_BACKBONE_UPSTREAM_CACHE")
+  export AI_BACKBONE_UPSTREAM_CACHE
+fi
 tmpout=$(mktemp)
 printf '# freshness %s\n' "$(date '+%Y-%m-%d %H:%M')" > "$tmpout"
 any=0

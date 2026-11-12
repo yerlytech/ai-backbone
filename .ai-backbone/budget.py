@@ -54,11 +54,13 @@ import time
 from pathlib import Path
 
 # Python on Windows writes "\r\n" for every "\n", and the recipes compare what
-# it says as text: "removed\r" is not "removed" (spec 020). LF on every machine;
-# the encoding is PYTHONUTF8's, which core.just sets.
+# it says as text: "removed\r" is not "removed" (spec 020). LF on every machine.
+# The console's code page (cp1252) cannot encode Turkish ı or an arrow; UTF-8
+# can. PYTHONUTF8 from core.just is the same; this holds when python is started
+# without it (the suite, a SessionStart hook).
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
-        _stream.reconfigure(newline="\n")
+        _stream.reconfigure(newline="\n", encoding="utf-8", errors="replace")
 
 HOME = Path.home()
 # Every path can be pointed elsewhere, which is how the self-test keeps its hands

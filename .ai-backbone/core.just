@@ -1803,7 +1803,7 @@ delegate task="":
     # when this job ends. Accept of a multi-commit branch then stages files.
     stale_hooks=$(git config --worktree --get core.hooksPath 2>/dev/null || true)
     case "$stale_hooks" in
-      "$HOME/.cache/ai-backbone/delegate/"*.hooks)
+      "$HOME/.cache/ai-backbone/delegate/"*.hooks|*ai-backbone/delegate/*.hooks|*ai-backbone\\delegate\\*.hooks)
         git config --worktree --unset core.hooksPath || true
         ;;
     esac
@@ -1928,9 +1928,12 @@ delegate task="":
     restore_delegate_hook() {
       if [ -n "$hookdir" ]; then
         case "$hooks_prev" in
-          "$dir/"*.hooks) hooks_prev="" ;;
+          "$dir/"*.hooks|*ai-backbone/delegate/*.hooks|*ai-backbone\\delegate\\*.hooks) hooks_prev="" ;;
         esac
-        if [ -n "$hooks_prev" ]; then git config --worktree core.hooksPath "$hooks_prev" || true
+        if [ -n "$hooks_prev" ]; then
+          prev=$hooks_prev
+          if command -v cygpath >/dev/null 2>&1; then prev=$(cygpath -m "$hooks_prev"); fi
+          git config --worktree core.hooksPath "$prev" || true
         else git config --worktree --unset-all core.hooksPath >/dev/null 2>&1 || true
         fi
         rm -rf "$hookdir"
@@ -2556,6 +2559,8 @@ delegate task="":
       /*) ;;
       *) objroot=$(cd "$objroot" && pwd -P) ;;
     esac
+    # parents.pl is Git's perl: a Git Bash path is a folder that does not exist.
+    if command -v cygpath >/dev/null 2>&1; then objroot=$(cygpath -m "$objroot"); fi
     objroot_q=$(printf '%s' "$objroot" | sed "s/'/'\\\\''/g")
     # n-dbc9e9: names this worktree creates or deletes. Another session's
     # branch never reaches this hook, so it is not a branch-list breach.
@@ -2634,7 +2639,11 @@ delegate task="":
       'exit 0' \
       > "$hookdir/reference-transaction"
     chmod +x "$hookdir/reference-transaction"
-    git config --worktree core.hooksPath "$hookdir"
+    # git.exe does not follow a Git Bash path (/d/...). Mixed Windows form
+    # is what finds the hook on windows-latest (spec 020, n-154b76).
+    hookpath=$hookdir
+    if command -v cygpath >/dev/null 2>&1; then hookpath=$(cygpath -m "$hookdir"); fi
+    git config --worktree core.hooksPath "$hookpath"
     # n-afbc90: a worker never signs. The agent socket on this Mac is
     # launchd's path, which the **/ssh-agent.sock deny does not match, so a
     # key:: signing key would let the worker sign with the company's key.
@@ -3009,13 +3018,15 @@ delegate-accept branch="":
     # drop a stale delegate hooksPath, only because no job is running.
     emptyhooks=$(mktemp -d)
     trap 'rm -rf "$emptyhooks"' EXIT
-    git_nh() { git -c core.hooksPath="$emptyhooks" "$@"; }
-    git_nhC() { git -C "$1" -c core.hooksPath="$emptyhooks" "${@:2}"; }
+    emptyhooks_git=$emptyhooks
+    if command -v cygpath >/dev/null 2>&1; then emptyhooks_git=$(cygpath -m "$emptyhooks"); fi
+    git_nh() { git -c core.hooksPath="$emptyhooks_git" "$@"; }
+    git_nhC() { git -C "$1" -c core.hooksPath="$emptyhooks_git" "${@:2}"; }
     clear_stale_delegate_hooks() {
       local repo="${1:-.}" hp lockdir pid
       hp=$(git -C "$repo" config --worktree --get core.hooksPath 2>/dev/null || true)
       case "$hp" in
-        "$HOME/.cache/ai-backbone/delegate/"*.hooks)
+        "$HOME/.cache/ai-backbone/delegate/"*.hooks|*ai-backbone/delegate/*.hooks|*ai-backbone\\delegate\\*.hooks)
           lockdir="$HOME/.cache/ai-backbone/delegate/$(basename "$(git -C "$repo" rev-parse --show-toplevel)")/running"
           pid=$(cat "$lockdir/pid" 2>/dev/null || true)
           if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then

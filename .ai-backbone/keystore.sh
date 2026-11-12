@@ -333,8 +333,24 @@ windows_put() {
 # One spelling for both sides of a prefix check. Git Bash's pwd -P is
 # /tmp or /c/..., and Perl's abs_path is often C:\... (spec 020, spec 041).
 canon() {
-  local raw p
+  local raw p dir t
   raw=$(perl -MCwd=abs_path -e 'my $p = abs_path($ARGV[0]); print $p if defined $p' "$1" 2>/dev/null || true)
+  # Perl's abs_path is empty when the path is a native Windows link whose
+  # target Git Bash still writes as /d/... (spec 041). readlink plus the
+  # parent folder is the same file.
+  if [ -z "$raw" ] && [ -L "$1" ]; then
+    t=$(readlink "$1" 2>/dev/null || true)
+    if [ -n "$t" ]; then
+      case "$t" in
+        /*|[A-Za-z]:[\\/]*) ;;
+        *)
+          dir=$(CDPATH= cd "$(dirname -- "$1")" && pwd)
+          t="$dir/$t"
+          ;;
+      esac
+      raw=$(perl -MCwd=abs_path -e 'my $p = abs_path($ARGV[0]); print $p if defined $p' "$t" 2>/dev/null || printf '%s' "$t")
+    fi
+  fi
   [ -n "$raw" ] || return 0
   p=$(printf '%s' "$raw" | tr '\\' '/')
   if command -v cygpath >/dev/null 2>&1; then
