@@ -544,10 +544,45 @@ doctor:
       fi
     fi
     # Sibling projects the same way. This project's own line is above.
-    just _vault-warn-others 2>/dev/null | while IFS= read -r line; do
-      [ -n "$line" ] || continue
-      echo "  warn  $line"
-    done
+    # A pipe into `while read` never ends on Git Bash: git.exe, started for
+    # each sibling, keeps the write end, and the read waits out the lane
+    # (spec 020). A file is the same lines. On that shell the sweep is also
+    # stopped if it is still going after a minute, so a prompt cannot sit
+    # until the lane's cap; the wait names one pid and is not a bare `wait`.
+    _vw=$(mktemp 2>/dev/null || true)
+    if [ -n "$_vw" ]; then
+      if command -v cygpath >/dev/null 2>&1; then
+        just _vault-warn-others >"$_vw" 2>/dev/null </dev/null &
+        _vp=$!
+        _vi=0
+        while [ "$_vi" -lt 300 ]; do
+          _st=$(ps -p "$_vp" -o stat= 2>/dev/null || true)
+          _st=${_st//[[:space:]]/}
+          case "$_st" in
+            Z*) wait "$_vp" 2>/dev/null || true; break ;;
+            "") if ! kill -0 "$_vp" 2>/dev/null; then wait "$_vp" 2>/dev/null || true; break; fi ;;
+          esac
+          if ! kill -0 "$_vp" 2>/dev/null; then wait "$_vp" 2>/dev/null || true; break; fi
+          sleep 0.2
+          _vi=$((_vi + 1))
+        done
+        if kill -0 "$_vp" 2>/dev/null; then
+          _ww=""
+          if [ -r "/proc/$_vp/winpid" ]; then _ww=$(tr -cd '0-9' < "/proc/$_vp/winpid" 2>/dev/null || true); fi
+          if [ -n "$_ww" ] && command -v taskkill >/dev/null 2>&1; then taskkill //F //T //PID "$_ww" >/dev/null 2>&1 || true
+          elif [ -n "$_ww" ] && command -v taskkill.exe >/dev/null 2>&1; then taskkill.exe //F //T //PID "$_ww" >/dev/null 2>&1 || true; fi
+          kill -TERM "$_vp" 2>/dev/null || true
+          kill -KILL "$_vp" 2>/dev/null || true
+        fi
+      else
+        just _vault-warn-others >"$_vw" 2>/dev/null </dev/null || true
+      fi
+      while IFS= read -r line || [ -n "$line" ]; do
+        [ -n "$line" ] || continue
+        echo "  warn  $line"
+      done < "$_vw"
+      rm -f "$_vw"
+    fi
     if [ -n "$(just _is-repo)" ]; then echo "  ok    git repo"; else echo "  warn  no git repo -> git init"; fi
     # n-67104d: same line as session-start, under Repo, when this folder's
     # core.just has no delegate recipe. A bare `just` would search this folder,

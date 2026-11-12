@@ -13,8 +13,21 @@ set -uo pipefail
 # A hook's PATH is short. The tools a session already has are here.
 export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 
+# Git Bash rewrites a Unix path into a Windows path on the way into just.exe.
+# A backslash path does not glob, so the project list is empty and a sibling
+# that should be warned about is skipped (spec 020). cygpath exists only there.
+to_unix() {
+  local p=$1
+  if command -v cygpath >/dev/null 2>&1 && [ -n "$p" ]; then
+    p=$(cygpath -u "$p" 2>/dev/null || printf '%s' "$p")
+  fi
+  p=${p//$'\r'/}
+  printf '%s' "$p"
+}
+
 mode="${1:-sweep}"
 hint="${2:-}"
+hint=$(to_unix "$hint")
 # The recipe says `periodic`. The installed hook says `--periodic` and then the
 # backbone path, which is already $2.
 case "$mode" in
@@ -75,10 +88,10 @@ fi
 # sweep: beside the backbone, one and two folders down, then brain/project-roots.txt.
 bb=""
 if [ -n "${AI_BACKBONE_PROJECTS:-}" ]; then
-  base=$AI_BACKBONE_PROJECTS
+  base=$(to_unix "$AI_BACKBONE_PROJECTS")
 else
-  if [ -n "${AI_BACKBONE:-}" ] && [ -f "$AI_BACKBONE/.ai-backbone/projects.sh" ]; then
-    bb=$(cd "$AI_BACKBONE" && pwd -P)
+  if [ -n "${AI_BACKBONE:-}" ] && [ -f "$(to_unix "$AI_BACKBONE")/.ai-backbone/projects.sh" ]; then
+    bb=$(cd "$(to_unix "$AI_BACKBONE")" && pwd -P)
   elif [ -n "$hint" ] && [ -d "$hint" ]; then
     bb=$(cd "$hint" && pwd -P)
   else
@@ -92,7 +105,7 @@ trap 'rm -f "$list"' EXIT
 seen=" "
 add() {
   local d
-  d="${1%/}"
+  d=$(to_unix "${1%/}")
   [ -d "$d" ] || return 0
   [ -f "$d/.ai-backbone/core.just" ] || return 0
   d=$(cd "$d" && pwd -P) || return 0
@@ -110,7 +123,7 @@ if [ -d "$base" ]; then
 fi
 roots_file=""
 if [ -n "${AI_BACKBONE_PROJECT_ROOTS:-}" ]; then
-  roots_file=$AI_BACKBONE_PROJECT_ROOTS
+  roots_file=$(to_unix "$AI_BACKBONE_PROJECT_ROOTS")
 elif [ -z "${AI_BACKBONE_PROJECTS:-}" ] && [ -n "$bb" ]; then
   roots_file=$bb/brain/project-roots.txt
 fi
@@ -119,6 +132,7 @@ if [ -n "$roots_file" ] && [ -f "$roots_file" ]; then
     case "$line" in ""|\#*) continue ;; esac
     line="${line#"${line%%[![:space:]]*}"}"
     line="${line%"${line##*[![:space:]]}"}"
+    line=$(to_unix "$line")
     [ -d "$line" ] || continue
     line=$(cd "$line" && pwd -P) || continue
     add "$line"
@@ -135,9 +149,12 @@ if [ "$mode" = sweep ] && [ -z "${AI_BACKBONE_PROJECTS:-}" ]; then
   add "$PWD"
 fi
 
+# git.exe is a Windows program. Left on the pipe it was started from, it keeps
+# the write end open, and the caller waits out the lane (spec 020). Stdin is
+# closed so a prompt has nothing to read.
 off_of() {
   local v
-  v=$(git -C "$1" config --local --get ai-backbone.vault-copy 2>/dev/null || true)
+  v=$(git -C "$1" config --local --get ai-backbone.vault-copy </dev/null 2>/dev/null || true)
   case $(printf '%s' "$v" | tr 'A-Z' 'a-z') in
     off|false|no|none) printf yes ;;
   esac
@@ -147,26 +164,31 @@ off_of() {
 # so the age before is still said.
 dest_of() {
   local d=$1 place project name
-  place=$(git -C "$d" config --local --get ai-backbone.vault-copy 2>/dev/null || true)
+  place=$(git -C "$d" config --local --get ai-backbone.vault-copy </dev/null 2>/dev/null || true)
   case $(printf '%s' "$place" | tr 'A-Z' 'a-z') in
     off|false|no|none|"") place="" ;;
-    *) place=$(git -C "$d" config --local --get --path ai-backbone.vault-copy 2>/dev/null || true) ;;
+    *) place=$(git -C "$d" config --local --get --path ai-backbone.vault-copy </dev/null 2>/dev/null || true) ;;
   esac
   if [ -z "$place" ]; then
-    place=$(git -C "$d" config --global --get --path ai-backbone.vault-copy 2>/dev/null || true)
+    place=$(git -C "$d" config --global --get --path ai-backbone.vault-copy </dev/null 2>/dev/null || true)
   fi
   [ -n "$place" ] || return 0
+  place=$(to_unix "$place")
   project=$(grep -E '^\| *project *\|' "$d/AGENTS.md" 2>/dev/null | head -1 | awk -F'|' '{print $3}' | sed 's/^ *//;s/ *$//')
   if [ "$project" = ai-backbone ]; then project=""; fi
   if [ -z "$project" ]; then project=$(basename "$d"); fi
-  name=$(cd "$d" && just _slug "$project" 2>/dev/null || true)
+  name=$(cd "$d" && just _slug "$project" </dev/null 2>/dev/null || true)
   [ -n "$name" ] || name=$(basename "$d")
   printf '%s/%s\n' "${place%/}" "$name"
 }
 
 here=$(pwd -P)
 if [ -s "$list" ]; then
-  LC_ALL=C sort -u "$list" -o "$list"
+  # Windows has its own sort.exe, which reads stdin until a person types.
+  # Git Bash's sort is GNU and does not. Stdin is closed either way.
+  sorter=sort
+  if command -v cygpath >/dev/null 2>&1 && [ -x /usr/bin/sort ]; then sorter=/usr/bin/sort; fi
+  LC_ALL=C "$sorter" -u "$list" -o "$list" </dev/null
   while IFS= read -r d; do
     [ -n "$d" ] || continue
     label=$(basename "$d")
@@ -194,7 +216,7 @@ if [ -s "$list" ]; then
     if [ ! -d "$d/brain" ]; then
       continue
     fi
-    out=$(cd "$d" && just _vault-copy quiet 2>&1) || true
+    out=$(cd "$d" && just _vault-copy quiet </dev/null 2>&1) || true
     case "$out" in
       "brain/ copied to "*) printf '%s: copied, was %s\n' "$label" "$phrase" ;;
       *) printf '%s: failed, was %s\n' "$label" "$phrase" ;;
