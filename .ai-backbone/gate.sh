@@ -3,7 +3,8 @@
 # clean Mac and, when the push changes code, a clean Windows machine. A push
 # that changes only the routine's own files still moves on the checks run
 # alone. Since 2026-11-11 there is no attended carry: code, workflows and this
-# file are carried when Linux, macOS and windows.yml are all green. STABLE is
+# file are carried when Linux and macOS are green; windows.yml reports and does
+# not hold main back (2026-11-12). STABLE is
 # still not taken on its own. A red gate leaves main behind and writes why.
 # Every commit this script writes is authored as GATE_GIT_NAME <GATE_GIT_EMAIL>
 # when they are set (the repository's Actions variables), never as the Actions bot.
@@ -219,31 +220,18 @@ carry() {
   elif [ "$(look "$sha" 2>/dev/null)" = suite ] && ! suite_green "$run"; then
     why="the suite was due for this push and the run's suite jobs were not green on Linux and macOS when the gate read them (run $run): the suite never ran, or GitHub had not finished processing its result; the next push is judged instead"
   elif [ "$(look "$sha" 2>/dev/null)" = suite ]; then
-    # 2026-11-11: code is carried when Linux, macOS and windows.yml are green.
-    # STABLE stays with the maintainer (spec 031). Windows still running, or
-    # not started, writes nothing: the completion that can see both runs judges.
+    # 2026-11-12 (the maintainer): code is carried when Linux and macOS are
+    # green. windows.yml still runs and reports: a red Windows run writes one
+    # gate line naming its FAIL checks, and does not hold main back. STABLE
+    # stays with the maintainer (spec 031).
     if ! git diff --quiet origin/main "$sha" -- STABLE 2>/dev/null; then
       why="it changes STABLE, which the gate never takes on its own (just stable, then just carry $short)"
     else
-      w=$(windows_line "$sha")
-      case "$w" in
-        green)
-          if ff_main "$sha" "$short"; then return 0; fi
-          why="$ff_why"
-          ;;
-        running|none)
-          echo "gate: Windows is $w; $short stays on cloud until Windows is green"
-          return 0
-          ;;
-        red:*)
-          why="Windows is red: ${w#red: }"
-          skip_windows_note=1
-          ;;
-        *)
-          echo "gate: Windows is ${w:-unread}; $short stays on cloud until Windows is green"
-          return 0
-          ;;
-      esac
+      if ff_main "$sha" "$short"; then
+        note_windows "$sha"
+        return 0
+      fi
+      why="$ff_why"
     fi
   else
     if ff_main "$sha" "$short"; then return 0; fi

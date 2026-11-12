@@ -1597,12 +1597,12 @@ check "carry prints a red windows run with at most five FAIL names" "grep -q '^W
 lines=$(loglines)
 FAKE_WIN_JOBS="4${TAB}suite (windows-latest)${TAB}failure"
 FAKE_WIN_LOG="suite (windows-latest)${TAB}the suite${TAB}2026-01-02T03:00:02Z   FAIL  a windows check"
-check "a red windows run writes one gate line and does not carry" "FAKE_WINDOWS='88${TAB}completed${TAB}failure' says 'Windows is red' judge $s success '$GREEN' && [ \$(loglines) -eq $((lines+1)) ] && says '^- [0-9-]+ gate: cloud not promoted — Windows is red: suite \\(windows-latest\\) failure FAIL: a windows check;\$' cloudlog && ! says 'which Linux and macOS judged' cloudlog && [ \$(hubmain) != $s ]"
+check "a red windows run is carried and writes one windows gate line (2026-11-12: Windows reports, it does not hold main back)" "FAKE_WINDOWS='88${TAB}completed${TAB}failure' says 'carried .* to main' judge $s success '$GREEN' && [ \$(hubmain) = $s ] && [ \$(loglines) -eq $((lines+1)) ] && says '^- [0-9-]+ gate: windows red on [0-9a-f]+, which Linux and macOS judged — suite \\(windows-latest\\) failure FAIL: a windows check;\$' cloudlog"
 unset FAKE_WIN_JOBS FAKE_WIN_LOG
 synced; lines=$(loglines)
 wrun=$(grep -c 'windows run ended' <<<"$(cloudlog)" || true)
 s=$(pushed "echo winrun >> README.md" "feat: windows still running")
-check "a windows run that is still going adds no gate line" "FAKE_WINDOWS='88${TAB}in_progress${TAB}' says 'Windows is running' judge $s success '$GREEN' && [ \$(loglines) -eq $lines ] && [ \$(grep -c 'windows run ended' <<<\"\$(cloudlog)\" || true) -eq $wrun ] && [ \$(hubmain) != $s ]"
+check "a windows run that is still going does not hold the carry and adds no gate line" "FAKE_WINDOWS='88${TAB}in_progress${TAB}' says 'carried .* to main' judge $s success '$GREEN' && [ \$(loglines) -eq $lines ] && [ \$(grep -c 'windows run ended' <<<\"\$(cloudlog)\" || true) -eq $wrun ] && [ \$(hubmain) = $s ]"
 synced; s=$(pushed "echo 'on: pull_request' > .github/workflows/checks.yml" "ci: weaken")
 check "a push that changes the workflows is carried when Linux, macOS and Windows are green" "FAKE_WINDOWS='88${TAB}completed${TAB}success' says 'carried .* to main' judge $s success '$GREEN' && [ \$(hubmain) = $s ]"
 synced; s=$(pushed "git checkout origin/main -- .github/workflows && echo '# x' >> .ai-backbone/gate.sh" "ci: weaken the judge")
@@ -3258,8 +3258,8 @@ check "and reads claude-code at the stable channel its doctor prints, not npm's 
   "grep -qx 'source = \"pointer:https://downloads.claude.ai/claude-code-releases/stable\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"2.1.304\"' '$root/docs/upstream.toml' && ! grep -qx 'source = \"npm:@anthropic-ai/claude-code\"' '$root/docs/upstream.toml' && grep -q 'claude doctor' '$root/docs/upstream.toml'"
 check "the backbone's tool pins name a version for just, prek, graphify, uv, gitleaks and the actions" \
   "(for n in just prek graphify uv gitleaks; do awk -v n=\"\$n\" '/^\\[\\[watch\\]\\]/{w=0} \$0==\"name = \\\"\"n\"\\\"\"{w=1} w&&/^pin = \"[^\"]+\"\$/{f=1} END{exit !f}' '$root/docs/upstream.toml' || exit 1; done) && grep -qx 'pin = \"v7\"' '$root/docs/upstream.toml'"
-check "the backbone watches grok, claude-code, zed and the two ideas" \
-  "grep -qx 'source = \"pointer:https://x.ai/cli/stable\"' '$root/docs/upstream.toml' && grep -qx 'source = \"pointer:https://downloads.claude.ai/claude-code-releases/stable\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:zed-industries/zed\"' '$root/docs/upstream.toml' && grep -qx 'source = \"github:OrchestratorInc/agent-orchestrator\"' '$root/docs/upstream.toml' && grep -qx 'source = \"ghcommit:jarrodwatts/claude-delegator\"' '$root/docs/upstream.toml' && grep -qx 'look_for = \"a board of every running job across projects\"' '$root/docs/upstream.toml' && grep -qx 'look_for = \"an ask-only mode\"' '$root/docs/upstream.toml'"
+check "the backbone watches grok and claude-code, and no longer zed or the two ideas (they are references in the backbone's brain)" \
+  "grep -qx 'source = \"pointer:https://x.ai/cli/stable\"' '$root/docs/upstream.toml' && grep -qx 'source = \"pointer:https://downloads.claude.ai/claude-code-releases/stable\"' '$root/docs/upstream.toml' && ! grep -q 'zed-industries\\|agent-orchestrator\\|claude-delegator' '$root/docs/upstream.toml'"
 check "the backbone watches opencode on the Homebrew formula it installs from" \
   "grep -qx 'name = \"opencode\"' '$root/docs/upstream.toml' && grep -qx 'source = \"brew:opencode\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"2.1.2\"' '$root/docs/upstream.toml' && ! grep -qx 'source = \"github:anomalyco/opencode\"' '$root/docs/upstream.toml'"
 check "the backbone watches kimi on the Homebrew formula it installs from" \

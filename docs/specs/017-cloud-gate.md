@@ -31,7 +31,7 @@ green, without waiting for Windows. `STABLE` is still not taken by the gate.
 `gate.sh`. Every commit a workflow writes is authored as the identity in the
 repository's Actions variables `GATE_GIT_NAME` and `GATE_GIT_EMAIL`, set with
 `git config` in the workflow and in `gate.sh`, never as `github-actions[bot]`.
-`promote.yml` wakes for both workflows. Where the historical sections below
+`promote.yml` wakes for both workflows. **Update 2026-11-12 (the maintainer):** code is carried when Linux and macOS are green; a red or unfinished Windows run no longer holds `main` back, it writes one `gate: windows red` line instead. A release still needs a green Windows run. Where the historical sections below
 disagree with this update, this update wins.
 
 ## Why

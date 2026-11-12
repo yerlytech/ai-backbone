@@ -16,6 +16,10 @@ entries below are the record of every version.
 
 ## 26.11.3 — 2026-11-12
 
+**Windows reports; it does not hold main back (2026-11-12).** The gate carries code when Linux and macOS are green. `windows.yml` still runs on every code push, and a red run writes one `gate: windows red` line on cloud naming its FAIL checks. A release still waits for a green Windows run.
+
+**Three watched names leave `docs/upstream.toml`.** zed, agent-orchestrator and claude-delegator were not installed or used; the daily sweep no longer reads them. They stay as references for the backbone's own development, outside the template.
+
 **One MCP server for one delegate run (n-a5924b).** `DELEGATE_MCP` is a name and an http(s) url. `just delegate` writes it into `./.grok/config.toml` for that job and removes it when the job ends. The grok worker is passed `--trust` for that run only. Trust is not saved. `.grok/` is in the template `.gitignore`.
 
 **A delegate fetches crates before the worker (n-c4e0f1).** A grok sandbox cannot download crates. `just delegate` runs `cargo fetch` outside the sandbox when the project has Rust, and does not write `.cargo/config.toml`. The worker is told never to vendor a crate or patch crates-io, and to stop and name the crate if a download is refused.
