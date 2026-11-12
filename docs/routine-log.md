@@ -139,3 +139,4 @@ prints the last two lines here in the backbone. A report, never an order.
 - 2026-11-12 gate: cloud not promoted — the push changes .github/workflows or gate.sh, which only an attended carry takes to main (just carry 761e510 after green checks, on the maintainer's yes); an unattended run puts main's copy back
 - 2026-11-12 gate: cloud not promoted — the push changes .github/workflows or gate.sh, which only an attended carry takes to main (just carry cd36c83 after green checks, on the maintainer's yes); an unattended run puts main's copy back
 - 2026-11-12 gate: cloud not promoted — the push changes .github/workflows or gate.sh, which only an attended carry takes to main (just carry 296e044 after green checks, on the maintainer's yes); an unattended run puts main's copy back
+- 2026-11-12 gate: cloud not promoted — the checks ended failure: suite (ubuntu-latest) failure FAIL: twelve agents started in one breath: eight pass and four are refused;
