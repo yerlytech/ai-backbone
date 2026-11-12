@@ -3438,15 +3438,15 @@ check "session-start reads npm next to the RustSec check" \
 check "the backbone reads grok from its stable channel, not from npm" \
   "grep -qx 'source = \"pointer:https://x.ai/cli/stable\"' '$root/docs/upstream.toml' && ! grep -qx 'source = \"npm:@xai-official/grok\"' '$root/docs/upstream.toml'"
 check "and reads claude-code at the stable channel its doctor prints, not npm's newest" \
-  "grep -qx 'source = \"pointer:https://downloads.claude.ai/claude-code-releases/stable\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"2.1.304\"' '$root/docs/upstream.toml' && ! grep -qx 'source = \"npm:@anthropic-ai/claude-code\"' '$root/docs/upstream.toml' && grep -q 'claude doctor' '$root/docs/upstream.toml'"
+  "grep -qx 'source = \"pointer:https://downloads.claude.ai/claude-code-releases/stable\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"2.1.311\"' '$root/docs/upstream.toml' && ! grep -qx 'source = \"npm:@anthropic-ai/claude-code\"' '$root/docs/upstream.toml' && grep -q 'claude doctor' '$root/docs/upstream.toml'"
 check "the backbone's tool pins name a version for just, prek, graphify, uv, gitleaks and the actions" \
   "(for n in just prek graphify uv gitleaks; do awk -v n=\"\$n\" '/^\\[\\[watch\\]\\]/{w=0} \$0==\"name = \\\"\"n\"\\\"\"{w=1} w&&/^pin = \"[^\"]+\"\$/{f=1} END{exit !f}' '$root/docs/upstream.toml' || exit 1; done) && grep -qx 'pin = \"v7\"' '$root/docs/upstream.toml'"
 check "the backbone watches grok and claude-code, and no longer zed or the two ideas (they are references in the backbone's brain)" \
   "grep -qx 'source = \"pointer:https://x.ai/cli/stable\"' '$root/docs/upstream.toml' && grep -qx 'source = \"pointer:https://downloads.claude.ai/claude-code-releases/stable\"' '$root/docs/upstream.toml' && ! grep -q 'zed-industries\\|agent-orchestrator\\|claude-delegator' '$root/docs/upstream.toml'"
 check "the backbone watches opencode on the Homebrew formula it installs from" \
-  "grep -qx 'name = \"opencode\"' '$root/docs/upstream.toml' && grep -qx 'source = \"brew:opencode\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"2.1.2\"' '$root/docs/upstream.toml' && ! grep -qx 'source = \"github:anomalyco/opencode\"' '$root/docs/upstream.toml'"
+  "grep -qx 'name = \"opencode\"' '$root/docs/upstream.toml' && grep -qx 'source = \"brew:opencode\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"2.2.7\"' '$root/docs/upstream.toml' && ! grep -qx 'source = \"github:anomalyco/opencode\"' '$root/docs/upstream.toml'"
 check "the backbone watches kimi on the Homebrew formula it installs from" \
-  "grep -qx 'name = \"kimi\"' '$root/docs/upstream.toml' && grep -qx 'source = \"brew:kimi-code\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"2.4.0\"' '$root/docs/upstream.toml'"
+  "grep -qx 'name = \"kimi\"' '$root/docs/upstream.toml' && grep -qx 'source = \"brew:kimi-code\"' '$root/docs/upstream.toml' && grep -qx 'pin = \"2.5.3\"' '$root/docs/upstream.toml'"
 check "the two ideas are no longer pinned: the watch list holds no idea row" \
   "! grep -q 'kind = \"idea\"' '$root/docs/upstream.toml' && ! grep -q '^look_for = ' '$root/docs/upstream.toml' && ! grep -qx 'pin = \"v0.14.3\"' '$root/docs/upstream.toml' && ! grep -qx 'pin = \"8e2ea57c9b8e6f0790b1596d98e35632ca48a59c\"' '$root/docs/upstream.toml'"
 check "the template says what an idea row is" "grep -q 'kind' '$root/.ai-backbone/templates/upstream.toml' && grep -q 'look_for' '$root/.ai-backbone/templates/upstream.toml'"

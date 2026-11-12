@@ -12,7 +12,7 @@ check = "recipe syntax, [group] attributes, whether --list output changed, and w
 [[watch]]
 name = "prek"
 source = "pypi:prek"
-pin = "0.5.7"
+pin = "0.5.10"
 why = "runs the git hooks: lint before a commit, and the secret scanner"
 check = "whether .pre-commit-config.yaml is still read the same way"
 
@@ -27,14 +27,14 @@ check = "new rules that would make an existing project's commit fail"
 [[watch]]
 name = "graphify"
 source = "pypi:graphifyy"
-pin = "0.9.93"
+pin = "0.9.107"
 why = "the code map an agent reads instead of the whole codebase"
 check = "whether the query commands or the output folder changed"
 
 [[watch]]
 name = "uv"
 source = "pypi:uv"
-pin = "0.13.4"
+pin = "0.13.8"
 why = "installs just, prek and graphify, and finds the Python the helpers run on"
 check = "whether `uv tool install`, `uv tool upgrade` and `uv python find` still answer the way setup.sh and _py read them"
 
@@ -64,20 +64,20 @@ check = "what a headless run accepts, and whether the binary still answers `grok
 [[watch]]
 name = "claude-code"
 source = "pointer:https://downloads.claude.ai/claude-code-releases/stable"
-pin = "2.1.304"
+pin = "2.1.311"
 why = "the other worker, and the session that reads these rules"
 check = "`claude doctor` says the installed version and `Auto-update channel`; point this at that channel, then read what SessionStart and the skills changed"
 
 [[watch]]
 name = "opencode"
 source = "brew:opencode"
-pin = "2.1.2"
+pin = "2.2.7"
 why = "the worker CLI a delegated job is handed to, when WORKER is opencode"
 check = "what a headless run accepts, and whether the binary still answers `opencode --version`"
 
 [[watch]]
 name = "kimi"
 source = "brew:kimi-code"
-pin = "2.4.0"
+pin = "2.5.3"
 why = "the worker CLI a delegated job is handed to, when WORKER is kimi"
 check = "what a headless run accepts, and whether the binary still answers `kimi --version`"
