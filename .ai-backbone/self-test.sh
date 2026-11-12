@@ -3711,7 +3711,9 @@ echo "dart $* @ ${PWD##*/}" >> "$FL_LOG"
 exit 0
 EOF
 printf '#!/bin/sh\necho Linux\n' > "$fl/linux/uname"
-chmod +x "$fl/fakes/flutter" "$fl/fakes/dart" "$fl/linux/uname"
+mkdir -p "$fl/darwin"
+printf '#!/bin/sh\necho Darwin\n' > "$fl/darwin/uname"
+chmod +x "$fl/fakes/flutter" "$fl/fakes/dart" "$fl/linux/uname" "$fl/darwin/uname"
 ln -sf "$(command -v just)" "$fl/shim/just"
 fx() { env PATH="$fl/fakes:$PATH" FL_LOG="$fl/log" "$@"; }
 L="$root/.ai-backbone/examples/stack-flutter.just"; W="$root/.ai-backbone/examples/ci-flutter.yml"
@@ -3773,7 +3775,8 @@ check "test-device asks flutter test for that emulator" "dev just app=app test-d
 check "a device test that writes nothing is stopped, and the log is kept" "! dev env FL_TEST_SILENT=1 FLUTTER_SILENCE_SECONDS=2 just app=app test-device Pixel_API_35 >/dev/null 2>&1 && says 'wrote nothing for 2 seconds' dev env FL_TEST_SILENT=1 FLUTTER_SILENCE_SECONDS=2 just app=app test-device Pixel_API_35 && [ -n \"\$(ls brain/05-files/device-test-*.log 2>/dev/null)\" ]"
 : > "$fl/log"; rm -rf brain
 check "a busy machine is said, and flutter is not asked" "! dev env FLUTTER_LOAD_NOW=20 FLUTTER_LOAD_MAX=8 just app=app test-device Pixel_API_35 >/dev/null 2>&1 && says 'This machine is busy' dev env FLUTTER_LOAD_NOW=20 just app=app test-device Pixel_API_35 && [ ! -s '$fl/log' ]"
-check "the emulator plist is a one-shot interactive agent and starts nothing" "says 'launchd was not asked' env ANDROID_HOME=/opt/android JAVA_HOME=/opt/java just emulator-plist Pixel_API_35 5554 '$fl/emu.plist' && grep -q '<key>KeepAlive</key><false/>' '$fl/emu.plist' && grep -q '<key>ProcessType</key><string>Interactive</string>' '$fl/emu.plist' && grep -q '<string>-port</string>' '$fl/emu.plist' && grep -q '<string>5554</string>' '$fl/emu.plist' && grep -q 'ANDROID_HOME' '$fl/emu.plist' && grep -q 'JAVA_HOME' '$fl/emu.plist' && [ ! -s '$fl/log' ]"
+check "the emulator plist is a one-shot interactive agent and starts nothing" "says 'launchd was not asked' env PATH='$fl/darwin:'\"\$PATH\" ANDROID_HOME=/opt/android JAVA_HOME=/opt/java just emulator-plist Pixel_API_35 5554 '$fl/emu.plist' && grep -q '<key>KeepAlive</key><false/>' '$fl/emu.plist' && grep -q '<key>ProcessType</key><string>Interactive</string>' '$fl/emu.plist' && grep -q '<string>-port</string>' '$fl/emu.plist' && grep -q '<string>5554</string>' '$fl/emu.plist' && grep -q '<key>PATH</key>' '$fl/emu.plist' && grep -q 'ANDROID_HOME' '$fl/emu.plist' && grep -q 'JAVA_HOME' '$fl/emu.plist' && [ ! -s '$fl/log' ]"
+check "emulator-plist refuses on a machine that is not a Mac and writes nothing (n-ae82d7)" "! env PATH='$fl/linux:'\"\$PATH\" just emulator-plist Pixel_API_35 5554 '$fl/nope.plist' >/dev/null 2>&1 && says 'needs macOS' env PATH='$fl/linux:'\"\$PATH\" just emulator-plist Pixel_API_35 5554 '$fl/nope.plist' && [ ! -e '$fl/nope.plist' ]"
 : > "$fl/log"; out=$(fx env FL_DART_FAILS=1 just test 2>&1); rc=$?
 check "a member that fails does not stop the others, and the end names it" "[ $rc -ne 0 ] && grep -qx 'Failed: src/core' <<<\"\$out\" && grep -qx 'flutter test @ app' '$fl/log'"
 : > "$fl/log"
@@ -5170,6 +5173,7 @@ perm=""
 deny=""
 sandbox=""
 trust=""
+web=no
 while [ $# -gt 0 ]; do
   case "$1" in
     -p) prompt=$2; shift 2 ;;
@@ -5179,6 +5183,7 @@ while [ $# -gt 0 ]; do
     --background-wait-timeout) bgwait=$2; shift 2 ;;
     --sandbox) sandbox=$2; shift 2 ;;
     --trust) trust=yes; shift ;;
+    --disable-web-search) web=yes; shift ;;
     --deny) deny="$deny$2
 "; shift 2 ;;
     --rules|--allow) shift 2 ;;
@@ -5193,6 +5198,7 @@ if [ -n "${FAKE_WORKER_PROMPT:-}" ]; then
   printf '%s\n' "$bgwait" > "$FAKE_WORKER_PROMPT.bgwait"
   printf '%s\n' "$sandbox" > "$FAKE_WORKER_PROMPT.sandbox"
   printf '%s\n' "${trust:-no}" > "$FAKE_WORKER_PROMPT.grok-trust"
+  printf '%s\n' "$web" > "$FAKE_WORKER_PROMPT.web"
   if [ -f .grok/config.toml ]; then cp .grok/config.toml "$FAKE_WORKER_PROMPT.mcp"
   else : > "$FAKE_WORKER_PROMPT.mcp"; fi
   printf '%s' "$deny" > "$FAKE_WORKER_PROMPT.deny"
@@ -5472,6 +5478,15 @@ case "$mode" in
     fi
     echo report
     ;;
+  fail)
+    echo report
+    exit 3
+    ;;
+  timeout)
+    echo report
+    sleep 30
+    echo finished
+    ;;
   *) echo "unknown mode $mode" >&2; exit 2 ;;
 esac
 OCEOF
@@ -5700,8 +5715,10 @@ check "the worker's prompt is the preamble, then the task, and grok is called he
   "grep -q 'Read AGENTS.md' \"\$dprompt\" && grep -q \"You are on branch \$dbr; stay on it.\" \"\$dprompt\" && grep -q 'just save' \"\$dprompt\" && grep -q 'just publish' \"\$dprompt\" && grep -q 'git push' \"\$dprompt\" && grep -q 'just ship' \"\$dprompt\" && grep -q 'just deploy' \"\$dprompt\" && grep -q 'server or GitHub' \"\$dprompt\" && grep -q 'merge, rebase, or delete a branch' \"\$dprompt\" && grep -q 'Never start a sub-agent or a parallel task' \"\$dprompt\" && grep -q 'at most 15 lines' \"\$dprompt\" && [ \"\$(tail -n 1 \"\$dprompt\")\" = 'add a line' ] && [ \"\$(cat \"\$dprompt.fmt\")\" = plain ] && [ -z \"\$(cat \"\$dprompt.model\")\" ] && [ \"\$(cat \"\$dprompt.perm\")\" = auto ] && grep -qx 'Bash(git push:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(just ship:\*)' \"\$dprompt.deny\""
 check "the preamble grok receives says never begin a command with a variable assignment" \
   "grep -Fq 'Never begin a command with a variable assignment; put multi-step logic in a recipe or a test file.' \"\$dprompt\""
-check "grok's deny list also names the shell wrappers that step around rm (added, not measured on grok)" \
+check "grok's deny list also names the shell wrappers that step around rm" \
   "grep -qx 'Bash(sh:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(bash:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(zsh:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(eval:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(xargs:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(env:\*)' \"\$dprompt.deny\""
+check "grok is passed --disable-web-search, the flag grok --help names (n-5b9b58)" \
+  "[ \"\$(cat \"\$dprompt.web\")\" = yes ] && grep -q -- '--disable-web-search' '$root/.ai-backbone/core.just'"
 check "grok's argv denies the keystore commands, ssh-add and the secret paths, and the sandbox profile names the same paths" \
   "grep -qx 'Bash(security find-generic-password:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(security find-internet-password:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(/usr/bin/security find-generic-password:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(/usr/bin/security find-internet-password:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(secret-tool lookup:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(/usr/bin/secret-tool lookup:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(just with-secret:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(ssh-add:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(/usr/bin/ssh-add:\*)' \"\$dprompt.deny\" && grep -Fqx 'Bash(just delegate-accept:*)' \"\$dprompt.deny\" && grep -Fqx 'Bash(just delegate-drop:*)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/.aws/**)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/.ssh/**)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/.env)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/.envrc)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/ssh-agent.sock)' \"\$dprompt.deny\" && grep -Fqx 'Read(**/brain/secrets/**)' \"\$dprompt.deny\" && grep -Fqx 'Write(**/.grok/sandbox.toml)' \"\$dprompt.deny\" && grep -Fqx 'Edit(**/.grok/sandbox.toml)' \"\$dprompt.deny\" && ! grep -q '.env.example' \"\$dprompt.deny\" && [ \"\$(cat \"\$dprompt.sandbox\")\" = ai-backbone-delegate ] && grep -q 'extends = \"workspace\"' \"\$dproj/.grok/sandbox.toml\" && grep -q '\"~/.ssh\"' \"\$dproj/.grok/sandbox.toml\" && grep -q '\"~/.aws\"' \"\$dproj/.grok/sandbox.toml\" && grep -Fq '\"**/.env\"' \"\$dproj/.grok/sandbox.toml\" && ! grep -q '/Users/' \"\$dproj/.grok/sandbox.toml\" && ! grep -qx '  \"~/.grok\",' \"\$dproj/.grok/sandbox.toml\" && ! grep -q 'grok/auth.json' \"\$dproj/.grok/sandbox.toml\" && ! [ -f \"\$dhome/.grok/sandbox.toml\" ]"
 git -C "$dproj" checkout -q main
@@ -5726,6 +5743,28 @@ buildx_grant_ok() {
 }
 check "the grok sandbox grants write on the home docker buildx directory (n-9e0540)" \
   "buildx_grant_ok \"\$dhome\" \"\$dproj/.grok/sandbox.toml\" && grep -q n-9e0540 \"\$root/.agents/skills/delegate/SKILL.md\" && grep -q 'docker/buildx' \"\$root/.agents/skills/delegate/SKILL.md\""
+swift_grant_ok() {
+  awk -v home="$1" '
+    /^read_write = \[/ { mode = "rw"; next }
+    /^deny = \[/ { mode = "deny"; next }
+    /^\]/ { mode = ""; next }
+    {
+      if (index($0, home "/Library/Caches/org.swift.swiftpm")) {
+        if (mode == "rw") spm++
+        else bad++
+      }
+      if (index($0, home "/Library/Developer/Xcode/DerivedData")) {
+        if (mode == "rw") dd++
+        else bad++
+      }
+      if (index($0, "~/Library/Caches/org.swift.swiftpm")) tilde++
+      if (index($0, "~/Library/Developer/Xcode/DerivedData")) tilde++
+    }
+    END { exit !(spm == 1 && dd == 1 && bad == 0 && tilde == 0) }
+  ' "$2"
+}
+check "the grok sandbox grants write on the Swift package cache and DerivedData as full paths (n-3510d4)" \
+  "swift_grant_ok \"\$dhome\" \"\$dproj/.grok/sandbox.toml\" && grep -qx 'restrict_network = true' \"\$dproj/.grok/sandbox.toml\" && grep -q n-3510d4 \"\$root/.agents/skills/delegate/SKILL.md\" && grep -q 'org.swift.swiftpm' \"\$root/.agents/skills/delegate/SKILL.md\""
 check "the grok sandbox profile is the project file, not the shared home file" \
   "[ -f \"\$dproj/.grok/sandbox.toml\" ] && ! [ -f \"\$dhome/.grok/sandbox.toml\" ] && grep -Fq '[profiles.ai-backbone-delegate]' \"\$dproj/.grok/sandbox.toml\" && grep -q '.grok/sandbox.toml' \"\$dproj/.git/info/exclude\" && grep -q n-afbc90 \"\$root/.agents/skills/delegate/SKILL.md\""
 d_new grokhome
@@ -6609,19 +6648,29 @@ d_run ok opencode "" delegate "add a line"
 dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
 rung=$(git -C "$dproj" config --get "branch.${dbr}.delegateRung" 2>/dev/null || true)
 check "opencode's first try runs the first ladder model, with the preamble, and the report ends on the summed cost" \
-  "[ \$d_rc -eq 0 ] && oc_argv_is 'opencode-go/deepseek-v4.1-flash' && [ \"\$(cat \"\$dprompt.model\")\" = 'opencode-go/deepseek-v4.1-flash' ] && [ \"\$(cat \"\$dprompt.fmt\")\" = json ] && [ \"\$(cat \"\$dprompt.standalone\")\" = 1 ] && [ \"\$(cat \"\$dprompt.auto\")\" = 1 ] && grep -q 'Read AGENTS.md' \"\$dprompt\" && grep -q \"You are on branch \$dbr; stay on it.\" \"\$dprompt\" && grep -q 'just save' \"\$dprompt\" && grep -q 'just publish' \"\$dprompt\" && grep -q 'at most 15 lines' \"\$dprompt\" && [ \"\$(tail -n 1 \"\$dprompt\")\" = 'add a line' ] && [ \"\$rung\" = 1 ] && oc_events_ok 'cost: \$0.03 on opencode-go/deepseek-v4.1-flash, 2 steps'"
+  "[ \$d_rc -eq 0 ] && oc_argv_is 'opencode-go/deepseek-v4.1-flash' && [ \"\$(cat \"\$dprompt.model\")\" = 'opencode-go/deepseek-v4.1-flash' ] && [ \"\$(cat \"\$dprompt.fmt\")\" = json ] && [ \"\$(cat \"\$dprompt.standalone\")\" = 1 ] && [ \"\$(cat \"\$dprompt.auto\")\" = 1 ] && grep -q 'Read AGENTS.md' \"\$dprompt\" && grep -q \"You are on branch \$dbr; stay on it.\" \"\$dprompt\" && grep -q 'just save' \"\$dprompt\" && grep -q 'just publish' \"\$dprompt\" && grep -q 'at most 15 lines' \"\$dprompt\" && [ \"\$(tail -n 1 \"\$dprompt\")\" = 'add a line' ] && [ \"\$rung\" = 0 ] && oc_events_ok 'cost: \$0.03 on opencode-go/deepseek-v4.1-flash, 2 steps'"
 check "the preamble opencode receives says never begin a command with a variable assignment" \
   "grep -Fq 'Never begin a command with a variable assignment; put multi-step logic in a recipe or a test file.' \"\$dprompt\""
 check "the config the fake receives denies the grok list and the shell wrappers, turns autoupdate off, and blocks web fetch and outside paths" \
   "oc_config_ok && [ \"\$(cat \"\$dprompt.projectdisable\")\" = 1 ]"
+check "the default ladder is the two opencode-go models and does not name kimi-k3 (n-061941)" \
+  "grep -q 'ladder=\"opencode-go/deepseek-v4.1-flash,opencode-go/glm-5.3\"' '$root/.ai-backbone/core.just' && ! grep -q kimi-k3 '$root/.agents/skills/delegate/SKILL.md' '$root/docs/01-getting-started.md'"
 d_run fix opencode "" delegate "fix the line"
 rung=$(git -C "$dproj" config --get "branch.${dbr}.delegateRung" 2>/dev/null || true)
-check "a fix round climbs to the second model of the ladder" \
-  "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$dprompt.model\")\" = 'opencode-go/glm-5.3' ] && [ \"\$rung\" = 2 ] && [ \"\$(git -C \"\$dproj\" symbolic-ref --short HEAD)\" = \"\$dbr\" ] && oc_events_ok 'cost: \$0.03 on opencode-go/glm-5.3, 2 steps'"
-d_run fix opencode "" delegate "fix again"
+check "a fix round that succeeded stays on the same model (n-061941)" \
+  "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$dprompt.model\")\" = 'opencode-go/deepseek-v4.1-flash' ] && [ \"\$rung\" = 0 ] && [ \"\$(git -C \"\$dproj\" symbolic-ref --short HEAD)\" = \"\$dbr\" ]"
+d_run fail opencode "" delegate "break it"
 rung=$(git -C "$dproj" config --get "branch.${dbr}.delegateRung" 2>/dev/null || true)
-check "the next fix round climbs to the last model of the ladder" \
-  "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$dprompt.model\")\" = 'opencode-go/kimi-k3' ] && [ \"\$rung\" = 3 ] && oc_events_ok 'cost: \$0.03 on opencode-go/kimi-k3, 2 steps'"
+check "a failed round stores the next ladder index and does not switch model mid-round (n-061941)" \
+  "[ \$d_rc -ne 0 ] && [ \"\$(cat \"\$dprompt.model\")\" = 'opencode-go/deepseek-v4.1-flash' ] && [ \"\$rung\" = 1 ]"
+d_run ok opencode "" delegate "after the failure"
+rung=$(git -C "$dproj" config --get "branch.${dbr}.delegateRung" 2>/dev/null || true)
+check "the round after a failure climbs to the last model of the default ladder" \
+  "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$dprompt.model\")\" = 'opencode-go/glm-5.3' ] && [ \"\$rung\" = 1 ] && oc_events_ok 'cost: \$0.03 on opencode-go/glm-5.3, 2 steps'"
+d_run fail opencode "" delegate "break again"
+rung=$(git -C "$dproj" config --get "branch.${dbr}.delegateRung" 2>/dev/null || true)
+check "a failure on the last model stores the index past the ladder" \
+  "[ \$d_rc -ne 0 ] && [ \"\$(cat \"\$dprompt.model\")\" = 'opencode-go/glm-5.3' ] && [ \"\$rung\" = 2 ]"
 calls=$(wc -l < "$dprompt.models" | tr -d ' ')
 model_before=$(cat "$dprompt.model")
 d_run fix opencode "" delegate "one more"
@@ -6629,7 +6678,7 @@ calls_after=$(wc -l < "$dprompt.models" | tr -d ' ')
 model_after=$(cat "$dprompt.model")
 rung=$(git -C "$dproj" config --get "branch.${dbr}.delegateRung" 2>/dev/null || true)
 check "past the last model, delegate refuses in one line and does not run the worker" \
-  "[ \$d_rc -ne 0 ] && d_one && grep -qx 'refuses: past the last model of the ladder; two failed tries go to the maintainer' <<<\"\$d_out\" && [ \"\$calls_after\" = \"\$calls\" ] && [ \"\$model_after\" = \"\$model_before\" ] && [ \"\$rung\" = 3 ]"
+  "[ \$d_rc -ne 0 ] && d_one && grep -qx 'refuses: past the last model of the ladder; two failed tries go to the maintainer' <<<\"\$d_out\" && [ \"\$calls_after\" = \"\$calls\" ] && [ \"\$model_after\" = \"\$model_before\" ] && [ \"\$rung\" = 2 ]"
 d_new ocstale
 stale="delegate/$(LC_ALL=C date +%Y-%m-%d)-add-a-line"
 git -C "$dproj" config "branch.${stale}.delegateRung" 3
@@ -6637,7 +6686,7 @@ d_run ok opencode "" delegate "add a line"
 dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
 rung=$(git -C "$dproj" config --get "branch.${dbr}.delegateRung" 2>/dev/null || true)
 check "a new branch starts at the first model even when a dropped branch left a rung" \
-  "[ \$d_rc -eq 0 ] && [ \"\$dbr\" = \"\$stale\" ] && [ \"\$(cat \"\$dprompt.model\")\" = 'opencode-go/deepseek-v4.1-flash' ] && [ \"\$rung\" = 1 ]"
+  "[ \$d_rc -eq 0 ] && [ \"\$dbr\" = \"\$stale\" ] && [ \"\$(cat \"\$dprompt.model\")\" = 'opencode-go/deepseek-v4.1-flash' ] && [ \"\$rung\" = 0 ]"
 d_new ocpin
 d_run ok opencode "opencode-go/pinned" delegate "add a line"
 dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
@@ -6653,13 +6702,32 @@ WORKER_LADDER='opencode-go/one, opencode-go/two' d_run ok opencode "" delegate "
 check "WORKER_LADDER's first model is the first try, and a space after a comma is ignored" \
   "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$dprompt.model\")\" = 'opencode-go/one' ]"
 WORKER_LADDER='opencode-go/one, opencode-go/two' d_run fix opencode "" delegate "fix the line"
-check "WORKER_LADDER's next model is the fix round" \
+check "a successful fix round on a custom ladder stays on the first model" \
+  "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$dprompt.model\")\" = 'opencode-go/one' ]"
+WORKER_LADDER='opencode-go/one, opencode-go/two' d_run fail opencode "" delegate "break it"
+WORKER_LADDER='opencode-go/one, opencode-go/two' d_run ok opencode "" delegate "after the failure"
+check "WORKER_LADDER's next model is the round after a failure" \
   "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$dprompt.model\")\" = 'opencode-go/two' ]"
+WORKER_LADDER='opencode-go/one, opencode-go/two' d_run fail opencode "" delegate "break again"
 calls=$(wc -l < "$dprompt.models" | tr -d ' ')
 WORKER_LADDER='opencode-go/one, opencode-go/two' d_run fix opencode "" delegate "past it"
 calls_after=$(wc -l < "$dprompt.models" | tr -d ' ')
 check "past a short ladder, delegate refuses and does not run the worker" \
   "[ \$d_rc -ne 0 ] && d_one && grep -qx 'refuses: past the last model of the ladder; two failed tries go to the maintainer' <<<\"\$d_out\" && [ \"\$calls_after\" = \"\$calls\" ]"
+d_new octime
+t0=$SECONDS
+d_out=$(env -u WORKER -u WORKER_MODEL -u WORKER_LADDER -u DELEGATE_IDLE -u WORKER_BIN -u DELEGATE_BASE -u DELEGATE_YES \
+  HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=timeout FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_GO="$dgo" \
+  WORKER=opencode DELEGATE_TIMEOUT=0.05 just -f "$root/Justfile" -d "$dproj" delegate "sleep it" 2>&1) && d_rc=0 || d_rc=$?
+elapsed=$((SECONDS - t0))
+dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
+rung=$(git -C "$dproj" config --get "branch.${dbr}.delegateRung" 2>/dev/null || true)
+check "a round that stops at DELEGATE_TIMEOUT stays on the first model and does not climb (n-061941)" \
+  "[ \$d_rc -eq 124 ] && [ \$elapsed -lt 15 ] && grep -qx 'exit status: timeout' <<<\"\$d_out\" && [ \"\$(cat \"\$dprompt.model\")\" = 'opencode-go/deepseek-v4.1-flash' ] && [ \"\$rung\" = 0 ] && ! grep -q finished <<<\"\$d_out\""
+d_run ok opencode "" delegate "after the timeout"
+rung=$(git -C "$dproj" config --get "branch.${dbr}.delegateRung" 2>/dev/null || true)
+check "the round after a timeout uses the same model" \
+  "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$dprompt.model\")\" = 'opencode-go/deepseek-v4.1-flash' ] && [ \"\$rung\" = 0 ]"
 d_new ocempty
 WORKER_LADDER= d_run ok opencode "" delegate "add a line"
 check "an empty WORKER_LADDER is refused in one line and makes no branch" \

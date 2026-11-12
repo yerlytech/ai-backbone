@@ -19,6 +19,11 @@ entries below are the record of every version.
 **Windows reports; it does not hold main back (2026-11-12).** The gate carries code when Linux and macOS are green. `windows.yml` still runs on every code push, and a red run writes one `gate: windows red` line on cloud naming its FAIL checks. A release still waits for a green Windows run.
 
 **Three watched names leave `docs/upstream.toml`.** zed, agent-orchestrator and claude-delegator were not installed or used; the daily sweep no longer reads them. They stay as references for the backbone's own development, outside the template.
+**A timeout does not climb the opencode ladder (n-061941).** A round that ends at `DELEGATE_TIMEOUT` stays on the model it used. Only a round whose worker exits non-zero stores the next index. The default ladder is `opencode-go/deepseek-v4.1-flash`, then `opencode-go/glm-5.3`.
+
+**A grok delegate can write the Swift package cache (n-3510d4).** The sandbox profile grants `~/Library/Caches/org.swift.swiftpm` and `~/Library/Developer/Xcode/DerivedData` as full paths. `read_write` does not expand `~`. Without the grant, `xcodebuild` exits 74.
+
+**Grok's web tools are off, and child network is restricted where the guide says it works (n-fc65ca, n-5b9b58).** Measured on grok 1.0.62, 2026-11-12, from `grok --help` and the installed guide. The run passes `--disable-web-search`. The profile sets `restrict_network = true`, which the guide says blocks child network on Linux and does nothing on macOS. `Read(**/.env)` is the Read-deny form the guide describes. `env` is peeled and a literal `bash -c` script is checked inside; `xargs` is not peeled. A live `grok -p` probe, and a live socket on this Mac, were not run.
 
 **One MCP server for one delegate run (n-a5924b).** `DELEGATE_MCP` is a name and an http(s) url. `just delegate` writes it into `./.grok/config.toml` for that job and removes it when the job ends. The grok worker is passed `--trust` for that run only. Trust is not saved. `.grok/` is in the template `.gitignore`.
 

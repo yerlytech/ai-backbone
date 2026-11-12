@@ -52,8 +52,9 @@
 #                         it has already seen
 #   flavors               the first project that needs two builds of one app (the
 #                         first one here chose separate apps in one workspace instead)
-#   a Mac rehearsal of    `just emulator-plist` writes the launchd agent. bootstrap
-#     launchd             itself is not run from here: it needs a Mac.
+#   a Mac rehearsal of    `just emulator-plist` writes the launchd agent on macOS
+#     launchd             and refuses elsewhere. bootstrap itself is not run
+#                         from here: it needs a GUI session.
 #   golden tests          a picture drawn on one operating system fails on
 #                         another (the fonts differ): here once one set passes
 #                         on two
@@ -234,7 +235,8 @@ test-device avd="" port="":
 
 # The launchd agent that should start the emulator, as a file. It is not
 # started here, and not as a child of this recipe: a niced parent is how a
-# busy Mac lost the device. bootstrap waits for a Mac (n-ae82d7).
+# busy Mac lost the device. The file is macOS only. bootstrap itself is not
+# run from here: it needs a GUI session (n-ae82d7).
 [group('flutter')]
 [positional-arguments]
 emulator-plist avd port dest:
@@ -243,6 +245,10 @@ emulator-plist avd port dest:
     avd="${1:-}"; port="${2:-}"; dest="${3:-}"
     if [ -z "$avd" ] || [ -z "$port" ] || [ -z "$dest" ]; then
       echo "just emulator-plist <avd> <port> <file>" >&2
+      exit 1
+    fi
+    if [ "$(uname -s)" != Darwin ]; then
+      echo "A launchd agent needs macOS, and this machine runs $(uname -s)."
       exit 1
     fi
     label=$(printf '%s' "$avd" | tr -c 'A-Za-z0-9' '-')

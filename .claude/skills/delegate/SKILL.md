@@ -69,8 +69,11 @@ not reset that dirt away.
 For `claude` it is passed through. For `opencode` it is used on every round
 instead of the ladder. `WORKER_LADDER` is that ladder, comma-separated
 `opencode-go/<id>`. Unset, it is
-`opencode-go/deepseek-v4.1-flash,opencode-go/glm-5.3,opencode-go/kimi-k3`.
-The first try of a branch uses the first model; each fix round uses the next.
+`opencode-go/deepseek-v4.1-flash,opencode-go/glm-5.3`.
+The first try of a branch uses the first model. A later round stays on that
+model when the previous round finished or stopped at `DELEGATE_TIMEOUT`.
+Only a round whose worker failed moves the next round to the next model.
+Past the last, the job refuses.
 `WORKER_BIN` is the binary, when set. Otherwise the name
 on `PATH` is used, and otherwise `~/.grok/bin/grok`, Claude's
 `~/.claude/local/claude` then `~/.local/bin/claude`,
@@ -78,8 +81,13 @@ on `PATH` is used, and otherwise `~/.grok/bin/grok`, Claude's
 `/opt/homebrew/bin/kimi` and `/usr/local/bin/kimi`. `grok` is called as
 `<bin> -p … --output-format plain`, in auto mode, and its deny list names the
 shell wrappers `sh`, `bash`, `zsh`, `eval`, `xargs` and `env`, and
-`just delegate-accept` and `just delegate-drop`, too: that line is
-added and not measured on grok yet. `opencode` is called as
+`just delegate-accept` and `just delegate-drop`, too. On grok 1.0.62
+(2026-11-12) the installed guide says `env` is peeled and a literal
+`bash -c` script is checked inside, and that `xargs` is not peeled. `sh`,
+`zsh` and `eval` are not on that peel list, so they stay denied. A live
+`grok -p` probe of those wrappers was not run. The same run passes
+`--disable-web-search`, which `grok --help` says turns off web search and
+web fetch. `opencode` is called as
 `opencode run --standalone --auto --format json -m <model>`. Every opencode
 command passes `--standalone`, including `opencode stats`. Without that flag,
 opencode starts `serve --service` and resumes sessions a restart interrupted.
@@ -157,14 +165,24 @@ writing the shared one closes every session already running (seen
 2026-11-07 23:28). `grok --help` (1.0.62) gives `--sandbox` a profile name,
 not a file. A per-run profile file would not be read, so this is the file
 the run uses (n-a6542a). The guide says a
-non-empty `deny` is kernel-enforced; that enforcement is not measured yet
-(n-fc65ca). When the job ends, the recipe compares that file's hash with the
+non-empty `deny` is kernel-enforced. That enforcement was not opened on a
+live file in this session. `Read(**/.env)` is the Read-deny form the same
+guide and `grok --help` describe (measured 2026-11-12, grok 1.0.62): `**`
+crosses `/`, and a leading `~/` in a Read pattern is literal text. The
+profile sets `restrict_network = true`. The guide says that blocks child
+network on Linux and is a no-op on macOS. A live socket was not opened
+(n-5b9b58). When the job ends, the recipe compares that file's hash with the
 hash from before the worker started, and says
 `sandbox profile changed: .grok/sandbox.toml` if the worker changed it.
 The same profile grants write access to `~/.docker/buildx`, as
 that directory's full path, because `read_write` does not expand `~`
 (n-9e0540). `docker buildx` stores its state there. Without the grant the
-command fails and the worker never reaches `just save`. The worker still
+command fails and the worker never reaches `just save`. It also grants
+`~/Library/Caches/org.swift.swiftpm` and
+`~/Library/Developer/Xcode/DerivedData` as those directories' full paths,
+so `xcodebuild` is not refused on the Swift package cache (exit 74) or on
+DerivedData, which is the same kind of path outside the workspace
+(n-3510d4). The worker still
 cannot read `~/.ssh`. A worker never signs. When `commit.gpgsign` is on,
 the job turns signing off in this worktree and marks the branch
 `delegateUnsigned`. The worktree's own settings come back when the job ends.

@@ -2017,19 +2017,22 @@ delegate task="":
     trap 'end_delegate_job; exit 130' INT
     trap 'end_delegate_job; exit 143' TERM
     trap 'end_delegate_job; exit 129' HUP
-    # opencode climbs WORKER_LADDER (spec 038). The first try of a branch takes
-    # the first model; each fix round takes the next. Past the last, the job
-    # stops. WORKER_MODEL pins one model and does not climb. Grok, claude and
-    # kimi ignore the ladder. Kimi passes DELEGATE_MODEL as -m when it is set,
-    # and does not read WORKER_MODEL (spec 040). The next index is branch.<name>.delegateRung, the same
-    # kind of record as delegateBase. A new branch starts at the first model
-    # even when a dropped branch left a rung behind. Resolved before checkout,
-    # so a refusal does not leave a branch.
+    # opencode climbs WORKER_LADDER only after a failed round (spec 038,
+    # n-061941). The first try takes the first model. delegateRung stores the
+    # index this round used. A round that ends at DELEGATE_TIMEOUT stays
+    # there: the job's own time limit is not a failure. Only a worker that
+    # exits non-zero stores the next index, and the next fix round reads it.
+    # Past the last, the job stops. WORKER_MODEL pins one model and does not
+    # climb. Grok, claude and kimi ignore the ladder. Kimi passes
+    # DELEGATE_MODEL as -m when it is set, and does not read WORKER_MODEL
+    # (spec 040). A new branch starts at the first model even when a dropped
+    # branch left a rung behind. Resolved before checkout, so a refusal does
+    # not leave a branch.
     model="${WORKER_MODEL:-}"
     oc_idx=""
     if [ "$worker" = opencode ] && [ -z "$model" ]; then
       if [ -z "${WORKER_LADDER+x}" ]; then
-        ladder="opencode-go/deepseek-v4.1-flash,opencode-go/glm-5.3,opencode-go/kimi-k3"
+        ladder="opencode-go/deepseek-v4.1-flash,opencode-go/glm-5.3"
       else
         ladder=$WORKER_LADDER
       fi
@@ -2122,7 +2125,7 @@ delegate task="":
       git checkout -q -b "$branch"
       if [ -n "$base" ]; then git config "branch.${branch}.delegateBase" "$base"; fi
     fi
-    if [ -n "$oc_idx" ]; then git config "branch.${branch}.delegateRung" "$((oc_idx + 1))"; fi
+    if [ -n "$oc_idx" ]; then git config "branch.${branch}.delegateRung" "$oc_idx"; fi
     # Adapters: how to call the CLI headless, in this folder, with the prompt.
     # `exec` so a later stop reaches the CLI and not the shell around it. The
     # call is always in a subshell, or exec would replace this recipe.
@@ -2134,8 +2137,10 @@ delegate task="":
     # bypassPermissions: Claude Code's auto mode refuses to launch it.
     # A shell wrapper steps around a command-shaped deny rule, as it did for
     # opencode (spec 038), so sh, bash, zsh, eval, xargs and env are denied
-    # here too. The line is added; whether grok 1.0.62 is stepped around the
-    # same way is not measured yet (n-fc65ca, 2026-10-22).
+    # here too. Measured from the installed guide on grok 1.0.62, 2026-11-12:
+    # env is peeled and a literal bash -c script is checked inside; xargs is
+    # not peeled, and sh, zsh and eval are not on that peel list. A live
+    # grok -p probe of those wrappers was not run (n-fc65ca).
     delegate_grok() {
       # spec 041: a sandbox profile beside the command deny. Enforcement is not
       # measured yet (n-fc65ca). Do not deny all of ~ or all of ~/.grok.
@@ -2167,15 +2172,25 @@ delegate task="":
       fi
       # n-9e0540: workspace cannot write ~/.docker/buildx, so docker buildx
       # fails before just save. read_write does not expand ~ (grok sandbox guide).
+      # n-3510d4: xcodebuild exits 74 when the sandbox refuses the Swift
+      # package cache. DerivedData is the same kind of path, outside the
+      # workspace, so both are granted as full paths.
       docker_rw=$(printf '%s' "$HOME/.docker/buildx" | sed 's/\\/\\\\/g; s/"/\\"/g')
+      swiftpm_rw=$(printf '%s' "$HOME/Library/Caches/org.swift.swiftpm" | sed 's/\\/\\\\/g; s/"/\\"/g')
+      derived_rw=$(printf '%s' "$HOME/Library/Developer/Xcode/DerivedData" | sed 's/\\/\\\\/g; s/"/\\"/g')
       gblock=$(mktemp)
       {
         printf '%s\n' '# BEGIN ai-backbone delegate'
         printf '%s\n' '# Sandbox deny owned by just delegate (spec 041). Rewritten each run.'
         printf '%s\n' "[profiles.$gprofile]"
         printf '%s\n' 'extends = "workspace"'
+        # Child network on Linux. The same guide says this is a no-op on macOS
+        # (n-5b9b58). A live socket was not opened.
+        printf '%s\n' 'restrict_network = true'
         printf '%s\n' 'read_write = ['
         printf '  "%s",\n' "$docker_rw"
+        printf '  "%s",\n' "$swiftpm_rw"
+        printf '  "%s",\n' "$derived_rw"
         printf '%s\n' ']'
         printf '%s\n' 'deny = ['
         for gpath in \
@@ -2225,9 +2240,12 @@ delegate task="":
       # n-a5924b: --trust is this process. `grok --trust` would save the folder.
       trust_flag=""
       if [ -n "$mcp_name" ]; then trust_flag=--trust; fi
+      # --disable-web-search is grok --help on 1.0.62: it turns off web search
+      # and web fetch. curl, ssh and gh stay denied as commands (n-5b9b58).
       exec "$worker_bin" -p "$1" --output-format plain --permission-mode auto \
         --background-wait-timeout "$background_wait" \
         --sandbox "$gprofile" \
+        --disable-web-search \
         ${trust_flag:+--trust} \
         --allow 'Bash(just:*)' --allow 'Bash(git:*)' --allow 'Bash(cargo:*)' --allow 'Bash(npm:*)' \
         --allow 'Bash(npx:*)' --allow 'Bash(flutter:*)' --allow 'Bash(dart:*)' --allow 'Bash(uv:*)' \
@@ -2786,6 +2804,11 @@ delegate task="":
     went_quiet=0
     if [ -f "$dir/${id}.idle" ]; then went_quiet=1; rc=0; rm -f "$dir/${id}.idle"; fi
     set -e
+    # n-061941: the value stored at the start is the model this round used.
+    # A timeout is the job's clock, not a failed round, so it does not climb.
+    if [ -n "$oc_idx" ] && [ "$timed_out" -eq 0 ] && [ "$rc" -ne 0 ]; then
+      git config "branch.${branch}.delegateRung" "$((oc_idx + 1))"
+    fi
     restore_delegate_hook
     after_protect=$(git rev-parse "refs/heads/$protect" 2>/dev/null || echo missing)
     after_branches=$(git for-each-ref refs/heads --format='%(refname)')
