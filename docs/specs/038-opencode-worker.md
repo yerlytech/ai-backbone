@@ -14,9 +14,9 @@ approved: the maintainer, 2026-10-22 (the direction: an opencode worker that sta
 `claude`. It runs `opencode run --standalone --auto --format json` in the
 project folder, with a deny list the run cannot step around, autoupdate off,
 and only the tools a worker needs. The model is a ladder: the first try of a
-job runs the first model of `WORKER_LADDER`, and each fix round on the same
-branch runs the next one, so a job starts on a cheap model and climbs only when
-it fails. The report the recipe prints ends with what the run cost, read from
+job runs the first model of `WORKER_LADDER`. The next round climbs only when
+the previous round's worker failed. A round that ends at `DELEGATE_TIMEOUT`
+stays on the same model: the job's own time limit is not a failure. The report the recipe prints ends with what the run cost, read from
 the run's own events, not from what the worker says.
 
 Any other opencode command the backbone runs also passes `--standalone`,
@@ -82,10 +82,12 @@ tokens of start-up context, and that trimming them per agent cut it to 12 to
 - [x] The config is given to the run through `OPENCODE_CONFIG`, a file outside the
       project tree (measured: read with `--standalone`). autoupdate is off in it.
 - [x] `WORKER_LADDER` (comma-separated `opencode-go/<id>`) defaults to
-      `opencode-go/deepseek-v4.1-flash,opencode-go/glm-5.3,opencode-go/kimi-k3`.
-      The first `just delegate` of a branch uses the first; each fix round on
-      the same branch the next; past the last it refuses and says two failed
-      tries go to the maintainer. `WORKER_MODEL` still pins one model.
+      `opencode-go/deepseek-v4.1-flash,opencode-go/glm-5.3`.
+      The first `just delegate` of a branch uses the first. A later round
+      stays on that model when the previous round finished or stopped at
+      `DELEGATE_TIMEOUT`. Only a failed round uses the next. Past the last
+      it refuses and says two failed tries go to the maintainer.
+      `WORKER_MODEL` still pins one model.
 - [x] The report ends with `cost: $<sum> on <model>, <n> steps`, summed from the
       run's `--format json` events; the raw events stay in the log outside the
       repo.

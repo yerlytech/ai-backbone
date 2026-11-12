@@ -64,9 +64,11 @@ step past that, for the files that move.
 
 Takes the secret-path half of backlog n-5b9b58 (deny reads of `~/.aws`,
 `~/.appstoreconnect`, `brain/03-stack`, `.env`, and the rest of the set
-above). The network half of n-5b9b58 stays on that line. n-fc65ca stays open:
-whether grok's `--deny` is stepped around by a wrapper was not measured, and
-this spec adds deny text on that same unmeasured mechanism.
+above). On 2026-11-12 the installed grok 1.0.62 guide was read: `Read(**/.env)`
+is the Read-deny form, and the profile sets `restrict_network`, which that
+guide says is a no-op on macOS. n-fc65ca stays open: a live `grok -p` probe of
+whether a wrapper steps around `--deny` was not run. n-5b9b58 stays open for
+a live socket on this Mac.
 
 ## Not doing
 
@@ -290,9 +292,10 @@ Unverified, and not to be built on as if they were measured:
   on Claude. The strings above are the ones grok 1.0.62 documents as the
   `.claude/settings.json` form. Spec 031 and `docs/agent-capabilities.md`
   (2026-10-19) still mark Claude's matcher unmeasured.
-- Grok's `Read` deny and sandbox deny at run time. The pages above were
-  read; n-5b9b58 records that the `Read` syntax was not measured, and
-  n-fc65ca records that the wrapper bypass was not measured on grok.
+- Grok's `Read` deny and sandbox deny at run time. The pages were read
+  again on 2026-11-12 (grok 1.0.62). The Read form matches what the run
+  already passes. A live file open under those denies was not done.
+  n-fc65ca still records that a wrapper bypass was not probed with `grok -p`.
 - opencode's rule for denying one path inside the project. Not in spec 038's
   measurement, and not in the 2.2.3 cellar files listed on 2026-10-31.
 - The credential paths of Claude, opencode, Kimi, and gh. gh's `hosts.yml`

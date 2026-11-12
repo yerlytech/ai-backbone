@@ -241,9 +241,10 @@ fix: unset `DELEGATE_BASE` to keep fixing this branch, or check out the named
 branch to start from it. `just delegate-drop --yes`, or `DELEGATE_YES=1`,
 deletes the branch without asking. `WORKER_MODEL` pins one model, when you set
 one. For opencode, `WORKER_LADDER` is the ladder. Unset, it is
-`opencode-go/deepseek-v4.1-flash`, then `opencode-go/glm-5.3`, then
-`opencode-go/kimi-k3`. The first try uses the first; each fix round the next;
-past the last, the job refuses. The report ends with what that run cost, and
+`opencode-go/deepseek-v4.1-flash`, then `opencode-go/glm-5.3`. The first try
+uses the first. A later round stays on that model when the previous round
+finished or stopped at `DELEGATE_TIMEOUT`. Only a failed round uses the next
+model. Past the last, the job refuses. The report ends with what that run cost, and
 `just delegate-status` shows the model and the cost of the last run.
 Every opencode command passes `--standalone`, including `opencode stats`.
 Without that flag, opencode starts its background service and resumes sessions

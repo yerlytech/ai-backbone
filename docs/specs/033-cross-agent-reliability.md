@@ -158,11 +158,10 @@ Each report is kept from `docs/backlog.md` beside its disposition. On 2026-10-31
 - **n-ae82d7, 2026-10-16 — launchd emulator start:** start the emulator through
   a one-shot launchd agent (`KeepAlive` false, `ProcessType Interactive`, the
   Android and Java environment), never as a child of a niced recipe; a niced
-  shell cannot renice back and lost adbd on a busy Mac. **Pending.** The plist
-  is written and fixture-tested ("the emulator plist is a one-shot interactive
-  agent and starts nothing"), but no live `launchctl bootstrap gui/<uid>` or
-  busy-Mac device run was made here. Needs an attended Mac device run under
-  load; the backlog line stays open.
+  shell cannot renice back and lost adbd on a busy Mac. **Partly done.** The
+  plist is written and fixture-tested, and `just emulator-plist` refuses when
+  `uname` is not Darwin. Live `launchctl bootstrap gui/<uid>` was not run: it
+  needs a GUI session. The backlog line stays open for that.
 - **n-fe290b, 2026-10-16 — busy-machine correction:** starting the emulator and
   adb at nice 0 is still not enough on a busy Mac; the device was lost after
   install, so wait for a calm machine or say it is busy, and keep each failed
@@ -212,8 +211,9 @@ independent reports may be investigated together, never combined to hide a failu
   timeout (n-445708), and safe macOS emulator startup/busy-machine handling
   (n-ae82d7, corrected by n-fe290b); keep the correction in the diagnosis.
   3.44.0: `test-device` picks by AVD name or port, stops a silent run, and
-  refuses a busy machine. `emulator-plist` writes the agent and starts
-  nothing. launchctl bootstrap is not rehearsed: it needs a Mac.
+  refuses a busy machine. `emulator-plist` writes the agent on macOS, refuses
+  elsewhere, and starts nothing. launchctl bootstrap is not rehearsed: it
+  needs a GUI session.
 - [ ] Run the real agent and device rehearsals; record versions, outcomes and
   unresolved checks. Public evidence contains no account or local project data.
 - [ ] Walk both acceptance lists; run the three-OS gate and attended install/update
