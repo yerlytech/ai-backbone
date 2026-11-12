@@ -5,6 +5,13 @@ date: 2026-10-21
 
 # 037 — Windows reports, Linux and macOS decide the carry
 
+## Update 2026-11-11
+
+The owner put Windows back into the carry (spec 017). A change outside the
+routine's own files is carried only when this workflow is green as well as
+Linux and macOS. The split into its own workflow stays. Where the sections
+below disagree, spec 017's update of the same day wins.
+
 ## What
 
 The Windows suite moves out of the checks run into a workflow of its own,

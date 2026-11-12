@@ -23,7 +23,7 @@ unset CLAUDE_ENV_FILE
 # WORKER themselves (n-cdb28d). DELEGATE_BASE is passed through by the delegate
 # checks, and a job that exported it would point every throwaway project at a
 # branch that project does not have.
-unset WORKER DELEGATE_BASE DELEGATE_IDLE DELEGATE_TIMEOUT DELEGATE_YES KIMI_CODE_HOME DELEGATE_MODEL
+unset WORKER DELEGATE_BASE DELEGATE_IDLE DELEGATE_TIMEOUT DELEGATE_YES KIMI_CODE_HOME DELEGATE_MODEL DELEGATE_MCP FAKE_OPENCODE_STATUS
 root="$(cd "$(dirname "$0")/.." && pwd -P)"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -1142,7 +1142,10 @@ check "no line of the backbone's own backlog carries what a note may not" "[ -z 
 # (nothing next to it on a runner: the check bites on the maintainer's machine).
 check "the backlog holds open lines, or a built line ticked with its commit, each dated and with an id, or a question for the maintainer" "! grep -vE '^- \[x\] [0-9]{4}-[0-9]{2}-[0-9]{2}, n-[0-9a-f]{6}: (.*[0-9a-f]{7}|.*\\(uncommitted\\))|^- \\[[ ?]\\] [0-9]{4}-[0-9]{2}-[0-9]{2}, n-[0-9a-f]{6}: |^[^ -]|^\$' '$root/docs/backlog.md'"
 sib=$(just _sibling-names "$root" | tr '\n' '|')
-hits=""; if [ -n "$sib" ]; then hits=$(cd "$root" && IFS='|'; for n in $sib; do [ -n "$n" ] || continue; git grep -ilF -w -- "$n" -- . ':!LICENSE' ':!brain' 2>/dev/null | sed "s/^/$n: /"; done); fi
+# The gate's author is the maker (2026-11-11), taken out before the scan the
+# way _no-project-names takes out the backbone's GitHub address. A name that
+# remains is still a hit.
+hits=""; if [ -n "$sib" ]; then hits=$(cd "$root" && IFS='|'; for n in $sib; do [ -n "$n" ] || continue; git grep -ilF -w -- "$n" -- . ':!LICENSE' ':!brain' 2>/dev/null | while IFS= read -r f; do [ -n "$f" ] || continue; perl -CSA -e 'my ($name, $path) = @ARGV; open my $fh, "<", $path or exit 0; local $/; my $t = <$fh>; my $q = quotemeta($name); exit($t =~ /(?<![A-Za-z0-9_])$q(?![A-Za-z0-9_])/i ? 1 : 0);' -- "$n" "$f" || printf "%s: %s\n" "$n" "$f"; done; done); fi
 check "no tracked file names a project next to this backbone (LICENSE aside)" "[ -z \"\$hits\" ] || { printf '%s\n' \"\$hits\"; false; }"
 check "the skill, the getting-started page and how-it-works say the route" "grep -q 'on GitHub.s .cloud.' '$root/.agents/skills/backbone-dev/SKILL.md' && grep -q 'The backlog is public' '$root/docs/01-getting-started.md' && grep -q 'the branch .cloud. on GitHub' '$root/docs/how-it-works.md'"
 check "and the brief, the three skills, the pages and the backlog's header say the backbone knows no project" "for pg in .ai-backbone/routine.md .agents/skills/backbone-dev/SKILL.md .agents/skills/session/SKILL.md docs/01-getting-started.md docs/how-it-works.md docs/backlog.md; do grep -q 'knows no project' \"$root/\$pg\" || { echo \"\$pg\"; false; }; done"
@@ -1316,6 +1319,27 @@ check "and a save with publish-on-save saves and pushes nothing" "says 'not sent
 ( cd "$hub/bb" && git checkout -q -B cloud origin/cloud && git merge -q --no-edit main ) >/dev/null 2>&1
 check "on cloud, publish sends to cloud and nothing reaches main" "says 'Sent to GitHub' inbb just publish && says 'to publish' git -C '$hub/remote.git' log --format=%s cloud && ! says 'to publish' git -C '$hub/remote.git' log --format=%s main"
 ( cd "$hub/bb" && git checkout -q main && git reset -q --hard origin/main && git config --unset ai-backbone.publish-on-save ) >/dev/null 2>&1
+# A save on main in the backbone puts that commit on cloud too. The remote
+# stays untouched: publish is what sends cloud.
+( cd "$hub/bb" && git branch -q -f cloud HEAD && echo z >> README.md ) >/dev/null 2>&1
+check "a save on main in the backbone puts the commit on cloud, not only on main" "says 'on cloud as well' inbb just save 'docs: on cloud too' && [ \"\$(git -C '$hub/bb' rev-parse main)\" = \"\$(git -C '$hub/bb' rev-parse cloud)\" ] && ! says 'on cloud too' git -C '$hub/remote.git' log --format=%s main && ! says 'on cloud too' git -C '$hub/remote.git' log --format=%s cloud"
+# session-start fetches the local stand-in for GitHub and fast-forwards.
+# The save above left a commit only here. Put the clone back on GitHub's
+# main first, or the new remote commit and this one diverge and nothing moves.
+bbmain=$(git -C "$hub/remote.git" rev-parse main)
+( cd "$hub/bb" && git checkout -q main && git reset -q --hard origin/main && git branch -q -f cloud origin/cloud ) >/dev/null 2>&1
+( cd "$hub/agent" && git fetch -q origin && git checkout -q -B main origin/main && echo remote >> README.md && git commit -qam "docs: remote main" && git push -q origin main ) >/dev/null 2>&1
+check "session-start fast-forwards a local main that is behind GitHub" "o=\$(inbb just session-start 2>&1); ! grep -q 'GitHub: main is' <<<\"\$o\" && [ \"\$(git -C '$hub/bb' rev-parse main)\" = \"\$(git -C '$hub/remote.git' rev-parse main)\" ]"
+( cd "$hub/bb" && git checkout -q -B cloud origin/cloud && echo ahead >> README.md && git commit -qam "docs: cloud ahead" && git checkout -q main ) >/dev/null 2>&1
+check "session-start warns when local cloud is ahead of GitHub" "says 'GitHub: cloud is [0-9]+ ahead, 0 behind' inbb just session-start"
+( cd "$hub/bb" && echo aheadm >> README.md && git commit -qam "docs: main ahead" ) >/dev/null 2>&1
+check "session-start warns when local main is ahead of GitHub" "says 'GitHub: main is [0-9]+ ahead, 0 behind' inbb just session-start"
+# Offline stays quiet and moves nothing (the suite must not reach a server).
+aheadsha=$(git -C "$hub/bb" rev-parse main)
+check "session-start offline leaves a local main that is ahead of GitHub" "o=\$(env AI_BACKBONE_OFFLINE=1 JUST_JUSTFILE='$root/Justfile' JUST_WORKING_DIRECTORY='$hub/bb' just session-start 2>&1); ! grep -q 'GitHub:' <<<\"\$o\" && [ \"\$(git -C '$hub/bb' rev-parse main)\" = '$aheadsha' ]"
+git -C "$hub/remote.git" update-ref refs/heads/main "$bbmain"
+( cd "$hub/bb" && git fetch -q origin && git checkout -q main && git reset -q --hard origin/main && git branch -q -f cloud origin/cloud ) >/dev/null 2>&1
+( cd "$hub/agent" && git fetch -q origin && git checkout -q -B main origin/main ) >/dev/null 2>&1
 
 # spec 017: the gate. What passes on cloud reaches main, and nothing else does.
 # A bare folder stands in for GitHub with main and cloud; `work` pushes to cloud
@@ -1326,6 +1350,9 @@ section "the gate: what passes on cloud reaches main"
 check "windows.yml runs the Windows suite when look says suite, and checks.yml keeps Linux and macOS" \
   "grep -q 'runs-on: windows-latest' '$root/.github/workflows/windows.yml' && grep -q 'name: suite (windows-latest)' '$root/.github/workflows/windows.yml' && grep -q 'timeout-minutes: 60' '$root/.github/workflows/windows.yml' && grep -q 'timeout-minutes: 44' '$root/.github/workflows/windows.yml' && grep -q 'actions/checkout@v7' '$root/.github/workflows/windows.yml' && grep -q 'gate.sh look' '$root/.github/workflows/windows.yml' && grep -q 'branches: \\[cloud\\]' '$root/.github/workflows/windows.yml' && ! grep -q 'windows-latest' '$root/.github/workflows/checks.yml' && grep -q 'ubuntu-latest' '$root/.github/workflows/checks.yml' && grep -q 'macos-latest' '$root/.github/workflows/checks.yml'"
 check "ci-check accepts the windows workflow" "says 'ok    \\.github/workflows/windows\\.yml' just -f '$root/Justfile' -d '$root' ci-check && says 'ok    \\.github/workflows/checks\\.yml' just -f '$root/Justfile' -d '$root' ci-check"
+check "promote.yml carries when checks or windows finishes, and the commits it writes take the identity from the Actions variables" \
+  "grep -q 'workflows: \\[checks, windows\\]' '$root/.github/workflows/promote.yml' && grep -q 'vars.GATE_GIT_NAME' '$root/.github/workflows/promote.yml' && grep -q 'vars.GATE_GIT_EMAIL' '$root/.github/workflows/promote.yml' && grep -q 'GATE_WORKFLOW' '$root/.github/workflows/promote.yml' && ! grep -q 'github-actions' '$root/.github/workflows/promote.yml' && ! grep -q 'github-actions' '$root/.ai-backbone/gate.sh'"
+export GATE_GIT_NAME="Gate Maker" GATE_GIT_EMAIL="gate@example.com"
 gt="$tmp/gate"; mkdir -p "$gt/gh"
 ( cd "$gt" && git init -q --bare -b main hub.git && git clone -q hub.git seed && cd seed \
   && mkdir -p docs .ai-backbone .github/workflows \
@@ -1358,7 +1385,7 @@ chmod +x "$gt/gh/gh"
 TAB=$'\t'
 gate()     { ( cd "${1:-$gt/work}" && bash "$root/.ai-backbone/gate.sh" look 2>/dev/null | tail -1 ); }
 pushed()   { ( cd "$gt/work" && eval "$1" >/dev/null && git add -A && git commit -qm "${2:-feat: on cloud}" && git push -q origin HEAD:cloud && git rev-parse HEAD ) 2>/dev/null; }
-judge()    { ( cd "$gt/judge" && env PATH="$gt/gh:$PATH" FAKE_JOBS="${3:-}" FAKE_LOG="${4:-}" FAKE_WINDOWS="${FAKE_WINDOWS:-}" FAKE_WIN_JOBS="${FAKE_WIN_JOBS:-}" FAKE_WIN_LOG="${FAKE_WIN_LOG:-}" GATE_SHA="$1" GATE_ENDED="$2" GATE_RUN=77 bash "$root/.ai-backbone/gate.sh" carry ); }
+judge()    { ( cd "$gt/judge" && env PATH="$gt/gh:$PATH" FAKE_JOBS="${3:-}" FAKE_LOG="${4:-}" FAKE_WINDOWS="${FAKE_WINDOWS:-}" FAKE_WIN_JOBS="${FAKE_WIN_JOBS:-}" FAKE_WIN_LOG="${FAKE_WIN_LOG:-}" FAKE_RUN="${FAKE_RUN:-}" GATE_WORKFLOW="${GATE_WORKFLOW:-}" GATE_SHA="$1" GATE_ENDED="$2" GATE_RUN=77 bash "$root/.ai-backbone/gate.sh" carry ); }
 # The attended carry (spec 031), from the person's clone; FAKE_RUN is the
 # newest checks run of the commit, the way gh run list prints it.
 attend()   { ( cd "$gt/work" && env -u GATE_RUN PATH="$gt/gh:$PATH" FAKE_JOBS="${2:-}" FAKE_RUN="${3-77${TAB}completed${TAB}success}" FAKE_WINDOWS="${FAKE_WINDOWS:-}" FAKE_WIN_JOBS="${FAKE_WIN_JOBS:-}" FAKE_WIN_LOG="${FAKE_WIN_LOG:-}" bash "$root/.ai-backbone/gate.sh" attend "$1" ); }
@@ -1380,9 +1407,10 @@ check "look: any other page under docs/ runs the suite" "[ \"\$(gate)\" = suite 
 check "in a checkout of depth one too"                  "[ \"\$(gate '$gt/shallow')\" = suite ]"
 s=$(pushed "printf '# .ai-backbone/core.just — recipes, version 1.0.1\n' > .ai-backbone/core.just" "feat: 1.0.1")
 check "look: code runs the suite"                       "[ \"\$(gate)\" = suite ]"
-# Spec 031: green code is not carried on its own; it waits for a person's yes.
+# 2026-11-11: green code stays while Windows has not finished, and writes no line.
+# This commit is left off main so the attend checks below can still take it.
 lines=$(loglines)
-check "carry: green code is not carried on its own, and the line on cloud says it waits and names the file" "says 'waits for an attended carry' judge $s success '$GREEN' && [ \$(hubmain) != $s ] && [ -z \"\$(hubtag v1.0.1)\" ] && [ \$(loglines) -eq $((lines+1)) ] && says '^- [0-9-]+ gate: ${s:0:7} waits for an attended carry — green on Linux and macOS; it changes code \(\.ai-backbone/core\.just, docs/01-getting-started\.md\)' cloudlog"
+check "carry: green code stays while Windows has not finished, and writes no line" "says 'Windows is none' judge $s success '$GREEN' && [ \$(hubmain) != $s ] && [ -z \"\$(hubtag v1.0.1)\" ] && [ \$(loglines) -eq $lines ]"
 check "and the backbone's session start names what waits" "git -C '$gt/work' fetch -q origin && says '^Gate: cloud holds code main does not have.*-> just carry\$' env JUST_JUSTFILE='$root/Justfile' JUST_WORKING_DIRECTORY='$gt/work' just _gate-waits"
 check "attend: a commit still being tested is refused" "says 'still going' attend $s '$GREEN' '77${TAB}in_progress${TAB}' && [ \$(hubmain) != $s ]"
 MACRED="1${TAB}look${TAB}success|2${TAB}suite (ubuntu-latest)${TAB}success|3${TAB}suite (macos-latest)${TAB}failure"
@@ -1400,15 +1428,16 @@ check "a cancelled run is not judged"                   "says 'was cancelled' ju
 # macOS green is green, whether that job was cancelled by its cap or red.
 CUT="1${TAB}look${TAB}success|2${TAB}suite (ubuntu-latest)${TAB}success|3${TAB}suite (macos-latest)${TAB}success|4${TAB}suite (windows-latest)${TAB}cancelled"
 s=$(pushed "echo cut >> README.md" "feat: windows cut by its cap")
-check "a windows job cancelled in the checks run is ignored: Linux and macOS decide" "o=\$(judge $s cancelled '$CUT' 2>&1); grep -q 'every suite job was green: they decide' <<<\"\$o\" && grep -q 'waits for an attended carry' <<<\"\$o\" && [ \$(hubmain) != $s ]"
-check "and a red windows job in the checks run is ignored the same way" "o=\$(judge $s failure '$WINRED' 2>&1); grep -q 'every suite job was green: they decide' <<<\"\$o\" && grep -q 'waits for an attended carry' <<<\"\$o\" && ! grep -q 'not promoted' <<<\"\$o\" && [ \$(hubmain) != $s ]"
+check "a windows job cancelled in the checks run is ignored: Linux and macOS decide, and Windows has not finished" "o=\$(judge $s cancelled '$CUT' 2>&1); grep -q 'every suite job was green: they decide' <<<\"\$o\" && grep -q 'Windows is none' <<<\"\$o\" && ! grep -q 'not promoted' <<<\"\$o\" && [ \$(hubmain) != $s ] && [ \$(loglines) -eq $lines ]"
+check "and a red windows job in the checks run is ignored the same way" "o=\$(judge $s failure '$WINRED' 2>&1); grep -q 'every suite job was green: they decide' <<<\"\$o\" && grep -q 'Windows is none' <<<\"\$o\" && ! grep -q 'not promoted' <<<\"\$o\" && [ \$(hubmain) != $s ]"
 GHOST="1${TAB}look${TAB}success|2${TAB}suite (ubuntu-latest)${TAB}success|3${TAB}suite (macos-latest)${TAB}success|4${TAB}suite (windows-latest)${TAB}success|5${TAB}something else${TAB}cancelled"
-check "a run cancelled by a job that is not a suite job, all three suites green, is judged green: it waits for its carry" "o=\$(judge $s cancelled '$GHOST' 2>&1); grep -q 'every suite job was green: they decide' <<<\"\$o\" && grep -q 'waits for an attended carry' <<<\"\$o\" && [ \$(hubmain) != $s ]"
+check "a run cancelled by a job that is not a suite job, all three suites green, is judged green and waits for Windows" "o=\$(judge $s cancelled '$GHOST' 2>&1); grep -q 'every suite job was green: they decide' <<<\"\$o\" && grep -q 'Windows is none' <<<\"\$o\" && [ \$(hubmain) != $s ]"
 check "attend: and an attended carry takes it"            "says 'carried .* to main' attend $s '$GHOST' && [ \$(hubmain) = $s ]"
 synced; lines=$(loglines); s=$(pushed "echo y2 >> README.md" "feat: red again")   # synced and counted again: the red Windows line above moved cloud
 RED="1${TAB}look${TAB}success|2${TAB}suite (ubuntu-latest)${TAB}success|9${TAB}suite (macos-latest)${TAB}failure|10${TAB}suite (windows-latest)${TAB}failure"
 LOG="suite (macos-latest)${TAB}the suite${TAB}2026-01-02T03:00:00Z   FAIL  a mac check|suite (macos-latest)${TAB}the suite${TAB}2026-01-02T03:00:01Z   FAIL  another one|suite (windows-latest)${TAB}the suite${TAB}2026-01-02T03:00:02Z   FAIL  windows noise"
 check "a red run writes one line on cloud naming each red machine and its FAIL names" "says 'not promoted' judge $s failure '$RED' '$LOG' && [ \$(loglines) -eq $((lines+1)) ] && says '^- [0-9-]+ gate: cloud not promoted — the checks ended failure: suite \(macos-latest\) failure FAIL: a mac check;another one; suite \(windows-latest\) failure FAIL: windows noise;\$' cloudlog && [ \$(hubmain) != $s ]"
+check "a gate line is committed as the GATE_GIT identity" "[ \"\$(git -C '$gt/hub.git' log -1 --format='%an %ae' cloud)\" = 'Gate Maker gate@example.com' ]"
 # Spec 037: carry prints the windows.yml run; a red one appends one gate: line.
 synced
 s=$(pushed "echo wcases >> README.md" "feat: windows cases")
@@ -1424,16 +1453,16 @@ check "carry prints a red windows run with at most five FAIL names" "grep -q '^W
 lines=$(loglines)
 FAKE_WIN_JOBS="4${TAB}suite (windows-latest)${TAB}failure"
 FAKE_WIN_LOG="suite (windows-latest)${TAB}the suite${TAB}2026-01-02T03:00:02Z   FAIL  a windows check"
-check "a red windows run appends one gate line naming its FAIL names" "FAKE_WINDOWS='88${TAB}completed${TAB}failure' says 'waits for an attended carry' judge $s success '$GREEN' && [ \$(loglines) -eq $((lines+2)) ] && says '^- [0-9-]+ gate: windows red on [0-9a-f]{7}, which Linux and macOS judged — suite \\(windows-latest\\) failure FAIL: a windows check;\$' cloudlog && [ \$(hubmain) != $s ]"
+check "a red windows run writes one gate line and does not carry" "FAKE_WINDOWS='88${TAB}completed${TAB}failure' says 'Windows is red' judge $s success '$GREEN' && [ \$(loglines) -eq $((lines+1)) ] && says '^- [0-9-]+ gate: cloud not promoted — Windows is red: suite \\(windows-latest\\) failure FAIL: a windows check;\$' cloudlog && ! says 'which Linux and macOS judged' cloudlog && [ \$(hubmain) != $s ]"
 unset FAKE_WIN_JOBS FAKE_WIN_LOG
 synced; lines=$(loglines)
 wrun=$(grep -c 'windows run ended' <<<"$(cloudlog)" || true)
 s=$(pushed "echo winrun >> README.md" "feat: windows still running")
-check "a windows run that is still going adds no gate line" "FAKE_WINDOWS='88${TAB}in_progress${TAB}' says 'waits for an attended carry' judge $s success '$GREEN' && [ \$(loglines) -eq $((lines+1)) ] && [ \$(grep -c 'windows run ended' <<<\"\$(cloudlog)\" || true) -eq $wrun ]"
+check "a windows run that is still going adds no gate line" "FAKE_WINDOWS='88${TAB}in_progress${TAB}' says 'Windows is running' judge $s success '$GREEN' && [ \$(loglines) -eq $lines ] && [ \$(grep -c 'windows run ended' <<<\"\$(cloudlog)\" || true) -eq $wrun ] && [ \$(hubmain) != $s ]"
 synced; s=$(pushed "echo 'on: pull_request' > .github/workflows/checks.yml" "ci: weaken")
-check "a push that changes the workflows is refused, green or not" "says 'changes .github/workflows' judge $s success '$GREEN' && [ \$(hubmain) != $s ]"
+check "a push that changes the workflows is carried when Linux, macOS and Windows are green" "FAKE_WINDOWS='88${TAB}completed${TAB}success' says 'carried .* to main' judge $s success '$GREEN' && [ \$(hubmain) = $s ]"
 synced; s=$(pushed "git checkout origin/main -- .github/workflows && echo '# x' >> .ai-backbone/gate.sh" "ci: weaken the judge")
-check "and so is one that changes gate.sh"              "says 'changes .github/workflows or gate.sh' judge $s success '$GREEN' && [ \$(hubmain) != $s ]"
+check "and so is one that changes gate.sh, when Windows is green" "FAKE_WINDOWS='88${TAB}completed${TAB}success' says 'carried .* to main' judge $s success '$GREEN' && [ \$(hubmain) = $s ]"
 synced; s=$(pushed "git checkout origin/main -- .ai-backbone/gate.sh && echo w >> README.md" "feat: code")
 check "a green run whose suite never ran is refused: a look weakened on cloud passes no code" "says 'suite was due' judge $s success '1${TAB}look${TAB}success' && [ \$(hubmain) != $s ]"
 # gh answers nothing while GitHub is still processing a run's results (2026-10-22:
@@ -1445,20 +1474,27 @@ check "a run whose jobs could not be read says so, not that the suite never ran"
 check "main that moved is not fast-forwarded, and the line says what joins them" "says 'main moved' judge $s success '$GREEN' && [ \$(hubmain) != $s ] && says 'the next run merges origin/main into cloud' cloudlog"
 check "attend: a commit main has moved past is refused, and says to merge" "says 'merge origin/main into cloud' attend $s '$GREEN' && [ \$(hubmain) != $s ]"
 synced; s=$( cd "$gt/work" && git fetch -q origin main && git merge -q --no-edit origin/main >/dev/null 2>&1 && git push -q origin HEAD:cloud && git rev-parse HEAD )
-check "after the run merged main into cloud, the same work waits, and an attended carry takes it" "says 'waits for an attended carry' judge $s success '$GREEN' && [ \$(hubmain) != $s ] && says 'carried .* to main' attend $s '$GREEN' && [ \$(hubmain) = $s ]"
+check "after the run merged main into cloud, a green Windows run carries it" "FAKE_WINDOWS='88${TAB}completed${TAB}success' says 'carried .* to main' judge $s success '$GREEN' && [ \$(hubmain) = $s ]"
 git -C "$gt/hub.git" tag v1.0.2 "$(git -C "$gt/hub.git" rev-parse 'main~2')" >/dev/null 2>&1
 synced; s=$(pushed "printf '# .ai-backbone/core.just — recipes, version 1.0.2\n' > .ai-backbone/core.just" "feat: 1.0.2")
 check "a tag GitHub has elsewhere is left alone and main is carried on its own" "says 'carried .* to main; v1.0.2 was tagged before' attend $s '$GREEN' && [ \$(hubmain) = $s ] && [ \"\$(hubtag v1.0.2)\" != $s ]"
+synced; s=$(pushed "printf '# .ai-backbone/core.just — recipes, version 1.0.3\n' > .ai-backbone/core.just" "feat: 1.0.3")
+check "carry: green on Linux, macOS and Windows carries code and tags the version" "FAKE_WINDOWS='88${TAB}completed${TAB}success' says 'carried .* to main and tagged v1.0.3' judge $s success '$GREEN' && [ \$(hubmain) = $s ] && [ \"\$(hubtag v1.0.3)\" = $s ]"
 synced; s=$(pushed "echo '# changed' >> .ai-backbone/gate.sh" "ci: the gate itself")
 inwork()   { env PATH="$gt/gh:$PATH" JUST_JUSTFILE="$root/Justfile" JUST_WORKING_DIRECTORY="$gt/work" "$@"; }
 check "just carry is the backbone's own: no project gets it" "grep -q '^carry ' '$root/Justfile' && ! grep -q '^carry ' '$root/.ai-backbone/core.just' '$root/.ai-backbone/seed/Justfile'"
-check "attend: a green change to gate.sh is carried too, and named" "says 'changes .github/workflows or gate.sh' judge $s success '$GREEN' && says 'carried .* to main.*; it changed the gate.s own files: \.ai-backbone/gate\.sh\$' attend $s '$GREEN' && [ \$(hubmain) = $s ]"
+check "a green change to gate.sh is carried when Windows is green" "FAKE_WINDOWS='88${TAB}completed${TAB}success' says 'carried .* to main' judge $s success '$GREEN' && [ \$(hubmain) = $s ]"
+synced; s=$(pushed "echo '# changed again' >> .ai-backbone/gate.sh" "ci: the gate itself again")
+check "attend: a green change to gate.sh is named" "says 'carried .* to main.*; it changed the gate.s own files: \.ai-backbone/gate\.sh\$' attend $s '$GREEN' && [ \$(hubmain) = $s ]"
 synced; s=$(pushed "echo '# readme' > README.md" "feat: the backbone's own readme")
-check "just carry lists the code that waits and, when it is green, the commit to carry" "says 'waiting for the maintainer.s yes' inwork just carry && says \"  ${s:0:7} feat: the backbone's own readme\" inwork just carry && says '^Checks: ${s:0:7} is green.*-> just carry ${s:0:7}\$' inwork env FAKE_RUN='completed success' just carry"
+check "just carry lists the code that waits and, when it is green, the commit to carry" "says 'once Linux, macOS and Windows are green' inwork just carry && says \"  ${s:0:7} feat: the backbone's own readme\" inwork just carry && says '^Checks: ${s:0:7} is green.*-> just carry ${s:0:7}\$' inwork env FAKE_RUN='completed success' just carry"
 check "and just carry <commit> takes it to main with main's own gate.sh and prints the windows line" "out=\$(inwork env FAKE_RUN='77${TAB}completed${TAB}success' FAKE_JOBS='$GREEN' FAKE_WINDOWS='88${TAB}completed${TAB}success' just carry $s 2>&1); grep -q 'carried ${s:0:7} to main' <<<\"\$out\" && grep -q '^Windows: green$' <<<\"\$out\" && [ \$(hubmain) = $s ]"
 check "after which nothing waits"                       "says '^Nothing waits' inwork just carry"
+synced; lines=$(loglines); s=$(pushed "echo trig >> README.md && printf '# .ai-backbone/core.just — recipes, version 1.0.4\n' > .ai-backbone/core.just" "feat: 1.0.4")
+check "when windows finishes and the checks have not, nothing is written" "GATE_WORKFLOW=windows says 'checks have not' judge $s success '$GREEN' && [ \$(hubmain) != $s ] && [ \$(loglines) -eq $lines ]"
+check "when windows finishes after green checks, the code is carried and tagged" "GATE_WORKFLOW=windows FAKE_RUN='77${TAB}completed${TAB}success' FAKE_WINDOWS='88${TAB}completed${TAB}success' says 'carried .* to main and tagged v1.0.4' judge $s failure '$GREEN' && [ \$(hubmain) = $s ] && [ \"\$(hubtag v1.0.4)\" = $s ]"
 synced; s=$(pushed "echo '1.0.0 0000000' > STABLE" "chore: mark 1.0.0 stable")
-check "a push that moves the stable mark is never carried on its own" "says 'waits for an attended carry' judge $s success '$GREEN' && [ \$(hubmain) != $s ] && says 'it changes code \(STABLE\)' cloudlog"
+check "a push that moves the stable mark is never carried on its own" "FAKE_WINDOWS='88${TAB}completed${TAB}success' says 'STABLE' judge $s success '$GREEN' && [ \$(hubmain) != $s ] && says 'it changes STABLE' cloudlog && ! says 'waits for an attended carry' cloudlog"
 
 # spec 031: projects move on a stable version. A bare folder stands in for
 # GitHub with two tagged versions; bb is the backbone next to the project.
@@ -4866,6 +4902,7 @@ model=""
 perm=""
 deny=""
 sandbox=""
+trust=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -p) prompt=$2; shift 2 ;;
@@ -4874,6 +4911,7 @@ while [ $# -gt 0 ]; do
     --permission-mode) perm=$2; shift 2 ;;
     --background-wait-timeout) bgwait=$2; shift 2 ;;
     --sandbox) sandbox=$2; shift 2 ;;
+    --trust) trust=yes; shift ;;
     --deny) deny="$deny$2
 "; shift 2 ;;
     --rules|--allow) shift 2 ;;
@@ -4887,6 +4925,9 @@ if [ -n "${FAKE_WORKER_PROMPT:-}" ]; then
   printf '%s\n' "$perm" > "$FAKE_WORKER_PROMPT.perm"
   printf '%s\n' "$bgwait" > "$FAKE_WORKER_PROMPT.bgwait"
   printf '%s\n' "$sandbox" > "$FAKE_WORKER_PROMPT.sandbox"
+  printf '%s\n' "${trust:-no}" > "$FAKE_WORKER_PROMPT.grok-trust"
+  if [ -f .grok/config.toml ]; then cp .grok/config.toml "$FAKE_WORKER_PROMPT.mcp"
+  else : > "$FAKE_WORKER_PROMPT.mcp"; fi
   printf '%s' "$deny" > "$FAKE_WORKER_PROMPT.deny"
   if [ -n "${RUSTC_WRAPPER+x}" ]; then printf '%s\n' "$RUSTC_WRAPPER" > "$FAKE_WORKER_PROMPT.rustc-wrapper"
   else printf '%s\n' unset > "$FAKE_WORKER_PROMPT.rustc-wrapper"; fi
@@ -5099,6 +5140,11 @@ cat > "$dbin/opencode" << 'OCEOF'
 #!/usr/bin/env bash
 # Stands in for `opencode run`. Records the argv and OPENCODE_CONFIG the
 # adapter passed, and prints --format json events. No model is called.
+# n-20e061: delegate-status asks `service status` and must not start a run.
+if [ "${1:-}" = service ] && [ "${2:-}" = status ]; then
+  printf '%s\n' "${FAKE_OPENCODE_STATUS:-stopped}"
+  exit 0
+fi
 if [ -n "${FAKE_WORKER_BINLOG:-}" ]; then printf '%s\n' "$0" > "$FAKE_WORKER_BINLOG"; fi
 if [ -n "${FAKE_WORKER_PROMPT:-}" ]; then printf '%s\n' "$@" > "$FAKE_WORKER_PROMPT.argv"; fi
 if [ "${1:-}" != run ]; then echo "unexpected: ${1:-}" >&2; exit 2; fi
@@ -5239,7 +5285,8 @@ d_new() {
     "$dprompt.argv" "$dprompt.perm" "$dprompt.bgwait" \
     "$dprompt.trust" "$dprompt.guard" "$dprompt.home" \
     "$dprompt.rustc-wrapper" "$dprompt.sccache-uds" "$dprompt.sccache-port" \
-    "$dprompt.sccache-argv" "$dprompt.sccache-stopped-port" "$dprompt.sccache-stop-uds"
+    "$dprompt.sccache-argv" "$dprompt.sccache-stopped-port" "$dprompt.sccache-stop-uds" \
+    "$dprompt.grok-trust" "$dprompt.mcp"
 }
 # d_run MODE WORKER WORKER_MODEL -- just args. An empty WORKER is unset.
 d_run() {
@@ -5406,6 +5453,67 @@ cp "$dhome/.grok/sandbox.toml" "$tmp/home-sandbox-before"
 d_run ok grok "" delegate "add a line"
 check "a leftover home sandbox.toml is not rewritten, and the run uses a project profile" \
   "cmp -s \"$tmp/home-sandbox-before\" \"\$dhome/.grok/sandbox.toml\" && [ \"\$(cat \"\$dprompt.sandbox\")\" = ai-backbone-delegate-job ] && grep -Fq '[profiles.ai-backbone-delegate-job]' \"\$dproj/.grok/sandbox.toml\" && grep -q '\"~/.ssh\"' \"\$dproj/.grok/sandbox.toml\""
+check "grok has no per-run sandbox file, so the home profile is left alone (n-a6542a)" \
+  "grep -q 'per-run profile file would not be read' '$root/.agents/skills/delegate/SKILL.md' && grep -q 'a profile name' '$root/.agents/skills/delegate/SKILL.md' && cmp -s \"$tmp/home-sandbox-before\" \"\$dhome/.grok/sandbox.toml\""
+d_new fetchok
+printf '%s\n' '[package]' 'name = "demo"' 'version = "0.1.0"' 'edition = "2021"' > "$dproj/Cargo.toml"
+git -C "$dproj" add Cargo.toml
+git -C "$dproj" commit -qm "chore: rust" --no-verify
+cat > "$dbin/cargo" << 'CARGOEOF'
+#!/bin/sh
+printf '%s\n' "$*" > "$FAKE_WORKER_PROMPT.cargo"
+if [ "${FAKE_CARGO_RC:-0}" -ne 0 ]; then
+  printf '%s\n' "error: failed to download crate leftpad"
+  exit 1
+fi
+exit 0
+CARGOEOF
+chmod +x "$dbin/cargo"
+d_run ok grok "" delegate "add a line"
+check "a Rust project is cargo fetch outside the sandbox before the worker, with no crates-io patch (n-c4e0f1)" \
+  "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$dprompt.cargo\")\" = fetch ] && [ ! -e \"\$dproj/.cargo/config.toml\" ] && grep -q 'Never vendor a crate or patch crates-io' \"\$dprompt\" && grep -q 'stop and say which crate' \"\$dprompt\" && grep -q 'cargo fetch' '$root/.agents/skills/delegate/SKILL.md'"
+rm -f "$dbin/cargo"
+d_new fetchbad
+printf '%s\n' '[package]' 'name = "demo"' 'version = "0.1.0"' 'edition = "2021"' > "$dproj/Cargo.toml"
+git -C "$dproj" add Cargo.toml
+git -C "$dproj" commit -qm "chore: rust" --no-verify
+cat > "$dbin/cargo" << 'CARGOEOF'
+#!/bin/sh
+printf '%s\n' "error: failed to download crate leftpad" >&2
+exit 1
+CARGOEOF
+chmod +x "$dbin/cargo"
+d_run ok grok "" delegate "add a line"
+check "a refused crate fetch stops before the worker and names the crate (n-c4e0f1)" \
+  "[ \$d_rc -ne 0 ] && grep -q 'does not vendor or patch crates-io' <<<\"\$d_out\" && grep -q leftpad <<<\"\$d_out\" && [ ! -f \"\$dproj/worker-did.txt\" ] && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ] && [ ! -e \"\$dproj/.cargo/config.toml\" ]"
+rm -f "$dbin/cargo"
+d_new mcpok
+mkdir -p "$dproj/.grok"
+printf '%s\n' 'model = "keep"' > "$dproj/.grok/config.toml"
+git -C "$dproj" add .grok/config.toml
+git -C "$dproj" commit -qm "chore: grok config" --no-verify
+export DELEGATE_MCP="context7 https://mcp.example.com/mcp"
+d_run ok grok "" delegate "add a line"
+unset DELEGATE_MCP
+mcp_seen() {
+  [ "$d_rc" -eq 0 ] || { echo "rc $d_rc"; return 1; }
+  [ "$(cat "$dprompt.grok-trust")" = yes ] || { echo "trust $(cat "$dprompt.grok-trust" 2>&1)"; return 1; }
+  grep -q '^\[mcp_servers.context7\]' "$dprompt.mcp" || { echo "no table"; cat "$dprompt.mcp"; return 1; }
+  grep -Fq 'url = "https://mcp.example.com/mcp"' "$dprompt.mcp" || { echo "no url"; return 1; }
+  grep -qx 'model = "keep"' "$dproj/.grok/config.toml" || { echo "config left:"; cat "$dproj/.grok/config.toml"; return 1; }
+  grep -q mcp_servers "$dproj/.grok/config.toml" && { echo "block stayed"; return 1; }
+  grep -q 'BEGIN ai-backbone delegate mcp' "$dproj/.grok/config.toml" && { echo "marker stayed"; return 1; }
+  [ ! -e "$dhome/.grok/trusted_folders" ] && [ ! -e "$dhome/.grok/trusted_folders.toml" ] || { echo "trust was saved"; return 1; }
+  grep -qx '.grok/' "$root/.gitignore" || { echo "gitignore"; return 1; }
+  grep -q 'trusted for that run only' "$root/.agents/skills/delegate/SKILL.md" || { echo "skill"; return 1; }
+}
+check "one MCP server is trusted for that run only and then removed (n-a5924b)" mcp_seen
+d_new mcpbad
+export DELEGATE_MCP="onlyone"
+d_run ok grok "" delegate "add a line"
+unset DELEGATE_MCP
+check "a bad DELEGATE_MCP is refused before a branch (n-a5924b)" \
+  "[ \$d_rc -ne 0 ] && d_one && grep -qx 'refuses: DELEGATE_MCP is one name and one http(s) url' <<<\"\$d_out\" && [ ! -f \"\$dproj/worker-did.txt\" ] && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ] && [ ! -e \"\$dproj/.grok/config.toml\" ]"
 d_new titled
 d_run ok grok "" delegate "$(printf 'From the company desk\n\nTitle: pin the crates\n\nDo the pin.')"
 dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
@@ -5455,7 +5563,7 @@ while [ "$i" -lt 50 ]; do
   i=$((i+1)); sleep 0.1
 done
 d_run ok grok "" delegate "second task"
-dst=$(env -u WORKER HOME="$dhome" just -f "$root/Justfile" -d "$dproj" delegate-status 2>&1 || true)
+dst=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" just -f "$root/Justfile" -d "$dproj" delegate-status 2>&1 || true)
 # The job deletes its lock as it exits, so remember the file before letting it go.
 if [ -s "$dhome/.cache/ai-backbone/delegate/delegate-running/running/branch" ]; then lock_seen=yes; else lock_seen=no; fi
 touch "$dgo"
@@ -5464,7 +5572,7 @@ check "while a job runs, a second delegate is refused in one line and status nam
   "[ \"\$lock_seen\" = yes ] && [ \$d_rc -ne 0 ] && d_one && grep -q 'refuses: a job is already running on delegate/' <<<\"\$d_out\" && grep -q 'job: running on delegate/' <<<\"\$dst\""
 d_new report
 d_run ok grok "" delegate "add a line"
-dst=$(env -u WORKER HOME="$dhome" just -f "$root/Justfile" -d "$dproj" delegate-status 2>&1 || true)
+dst=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" just -f "$root/Justfile" -d "$dproj" delegate-status 2>&1 || true)
 check "with no job running, status shows the last report and the open delegate branch" \
   "grep -qx 'job: none' <<<\"\$dst\" && grep -q 'line-20' <<<\"\$dst\" && ! grep -q 'line-01' <<<\"\$dst\" && grep -q 'delegate/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-add-a-line' <<<\"\$dst\" && ! grep -q '^last run:' <<<\"\$dst\""
 d_new accept
@@ -5718,6 +5826,8 @@ d_new fail
 d_run fail grok "" delegate "break it"
 check "the worker's exit status is the recipe's, and a dirty tree is said" \
   "[ \$d_rc -eq 3 ] && grep -qx 'exit status: 3' <<<\"\$d_out\""
+hook_after=$(git -C "$dproj" config --worktree --get core.hooksPath 2>/dev/null || true)
+check "a delegate whose worker fails leaves no job hooksPath (n-70dcaf)" "[ -z \"\$hook_after\" ]"
 d_new dirt
 d_run dirty grok "" delegate "leave a file"
 check "a worker that leaves a file is reported as a dirty tree" "grep -qx 'tree: dirty' <<<\"\$d_out\" && [ -f \"\$dproj/left-dirty.txt\" ]"
@@ -5728,6 +5838,11 @@ d_out0=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=ok WORK
   just -f "$root/Justfile" -d "$dproj" delegate "add a line" 2>&1) && d_rc0=0 || d_rc0=$?
 check "a DELEGATE_TIMEOUT that is not a positive number of minutes is refused in one line" \
   "[ \$d_rc -ne 0 ] && d_one && grep -qx 'refuses: DELEGATE_TIMEOUT must be a positive number of minutes' <<<\"\$d_out\" && [ \$d_rc0 -ne 0 ] && grep -qx 'refuses: DELEGATE_TIMEOUT must be a positive number of minutes' <<<\"\$d_out0\" && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ]"
+dh=$(just --list -f "$root/Justfile" | sed -n 's/^    delegate task.*# //p')
+check "just delegate's help says DELEGATE_TIMEOUT is minutes (n-28ad13)" \
+  "grep -qx 'DELEGATE_TIMEOUT is minutes for one job (180 if unset).' <<<\"\$dh\""
+check "the delegate docs say DELEGATE_TIMEOUT is minutes, and a chain script's failure word matches its watcher (n-28ad13)" \
+  "grep -q 'DELEGATE_TIMEOUT\` is minutes' '$root/.agents/skills/delegate/SKILL.md' && grep -q 'DELEGATE_TIMEOUT\` (minutes)' '$root/.agents/skills/delegate/SKILL.md' && grep -q 'how many minutes one job may run' '$root/docs/01-getting-started.md' && grep -q 'which is minutes' '$root/docs/specs/034-delegate.md' && grep -q 'default 180 minutes' '$root/docs/specs/034-delegate.md' && grep -q 'watcher that looks for DESK FAIL' '$root/.agents/skills/delegate/SKILL.md'"
 d_new tout
 t0=$SECONDS
 d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=timeout FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_GO="$dgo" \
@@ -5735,6 +5850,39 @@ d_out=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_MODE=timeout 
 elapsed=$((SECONDS - t0))
 check "the run stops when DELEGATE_TIMEOUT passes and says timeout, before the worker finishes" \
   "[ \$d_rc -eq 124 ] && [ \$elapsed -lt 15 ] && grep -qx 'exit status: timeout' <<<\"\$d_out\" && grep -q '^report$' <<<\"\$d_out\" && ! grep -q finished <<<\"\$d_out\" && ! grep -q Terminated <<<\"\$d_out\""
+hook_after=$(git -C "$dproj" config --worktree --get core.hooksPath 2>/dev/null || true)
+check "a timed-out delegate leaves no job hooksPath (n-70dcaf)" "[ -z \"\$hook_after\" ]"
+d_new hookprev
+mkdir -p "$tmp/prev-hooks"
+printf '%s\n' '#!/bin/sh' 'exit 0' > "$tmp/prev-hooks/pre-commit"
+chmod +x "$tmp/prev-hooks/pre-commit"
+git -C "$dproj" config --local extensions.worktreeConfig true
+git -C "$dproj" config --worktree core.hooksPath "$tmp/prev-hooks"
+d_run ok grok "" delegate "add a line"
+hook_after=$(git -C "$dproj" config --worktree --get core.hooksPath 2>/dev/null || true)
+check "a finished delegate puts the previous hooks path back (n-70dcaf)" \
+  "[ \$d_rc -eq 0 ] && [ \"\$hook_after\" = '$tmp/prev-hooks' ]"
+d_new hooksig
+git -C "$dproj" config --local extensions.worktreeConfig true
+git -C "$dproj" config --worktree core.hooksPath "$tmp/prev-hooks"
+rm -f "$dgo"
+env -u WORKER -u WORKER_MODEL -u DELEGATE_TIMEOUT -u DELEGATE_IDLE -u WORKER_BIN -u DELEGATE_BASE -u DELEGATE_YES \
+  HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE=slow FAKE_WORKER_GO="$dgo" \
+  WORKER=grok just -f "$root/Justfile" -d "$dproj" delegate "wait here" >"$tmp/hooksig.out" 2>&1 &
+hooksig=$!
+hook_lock="$dhome/.cache/ai-backbone/delegate/$(basename "$dproj")/running/pid"
+i=0
+saw_job_hooks=""
+while [ "$i" -lt 80 ]; do
+  cur=$(git -C "$dproj" config --worktree --get core.hooksPath 2>/dev/null || true)
+  case "$cur" in *.hooks) saw_job_hooks=$cur; break ;; esac
+  i=$((i+1)); sleep 0.1
+done
+if [ -s "$hook_lock" ]; then kill -TERM "$(cat "$hook_lock")" 2>/dev/null || true; fi
+wait "$hooksig" 2>/dev/null || true
+hook_after=$(git -C "$dproj" config --worktree --get core.hooksPath 2>/dev/null || true)
+check "a delegate stopped by a signal puts the previous hooks path back (n-70dcaf)" \
+  "[ -n '$saw_job_hooks' ] && [ '$saw_job_hooks' != '$tmp/prev-hooks' ] && [ '$hook_after' = '$tmp/prev-hooks' ]"
 # Git Bash on Windows has no process groups in ps (measured on windows-latest,
 # 2026-10-22), so the idle stop never fires there and the job ends at the timeout.
 if ps -A -o pid=,pgid= 2>/dev/null | awk 'NF == 2 { ok = 1 } END { exit !ok }'; then
@@ -6271,9 +6419,21 @@ check "an opencode that lives only at ~/.opencode/bin/opencode is the binary the
 rm -f "$dhome/.opencode/bin/opencode"
 d_new ocstatus
 d_run ok opencode "" delegate "add a line"
-dst=$(env -u WORKER HOME="$dhome" just -f "$root/Justfile" -d "$dproj" delegate-status 2>&1 || true)
+dst=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" just -f "$root/Justfile" -d "$dproj" delegate-status 2>&1 || true)
 check "delegate-status shows the model and the cost of the last opencode run" \
-  "grep -qx 'job: none' <<<\"\$dst\" && grep -qx 'last run: cost: \$0.03 on opencode-go/deepseek-v4.1-flash, 2 steps' <<<\"\$dst\""
+  "grep -qx 'job: none' <<<\"\$dst\" && grep -qx 'last run: cost: \$0.03 on opencode-go/deepseek-v4.1-flash, 2 steps' <<<\"\$dst\" && ! grep -q 'opencode service is running' <<<\"\$dst\""
+d_new ocstopped
+dst=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_OPENCODE_STATUS=stopped \
+  just -f "$root/Justfile" -d "$dproj" delegate-status 2>&1 || true)
+check "delegate-status is quiet when the opencode service is stopped (n-20e061)" \
+  "! grep -q 'opencode service is running' <<<\"\$dst\""
+d_new ocrunning
+dst=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" FAKE_OPENCODE_STATUS=http://127.0.0.1:4096 \
+  just -f "$root/Justfile" -d "$dproj" delegate-status 2>&1 || true)
+check "delegate-status warns when the opencode service is running (n-20e061)" \
+  "grep -qx 'opencode service is running: a command without --standalone resumes its sessions' <<<\"\$dst\""
+check "the opencode run passes --standalone, and the docs name stats (n-20e061)" \
+  "grep -q 'run --standalone --auto --format json' '$root/.ai-backbone/core.just' && grep -q 'opencode stats' '$root/.agents/skills/delegate/SKILL.md' && grep -q 'including \`opencode stats\`' '$root/docs/01-getting-started.md'"
 
 # kimi (spec 040). The fake never calls a model. Login is a file in the
 # temporary home: this suite must not read or write the real ~/.kimi-code.
@@ -6401,7 +6561,7 @@ d_run fix kimi "" delegate "fix the line"
 rules_after=$(grep -c '^\[\[permission.rules\]\]$' "$dhome/.kimi-code/config.toml")
 check "a second kimi run rewrites the deny block once and does not pass -m when DELEGATE_MODEL is unset" \
   "[ \$d_rc -eq 0 ] && [ \"\$rules_after\" = \"\$rules_before\" ] && kimi_rules_ok && [ -z \"\$(cat \"\$dprompt.model\")\" ] && ! grep -qx -- '-m' \"\$dprompt.argv\""
-dst=$(env -u WORKER -u KIMI_CODE_HOME -u DELEGATE_MODEL HOME="$dhome" just -f "$root/Justfile" -d "$dproj" delegate-status 2>&1 || true)
+dst=$(env -u WORKER -u KIMI_CODE_HOME -u DELEGATE_MODEL HOME="$dhome" PATH="$dbin:$PATH" just -f "$root/Justfile" -d "$dproj" delegate-status 2>&1 || true)
 check "delegate-status reads the kimi report from assistant content" \
   "grep -qx 'line-20' <<<\"\$dst\" && ! grep -qx 'line-01' <<<\"\$dst\" && ! grep -q 'tool-line-should-not-be-the-report' <<<\"\$dst\""
 d_new kimibin
@@ -6558,23 +6718,153 @@ env AI_BACKBONE_PROJECTS="$sw" AI_BACKBONE_FRESHNESS_FILE="$tmp/sweep-list.txt" 
   just -f "$root/Justfile" -d "$root" freshness-sweep >"$tmp/sweep-run.txt" 2>&1 || true
 check "the sweep writes one behind line and the unwatched lines, per project" \
   "grep -q 'Wrote $tmp/sweep-list.txt' '$tmp/sweep-run.txt' && grep -qx '== alpha ==' '$tmp/sweep-list.txt' && grep -qx '== beta ==' '$tmp/sweep-list.txt' && grep -qx 'not watched: left-pad' '$tmp/sweep-list.txt' && grep -qx 'not watched: typescript' '$tmp/sweep-list.txt' && grep -qxF 'Behind: demo-crate 1.0.0 → 2.0.0' '$tmp/sweep-list.txt' && ! grep -qx 'not watched: requests' '$tmp/sweep-list.txt' && ! grep -qx 'not watched: ignored-pkg' '$tmp/sweep-list.txt'"
-mkdir -p "$tmp/sweep-inst/.ai-backbone" "$tmp/sweep-home/Library/LaunchAgents" "$tmp/sweep-launch"
+mkdir -p "$tmp/sweep-inst/.ai-backbone" "$tmp/sweep-home/Library/LaunchAgents" "$tmp/sweep-sched"
 cp "$root/.ai-backbone/freshness-sweep.sh" "$tmp/sweep-inst/.ai-backbone/"
 git -C "$tmp/sweep-inst" init -q
 git -C "$tmp/sweep-inst" config user.email "sweep@example.com"
 git -C "$tmp/sweep-inst" config user.name "Sweep"
 printf "import? '%s/.ai-backbone/core.just'\n" "$root" > "$tmp/sweep-inst/Justfile"
-printf '#!/bin/sh\nexit 0\n' > "$tmp/sweep-launch/launchctl"
-chmod +x "$tmp/sweep-launch/launchctl"
-( cd "$tmp/sweep-inst" && HOME="$tmp/sweep-home" PATH="$tmp/sweep-launch:$PATH" AI_BACKBONE_FRESHNESS_FILE="$tmp/sweep-list.txt" just freshness-sweep-install >"$tmp/sweep-inst.out" 2>&1 ) || true
-inst_plist="$tmp/sweep-home/Library/LaunchAgents/ai-backbone.freshness-sweep.plist"
+# Scheduler stand-ins. The real launchctl, systemctl, crontab and schtasks
+# are never called: a test that loaded them would touch this machine.
+sweep_fakes() {
+  local d=$1 uname_text=$2 sys_rc=$3 cron_rc=$4
+  mkdir -p "$d"
+  cat > "$d/launchctl" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >> "${SWEEP_SCHED_LOG:?}"
+exit 0
+EOF
+  cat > "$d/schtasks" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >> "${SWEEP_SCHED_LOG:?}"
+exit 0
+EOF
+  cat > "$d/systemctl" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >> "\${SWEEP_SCHED_LOG:?}"
+exit $sys_rc
+EOF
+  cat > "$d/crontab" <<EOF
+#!/bin/sh
+store="\${SWEEP_CRON_STORE:?}"
+if [ "\$1" = "-l" ]; then
+  [ -f "\$store" ] || exit 1
+  cat "\$store"
+  exit 0
+fi
+cp "\$1" "\$store"
+exit $cron_rc
+EOF
+  if [ -n "$uname_text" ]; then printf '#!/bin/sh\necho %s\n' "$uname_text" > "$d/uname"; fi
+  chmod +x "$d"/*
+}
+sweep_fakes "$tmp/sweep-sched" "" 0 0
+export SWEEP_SCHED_LOG="$tmp/sweep-sched.log" SWEEP_CRON_STORE="$tmp/sweep-cron.txt"
+: > "$SWEEP_SCHED_LOG"
+rm -f "$SWEEP_CRON_STORE"
+sweep_installed() {
+  case "$(uname)" in
+    Darwin)
+      local p="$1/Library/LaunchAgents/ai-backbone.freshness-sweep.plist"
+      grep -q '<integer>8</integer>' "$p" && grep -q '<integer>15</integer>' "$p" && grep -q 'freshness-sweep.sh' "$p"
+      ;;
+    Linux)
+      local timer="$1/.config/systemd/user/ai-backbone-freshness-sweep.timer"
+      local svc="$1/.config/systemd/user/ai-backbone-freshness-sweep.service"
+      grep -qF 'OnCalendar=*-*-* 08:15:00' "$timer" && grep -q 'freshness-sweep.sh' "$svc" && [ ! -e "$1/Library/LaunchAgents/ai-backbone.freshness-sweep.plist" ]
+      ;;
+    MINGW*|MSYS*|CYGWIN*|Windows_NT)
+      local marker="$1/AppData/Local/ai-backbone/ai-backbone-freshness-sweep.task"
+      grep -q '08:15' "$marker" && grep -q 'DAILY' "$2" && grep -q '08:15' "$2" && [ ! -e "$1/Library/LaunchAgents/ai-backbone.freshness-sweep.plist" ]
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+( cd "$tmp/sweep-inst" && env -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u LOCALAPPDATA HOME="$tmp/sweep-home" PATH="$tmp/sweep-sched:$PATH" AI_BACKBONE_FRESHNESS_FILE="$tmp/sweep-list.txt" just freshness-sweep-install >"$tmp/sweep-inst.out" 2>&1 ) || true
 check "the installer writes the daily job, marks this checkout the desk, and does not touch the real home" \
-  "grep -q 'This checkout is the desk' '$tmp/sweep-inst.out' && [ \"\$(git -C '$tmp/sweep-inst' config --local --get ai-backbone.desk)\" = true ] && grep -q '<integer>8</integer>' '$inst_plist' && grep -q '<integer>15</integer>' '$inst_plist' && grep -q 'freshness-sweep.sh' '$inst_plist' && [ ! -e \"$HOME/Library/LaunchAgents/ai-backbone.freshness-sweep.plist\" ]"
+  "grep -q 'This checkout is the desk' '$tmp/sweep-inst.out' && [ \"\$(git -C '$tmp/sweep-inst' config --local --get ai-backbone.desk)\" = true ] && sweep_installed '$tmp/sweep-home' '$tmp/sweep-sched.log' && [ ! -e \"$HOME/Library/LaunchAgents/ai-backbone.freshness-sweep.plist\" ] && [ ! -e \"$HOME/.config/systemd/user/ai-backbone-freshness-sweep.timer\" ] && [ ! -e \"$HOME/.local/share/ai-backbone/freshness-sweep.sh\" ]"
+# The same install, with uname forced, so a Mac run proves the Linux and
+# Windows jobs and a Linux run proves it never writes a launchd plist.
+sweep_as() {
+  local name=$1 uname_text=$2 sys_rc=$3 cron_rc=$4
+  local home="$tmp/sweep-$name-home" bin="$tmp/sweep-$name-bin" log="$tmp/sweep-$name.log" store="$tmp/sweep-$name.cron" out="$tmp/sweep-$name.out"
+  rm -rf "$home" "$bin"
+  mkdir -p "$home/Library/LaunchAgents"
+  sweep_fakes "$bin" "$uname_text" "$sys_rc" "$cron_rc"
+  : > "$log"
+  rm -f "$store"
+  (
+    cd "$tmp/sweep-inst" && env -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u LOCALAPPDATA \
+      HOME="$home" PATH="$bin:$PATH" SWEEP_SCHED_LOG="$log" SWEEP_CRON_STORE="$store" \
+      AI_BACKBONE_FRESHNESS_FILE="$tmp/sweep-list.txt" \
+      just freshness-sweep-install >"$out" 2>&1
+  ) || { echo "install $name exited $?"; cat "$out"; return 1; }
+  SWEEP_AS_HOME=$home SWEEP_AS_LOG=$log SWEEP_AS_STORE=$store SWEEP_AS_OUT=$out SWEEP_AS_BIN=$bin
+}
+sweep_linux() {
+  sweep_as linux Linux 0 0 || return 1
+  local home=$SWEEP_AS_HOME timer="$SWEEP_AS_HOME/.config/systemd/user/ai-backbone-freshness-sweep.timer" svc="$SWEEP_AS_HOME/.config/systemd/user/ai-backbone-freshness-sweep.service"
+  grep -q 'Schedule: systemd user timer' "$SWEEP_AS_OUT" || { echo "no systemd line"; cat "$SWEEP_AS_OUT"; return 1; }
+  grep -q 'This checkout is the desk' "$SWEEP_AS_OUT" || return 1
+  grep -qF 'OnCalendar=*-*-* 08:15:00' "$timer" || { echo "timer"; cat "$timer"; return 1; }
+  grep -q 'freshness-sweep.sh' "$svc" || { echo "service"; return 1; }
+  [ ! -e "$home/Library/LaunchAgents/ai-backbone.freshness-sweep.plist" ] || { echo "launchd plist on linux"; return 1; }
+  [ ! -e "$SWEEP_AS_STORE" ] || { echo "cron beside systemd"; return 1; }
+  if grep -q 'bootstrap' "$SWEEP_AS_LOG"; then echo "launchctl ran"; cat "$SWEEP_AS_LOG"; return 1; fi
+  if grep -q 'bootout' "$SWEEP_AS_LOG"; then echo "launchctl ran"; cat "$SWEEP_AS_LOG"; return 1; fi
+  ( cd "$tmp/sweep-inst" && env -u XDG_CONFIG_HOME -u XDG_DATA_HOME HOME="$home" PATH="$SWEEP_AS_BIN:$PATH" SWEEP_SCHED_LOG="$SWEEP_AS_LOG" SWEEP_CRON_STORE="$SWEEP_AS_STORE" just freshness-sweep-remove >"$tmp/sweep-linux-rm.out" 2>&1 ) || { echo "remove exited $?"; return 1; }
+  grep -q '^Removed' "$tmp/sweep-linux-rm.out" || { echo "not removed"; cat "$tmp/sweep-linux-rm.out"; return 1; }
+  [ ! -e "$timer" ] || { echo "timer remains"; return 1; }
+}
+sweep_cron() {
+  sweep_as cron Linux 1 0 || return 1
+  local home=$SWEEP_AS_HOME
+  grep -q 'Schedule: cron' "$SWEEP_AS_OUT" || { echo "no cron line"; cat "$SWEEP_AS_OUT"; return 1; }
+  grep -q '15 8' "$SWEEP_AS_STORE" || { echo "crontab"; cat "$SWEEP_AS_STORE"; return 1; }
+  grep -q 'freshness-sweep.sh' "$SWEEP_AS_STORE" || return 1
+  grep -q 'ai-backbone-freshness-sweep' "$SWEEP_AS_STORE" || return 1
+  [ ! -e "$home/.config/systemd/user/ai-backbone-freshness-sweep.timer" ] || { echo "timer beside cron"; return 1; }
+  [ ! -e "$home/Library/LaunchAgents/ai-backbone.freshness-sweep.plist" ] || { echo "launchd plist on cron"; return 1; }
+  [ -f "$home/.config/ai-backbone/freshness.cron" ] || { echo "cron file missing"; return 1; }
+  ( cd "$tmp/sweep-inst" && env -u XDG_CONFIG_HOME -u XDG_DATA_HOME HOME="$home" PATH="$SWEEP_AS_BIN:$PATH" SWEEP_SCHED_LOG="$SWEEP_AS_LOG" SWEEP_CRON_STORE="$SWEEP_AS_STORE" just freshness-sweep-remove >"$tmp/sweep-cron-rm.out" 2>&1 ) || return 1
+  grep -q '^Removed' "$tmp/sweep-cron-rm.out" || { echo "cron not removed"; cat "$tmp/sweep-cron-rm.out"; return 1; }
+  [ ! -e "$home/.config/ai-backbone/freshness.cron" ] || { echo "cron file remains"; return 1; }
+  if grep -q 'ai-backbone-freshness-sweep' "$SWEEP_AS_STORE"; then echo "crontab line remains"; cat "$SWEEP_AS_STORE"; return 1; fi
+}
+sweep_windows() {
+  sweep_as win MINGW64_NT-10.0 0 0 || return 1
+  local home=$SWEEP_AS_HOME marker="$SWEEP_AS_HOME/AppData/Local/ai-backbone/ai-backbone-freshness-sweep.task"
+  grep -q 'Schedule: Task Scheduler' "$SWEEP_AS_OUT" || { echo "no task line"; cat "$SWEEP_AS_OUT"; return 1; }
+  grep -q '08:15' "$marker" || { echo "marker"; cat "$marker"; return 1; }
+  grep -q 'DAILY' "$SWEEP_AS_LOG" || { echo "schtasks"; cat "$SWEEP_AS_LOG"; return 1; }
+  grep -q '08:15' "$SWEEP_AS_LOG" || return 1
+  grep -q 'ai-backbone-freshness-sweep' "$SWEEP_AS_LOG" || return 1
+  [ ! -e "$home/Library/LaunchAgents/ai-backbone.freshness-sweep.plist" ] || { echo "launchd plist on windows"; return 1; }
+  ( cd "$tmp/sweep-inst" && env -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u LOCALAPPDATA HOME="$home" PATH="$SWEEP_AS_BIN:$PATH" SWEEP_SCHED_LOG="$SWEEP_AS_LOG" SWEEP_CRON_STORE="$SWEEP_AS_STORE" just freshness-sweep-remove >"$tmp/sweep-win-rm.out" 2>&1 ) || return 1
+  grep -q '^Removed' "$tmp/sweep-win-rm.out" || { echo "task not removed"; cat "$tmp/sweep-win-rm.out"; return 1; }
+  [ ! -e "$marker" ] || { echo "marker remains"; return 1; }
+}
+sweep_unsupported() {
+  git -C "$tmp/sweep-inst" config --local --unset ai-backbone.desk || true
+  sweep_as none Linux 1 1 || return 1
+  grep -q 'not supported here' "$SWEEP_AS_OUT" || { echo "no unsupported line"; cat "$SWEEP_AS_OUT"; return 1; }
+  grep -q 'This checkout is the desk' "$SWEEP_AS_OUT" || return 1
+  [ "$(git -C "$tmp/sweep-inst" config --local --get ai-backbone.desk)" = true ] || { echo "desk not marked"; return 1; }
+  [ ! -e "$SWEEP_AS_HOME/.config/systemd/user/ai-backbone-freshness-sweep.timer" ] || return 1
+  [ ! -e "$SWEEP_AS_HOME/.config/ai-backbone/freshness.cron" ] || return 1
+  [ ! -e "$SWEEP_AS_HOME/Library/LaunchAgents/ai-backbone.freshness-sweep.plist" ] || return 1
+}
+check "on linux the sweep installs a systemd user timer at 08:15 and no launchd job" "sweep_linux"
+check "without a systemd user timer, linux installs cron at 08:15" "sweep_cron"
+check "on windows the sweep schedules 08:15 with Task Scheduler and no launchd job" "sweep_windows"
+check "with no scheduler the sweep says not supported here and still marks the desk" "sweep_unsupported"
 printf '%s\n' '== beta ==' 'Behind: demo-crate 1.0.0 → 2.0.0' > "$tmp/sweep-list.txt"
-( cd "$tmp/sweep-inst" && HOME="$tmp/sweep-home" AI_BACKBONE_FRESHNESS_FILE="$tmp/sweep-list.txt" just session-start >"$tmp/sweep-desk.out" 2>&1 ) || true
+( cd "$tmp/sweep-inst" && env -u XDG_CONFIG_HOME -u XDG_DATA_HOME HOME="$tmp/sweep-home" AI_BACKBONE_FRESHNESS_FILE="$tmp/sweep-list.txt" just session-start >"$tmp/sweep-desk.out" 2>&1 ) || true
 check "the desk's session-start prints the sweep list" "grep -q '=== FRESHNESS SWEEP ===' '$tmp/sweep-desk.out' && grep -qF 'Behind: demo-crate 1.0.0 → 2.0.0' '$tmp/sweep-desk.out'"
-( cd "$tmp/sweep-inst" && HOME="$tmp/sweep-home" PATH="$tmp/sweep-launch:$PATH" just freshness-sweep-remove >"$tmp/sweep-rm.out" 2>&1 ) || true
-check "removing the sweep takes the job and leaves the list" "[ ! -e '$inst_plist' ] && grep -q '^Removed' '$tmp/sweep-rm.out' && [ -f '$tmp/sweep-list.txt' ]"
+( cd "$tmp/sweep-inst" && env -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u LOCALAPPDATA HOME="$tmp/sweep-home" PATH="$tmp/sweep-sched:$PATH" just freshness-sweep-remove >"$tmp/sweep-rm.out" 2>&1 ) || true
+check "removing the sweep takes the job and leaves the list" "[ ! -e '$tmp/sweep-home/Library/LaunchAgents/ai-backbone.freshness-sweep.plist' ] && [ ! -e '$tmp/sweep-home/.config/systemd/user/ai-backbone-freshness-sweep.timer' ] && [ ! -e '$tmp/sweep-home/.config/ai-backbone/freshness.cron' ] && [ ! -e '$tmp/sweep-home/AppData/Local/ai-backbone/ai-backbone-freshness-sweep.task' ] && grep -q '^Removed' '$tmp/sweep-rm.out' && [ -f '$tmp/sweep-list.txt' ]"
 
 section "cargo-audit is the RustSec reader (n-2ed2cf)"
 # The stand-in records the flags. A reasoned row is an ignore entry, and the

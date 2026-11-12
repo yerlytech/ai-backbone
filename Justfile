@@ -48,13 +48,13 @@ stable version:
 _root-allow:
     @echo STABLE
 
-# What code waits on cloud for a yes · just carry <commit> takes it to main
+# What code cloud has over main · just carry <commit> moves it now
 [positional-arguments]
 carry commit="":
     #!/usr/bin/env bash
     set -uo pipefail
-    # Spec 031: the gate carries only docs on its own; code waits until the
-    # person said yes to it. This lists, and with a commit carries through
+    # 2026-11-11: the gate carries code once Linux, macOS and Windows are
+    # green. This lists what is still ahead, and with a commit carries through
     # main's own copy of gate.sh, so nothing on cloud changes how it is judged.
     # The routine brief forbids a scheduled run to call it.
     if ! git fetch -q origin +refs/heads/main:refs/remotes/origin/main +refs/heads/cloud:refs/remotes/origin/cloud 2>/dev/null; then
@@ -66,8 +66,8 @@ carry commit="":
       bash "$gate" attend "$1"; exit
     fi
     if [ -z "$(git rev-list -n1 origin/main..origin/cloud 2>/dev/null)" ]; then echo "Nothing waits: cloud has nothing main does not."; exit 0; fi
-    if [ "$(bash .ai-backbone/gate.sh look origin/cloud 2>/dev/null | tail -1)" != suite ]; then echo "Nothing waits for a yes: what cloud has over main is docs only, and the gate carries that on its own."; exit 0; fi
-    echo "Code on cloud that main does not have, waiting for the maintainer's yes:"
+    if [ "$(bash .ai-backbone/gate.sh look origin/cloud 2>/dev/null | tail -1)" != suite ]; then echo "Nothing waits: what cloud has over main is docs only, and the gate carries that on its own."; exit 0; fi
+    echo "Code on cloud that main does not have. The gate carries it once Linux, macOS and Windows are green; just carry <commit> still moves it now:"
     git --no-pager log --no-merges --format='  %h %s' origin/main..origin/cloud | grep -v ' docs: gate — ' | head -15
     echo "Files: $(git diff --name-only origin/main origin/cloud | wc -l | tr -d ' ') changed; .github/workflows or gate.sh among them: $(git diff --quiet origin/main origin/cloud -- .github/workflows .ai-backbone/gate.sh && echo no || echo YES)"
     # The commit to carry is the newest one a checks run tested: the gate's own
@@ -79,7 +79,7 @@ carry commit="":
         [ -n "$r" ] || continue
         found="${c:0:7}"
         case "$r" in
-          "completed success") echo "Checks: ${found} is green. Say in plain words what changed and why; on the person's yes -> just carry ${found}" ;;
+          "completed success") echo "Checks: ${found} is green. The gate carries it once Windows is green too; to move it now -> just carry ${found}" ;;
           completed*) echo "Checks: ${found} ended ${r#completed }; it cannot be carried (just ci)" ;;
           *) echo "Checks: ${found} is still being tested (just ci); carry it once it is green" ;;
         esac

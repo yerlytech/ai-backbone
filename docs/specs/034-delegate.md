@@ -51,7 +51,7 @@ never pulled.
 
 None open. Approved by the maintainer on 2026-10-20 with these choices: one job
 per project at a time; a 3-hour limit per job by default, longer for one job
-with `DELEGATE_TIMEOUT` (Rust builds and full test runs can pass an hour); the
+with `DELEGATE_TIMEOUT`, which is minutes (Rust builds and full test runs can pass an hour); the
 log outside the repo; the manager may also delegate docs and spec drafts, but
 shows a spec to the maintainer itself; after two failed tries at one job, the
 manager stops and tells the maintainer instead of doing it itself; delegation
@@ -92,7 +92,7 @@ its own worker.
       branch another session creates in the same repository is not this
       run's (n-dbc9e9). Any breach prints `BREACH: …` first and exits
       non-zero.
-- [x] The run stops after `DELEGATE_TIMEOUT` (default 180 min, any value for one job). The full output
+- [x] The run stops after `DELEGATE_TIMEOUT` (default 180 minutes, any value for one job). The full output
       goes to `~/.cache/ai-backbone/delegate/<project>/<id>.log`, never the
       repo. The recipe prints only the worker's report, the branch's commits
       with `--stat`, whether the tree is clean, and the exit status.
@@ -135,6 +135,11 @@ its own worker.
       2026-10-20, grok 1.0.62 off PATH (~/.grok/bin): a throwaway repo, one
       file committed on its delegate branch, report printed, tree clean, exit
       0, `delegate-status` then `delegate-accept` onto main.
+
+- [x] `DELEGATE_MCP` is one name and one http(s) url. The job writes that
+      server into `./.grok/config.toml` and removes it when the job ends. The
+      grok worker is passed `--trust` for that run only. Trust is not saved
+      (n-a5924b). `.grok/` is in the template `.gitignore`.
 
 ## Tasks
 

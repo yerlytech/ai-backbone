@@ -40,12 +40,14 @@ Related small jobs are one task text: one round, one report. Independent jobs
 in one project go back to back: hand the next one when the report comes, and
 do not make the owner wait for it. Run jobs in parallel only across projects,
 or in separate worktrees of one repository started with `DELEGATE_BASE`; one
-delegate job per project folder (spec 034).
+delegate job per project folder (spec 034). A script that chains these jobs
+must print the failure word its watcher matches. A line that says FAILED is
+missed by a watcher that looks for DESK FAIL.
 
 `just delegate-status` says whether a job of this project is running, and shows
 the last report, the model and cost of the last opencode run when the log has
-one, and the open `delegate/*` branches. `DELEGATE_TIMEOUT` is
-minutes for one job (180 if unset). `DELEGATE_BASE` is a long-lived branch to
+one, and the open `delegate/*` branches. `DELEGATE_TIMEOUT` is minutes
+for one job (180 if unset). `DELEGATE_BASE` is a long-lived branch to
 start from instead of the default. The branch records it, accept
 fast-forwards onto it, and drop returns to it. On a `delegate/*` branch, leave
 it unset, or set it to that same branch, for a fix round. Set to another
@@ -78,7 +80,11 @@ on `PATH` is used, and otherwise `~/.grok/bin/grok`, Claude's
 shell wrappers `sh`, `bash`, `zsh`, `eval`, `xargs` and `env`, and
 `just delegate-accept` and `just delegate-drop`, too: that line is
 added and not measured on grok yet. `opencode` is called as
-`opencode run --standalone --auto --format json -m <model>`, with
+`opencode run --standalone --auto --format json -m <model>`. Every opencode
+command passes `--standalone`, including `opencode stats`. Without that flag,
+opencode starts `serve --service` and resumes sessions a restart interrupted.
+`opencode service status` does not accept the flag. `just delegate-status`
+warns when that status is not `stopped`. The run is called with
 `OPENCODE_CONFIG` pointing at a file outside the project. That file turns
 autoupdate off and gives the worker only shell, read, edit and write. It
 denies push, merge, rebase, checkout, switch, reset, branch deletion, tag,
@@ -99,6 +105,24 @@ started with `RUSTC_WRAPPER` unset, `SCCACHE_SERVER_UDS` unset, and its own
 including when the job is killed. A server first started inside the sandbox
 keeps the sandbox's file rights and then fails later builds on the machine.
 
+## Crates
+
+A grok worker's sandbox cannot download crates. Never vendor a crate, and
+never patch crates-io with a path. If a download is refused, stop and say
+which crate. `just delegate` runs `cargo fetch` outside the sandbox before
+the worker starts, when the project has Rust (n-c4e0f1).
+
+## One MCP server
+
+`DELEGATE_MCP` is one name and one http(s) url for one run, for example
+`context7 https://mcp.example.com/mcp`. The name is letters, digits, `_` and
+`-`. `just delegate` writes that server into `./.grok/config.toml` for the
+job and removes it when the job ends, whatever way the job ends. Grok reads
+a project server only in a trusted folder. The grok worker is trusted for that run only
+(`--trust` on that command). Trust is not saved: the recipe does not run
+`grok --trust`, and it does not write `~/.grok/trusted_folders` (n-a5924b).
+`.grok/` is in the template `.gitignore`.
+
 ## Pin bumps
 
 The worker has no network. Before a task that bumps a pin, the desk installs
@@ -111,7 +135,7 @@ The deny list is command text and can be reworded. These hold another way:
 
 - A merge, a rebase or a reset does not move the branch. The ref update is
   refused unless the new tip's first parent is the old tip.
-- `DELEGATE_TIMEOUT` and `DELEGATE_IDLE` kill the worker's process group.
+- `DELEGATE_TIMEOUT` (minutes) and `DELEGATE_IDLE` (minutes) kill the worker's process group.
   The idle end fires only when the worktree has also been clean for that
   whole window. A quiet log with uncommitted changes keeps the job.
 - opencode cannot read a path outside the project. kimi denies reads and
@@ -130,7 +154,9 @@ same paths. The profile is written to the project's `.grok/sandbox.toml`,
 and only when the spliced content differs. The shared
 `~/.grok/sandbox.toml` is not written: Grok's guide names both files, and
 writing the shared one closes every session already running (seen
-2026-11-07 23:28). The guide says a
+2026-11-07 23:28). `grok --help` (1.0.62) gives `--sandbox` a profile name,
+not a file. A per-run profile file would not be read, so this is the file
+the run uses (n-a6542a). The guide says a
 non-empty `deny` is kernel-enforced; that enforcement is not measured yet
 (n-fc65ca). When the job ends, the recipe compares that file's hash with the
 hash from before the worker started, and says

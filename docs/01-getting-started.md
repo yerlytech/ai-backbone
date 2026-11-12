@@ -230,7 +230,10 @@ opencode looks in `~/.opencode/bin/opencode`; kimi looks in
 `~/.kimi-code/bin/kimi`, then `/opt/homebrew/bin/kimi`, then
 `/usr/local/bin/kimi`).
 `DELEGATE_TIMEOUT` is how many minutes one job may run (180 if you do not set
-it). `DELEGATE_BASE` is a long-lived branch to start from instead of the
+it). `DELEGATE_MCP` is one name and one http(s) url for one run. That server
+is written into `./.grok/config.toml` for the job and removed when the job
+ends. The grok worker is passed `--trust` for that run only. Trust is not
+saved. `DELEGATE_BASE` is a long-lived branch to start from instead of the
 default, when you set one. On a `delegate/*` branch, a fix round leaves it
 unset or sets it to that same branch. Set to another branch, `just delegate`
 refuses before a worker starts, in one line that names both branches and the
@@ -242,6 +245,9 @@ one. For opencode, `WORKER_LADDER` is the ladder. Unset, it is
 `opencode-go/kimi-k3`. The first try uses the first; each fix round the next;
 past the last, the job refuses. The report ends with what that run cost, and
 `just delegate-status` shows the model and the cost of the last run.
+Every opencode command passes `--standalone`, including `opencode stats`.
+Without that flag, opencode starts its background service and resumes sessions
+a restart interrupted. `just delegate-status` warns when that service is running.
 Grok, claude and kimi do not climb that ladder. For kimi, `DELEGATE_MODEL`
 is passed as `-m` when it is set, and `WORKER_MODEL` is not read. A run that
 is not logged in stops with `kimi is not logged in: run kimi login` and
@@ -264,12 +270,13 @@ You never have to think about the backbone. Two things happen on their own
   writes a line into the backbone's `docs/backlog.md` on GitHub
   (`just backbone-note`) or fixes it there right away, tests it, publishes it to the backbone's
   `cloud` branch — where a gate on GitHub tests it again on a clean Linux, Mac
-  and Windows machine. Linux and macOS decide (spec 037); Windows reports, and
-  a carry does not wait for it. When Linux and macOS are green the agent tells
-  you in two plain sentences what changed and why, and on your yes carries it to `main`
-  (`just carry`, spec 031) and updates your project. That yes is the one
-  word a release asks of you; otherwise it asks only when the fix would
-  change what you type or must do by hand.
+  and Windows machine. When all three are green, the gate carries the change
+  to `main` by itself, code included (spec 017, the owner's decision of
+  2026-11-11), and the agent updates your project. It asks only when the fix
+  would change what you type or must do by hand. A save in the backbone
+  itself puts that commit on `cloud` as well when `cloud` can move forward
+  to it, and `just session-start` there fast-forwards local `main` and
+  `cloud` to GitHub and says when either is ahead or behind.
 - Once a week `just session-start` checks whether just, prek, graphify
   and the secret scanner have new releases. When one is behind, the agent runs
   `just tools-update` and saves. No question. What your own project is built
@@ -352,27 +359,27 @@ down; `just template-update newest` goes past the mark when one is needed.
 
 The backbone's own scheduled agent is a Claude Code routine, every third day. It
 pushes to the branch `cloud`, never to `main`. Every push there is tested by
-GitHub on a clean Linux and a clean Mac (`checks.yml`); those two decide the
-carry (spec 037). The same push runs the suite on a clean Windows machine
-(`windows.yml`), with the same steps and the caps of 48 and 44 minutes, and
-that run reports. `just carry <commit>` prints its result for the commit in
-one line: green, red with up to five FAIL names, still running, or none. It
-does not refuse on Windows. `just release`, in a project that has
-`windows.yml`, refuses to tag while that run is red, still going, or missing,
-and says which. Windows decided from spec 020 (the maintainer, 2026-09-24)
-until spec 037; before that it only reported, and a carry waited for it.
+GitHub on a clean Linux and a clean Mac (`checks.yml`) and, when the push
+changes code, on a clean Windows machine (`windows.yml`, the same steps and
+the caps of 48 and 44 minutes). Since 2026-11-11 the gate carries the commit
+to `main` when Linux, macOS and Windows are all green, code included.
+`just carry <commit>` still moves a green commit now: it uses `main`'s own
+`gate.sh`, prints the Windows line (green, red with up to five FAIL names,
+still running, or none) and tags the version. It does not refuse on Windows.
+`just release`, in a project that has `windows.yml`, refuses to tag while
+that run is red, still going, or missing, and says which. Windows decided
+from spec 020 (the maintainer, 2026-09-24) until spec 037; the owner put it
+back into the carry on 2026-11-11.
 A push that changes only the agent's own files (its log, the
-backlog, the radar's markers, a spec) is carried without the suite. Such a
-push, once it passes, is carried to `main` by `promote.yml`, which runs from
-`main`'s own copy of itself and of `.ai-backbone/gate.sh`, so a run can change
-what is tested and never how it is judged. A push that changes code waits on
-`cloud`, green on Linux and macOS, until a session you are in carries it
-(spec 031): the agent tells you what changed and why, and on your yes runs
-`just carry <commit>`, which uses `main`'s own `gate.sh`, prints the Windows
-line, and tags the version. `just carry` alone lists what waits, and
-`just session-start` in the backbone says so. A red gate, or code that waits,
-writes one `gate:` line at the end of `docs/routine-log.md` on `cloud`. A red
-Windows run writes one more, naming its FAIL names, the way a red Linux does.
+backlog, the radar's markers, a spec) is carried without the suite, and
+without waiting for Windows. `promote.yml` runs from `main`'s own copy of
+itself and of `.ai-backbone/gate.sh`, so a run can change what is tested and
+never how it is judged. It wakes when either workflow finishes. Windows still
+running, or not started, writes nothing. A red gate leaves `main` behind and
+writes one `gate:` line at the end of `docs/routine-log.md` on `cloud` that
+says why. `just carry` alone lists what `cloud` still has over `main`, and
+`just session-start` in the backbone says so. `STABLE` is still not taken by
+the gate.
 The next run reads those lines first. The agent's sandbox keeps nothing, so it writes one line per run at the
 end of that same file, and `just session-start` in the backbone prints the
 last two. What is the maintainer's to decide waits in `docs/backlog.md` as a `- [?]`
@@ -383,9 +390,9 @@ working with, never by the scheduled one.
 
 Before the backlog, every run looks at the tools the backbone is built on
 (`docs/upstream.toml`). When one has a new release, moving to it is that run's
-item, and the gate tests it on Linux and macOS before it reaches `main`;
-Windows runs the same suite and reports (spec 037). A
-change to a workflow is left for a session you are in (spec 021).
+item, and the gate tests it on Linux, macOS and Windows before it reaches
+`main` (spec 017). The scheduled agent still does not edit a workflow
+(spec 021); a workflow change that is green on all three is carried.
 
 Every second run (it runs every third day, so about every six days) its one
 item is the radar: it looks outward instead of at the
@@ -475,7 +482,9 @@ the backbone's version, ideas to read, packages declared with no watch row
 left out on purpose. `just freshness-sweep` writes those lines, and the
 `Behind:` lines, for every project on this machine into one file.
 `just freshness-sweep-install` runs that every day at 08:15 and marks this
-checkout as the desk, whose session start prints the file. The online check runs
+checkout as the desk, whose session start prints the file. The schedule is
+launchd on macOS, a systemd user timer or cron on Linux, and Task Scheduler
+on Windows. A machine with none of those says `not supported here`. The online check runs
 once a day per machine, and every project that watches the same source shares
 that answer (`~/.cache/ai-backbone/upstream/`, or `XDG_CACHE_HOME`). `just
 upstream --refresh` asks again. Offline, rate-limited or past ten seconds, the

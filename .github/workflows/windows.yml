@@ -1,18 +1,18 @@
-# The Windows suite, on its own workflow so a carry does not wait for it
-# (spec 037). The same push to cloud starts it, and only when gate.sh look
-# says suite. Linux and macOS stay in checks.yml and decide the carry.
-# Windows decided from spec 020 (the maintainer's word, 2026-09-24) until
-# spec 037. Before spec 020 it only reported: at ten minutes about 220 checks
-# were red, and the gate read only the other two. From spec 020 a carry waited
-# for this job (about twenty-five minutes, then about forty on 2026-10-21,
-# and one run hit its 44-minute cap with every check green so far). The caps
-# stay 48 and 44: twice the 22 minutes measured 2026-10-13 (run 38400602011,
-# 727 checks). The job cap is 60 since n-2ed2cf so the cargo-audit compile
-# fits beside the suite step, which stays 44.
+# The Windows suite, on its own workflow (spec 037). The same push to cloud
+# starts it, and only when gate.sh look says suite. Linux and macOS stay in
+# checks.yml. Since 2026-11-11 promote.yml watches this workflow too: a change
+# outside the routine's own files is carried only when this run is green as
+# well. Windows decided from spec 020 (the maintainer's word, 2026-09-24)
+# until spec 037. Before spec 020 it only reported: at ten minutes about 220
+# checks were red, and the gate read only the other two. From spec 020 a carry
+# waited for this job (about twenty-five minutes, then about forty on
+# 2026-10-21, and one run hit its 44-minute cap with every check green so
+# far). The caps stay 48 and 44: twice the 22 minutes measured 2026-10-13
+# (run 38400602011, 727 checks). The job cap is 60 since n-2ed2cf so the
+# cargo-audit compile fits beside the suite step, which stays 44.
 #
-# This file is the backbone's own. promote.yml judges the checks run, from
-# main's copy of itself, and does not watch this workflow. gate.sh reads the
-# newest run of this file for the commit when a carry or a release asks.
+# This file is the backbone's own. promote.yml runs from main's copy of
+# itself. gate.sh reads the newest run of this file for the commit.
 
 name: windows
 

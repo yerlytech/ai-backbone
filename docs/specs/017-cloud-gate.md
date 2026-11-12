@@ -17,6 +17,23 @@ in the same push. Projects keep taking `main`. The scheduled agent starts each
 run from `cloud`, merges in the notes that reached `main`, and treats a red gate
 as its first item, before the backlog. The stored routine prompt does not change.
 
+## Update 2026-11-11
+
+The owner: no attended carry. When `checks.yml` and `windows.yml` are both
+green (Linux, macOS and Windows) for a push to `cloud`, `promote.yml` carries
+the commit to `main` by itself, code included, and tags the version. A change
+to `.github/workflows/` or `gate.sh` is carried the same way. A red gate
+leaves `main` behind and writes one `gate:` line that says why. Windows still
+running, or not started, writes nothing; the completion that can see both
+runs is the one that judges. Docs-only still carries when the checks run is
+green, without waiting for Windows. `STABLE` is still not taken by the gate.
+`just carry <commit>` remains the manual backstop and still uses `main`'s
+`gate.sh`. Every commit a workflow writes is authored as the identity in the
+repository's Actions variables `GATE_GIT_NAME` and `GATE_GIT_EMAIL`, set with
+`git config` in the workflow and in `gate.sh`, never as `github-actions[bot]`.
+`promote.yml` wakes for both workflows. Where the historical sections below
+disagree with this update, this update wins.
+
 ## Why
 
 Since 2026-09-14 the daily run has pushed straight to `main`, tested only by

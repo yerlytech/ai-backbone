@@ -128,14 +128,14 @@ the slowest machine.
 5. `just save "..."`. The hook runs `just self-test`; red means not saved.
    Then `just publish`: it goes to `cloud`, and the gate on GitHub tests it on
    a clean Linux, Mac and Windows (about twenty-five minutes, the Windows
-   job's; `just ci` shows the run; a red gate writes a `gate:` line into
-   `docs/routine-log.md` on `cloud`). Docs alone it carries to `main` itself.
-   Code waits there, green (spec 031): tell the maintainer in two plain
-   sentences what changed and why, and on their yes run `just carry` (it
-   lists what waits) and `just carry <commit>`, which takes it to `main` with
-   `main`'s own `gate.sh` and tags the version; a change to
-   `.github/workflows/` or `gate.sh` goes the same way. This is the one
-   question the loop asks: one word per release. Then
+   job's; `just ci` shows the run). When all three are green, `promote.yml`
+   carries the commit to `main` by itself, code included, and tags the version
+   (spec 017, 2026-11-11). A change to `.github/workflows/` or `gate.sh` is
+   carried the same way. A red gate leaves `main` behind and writes a `gate:`
+   line into `docs/routine-log.md` on `cloud` that says why. Docs alone are
+   carried without waiting for Windows. `STABLE` is still not taken by the
+   gate. `just carry <commit>` still moves a green commit now, with `main`'s
+   own `gate.sh`; do not ask for a yes to carry. Then
    `git checkout main`: what projects copy is `main`, and a sibling left on
    `cloud` blocks every project's update. Never try `just save` out in
    a real repository to see what it does: it commits everything there under

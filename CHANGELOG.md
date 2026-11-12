@@ -14,6 +14,26 @@ squash that follows that version on the maintainer's machine takes the tags
 before it with the history. A newcomer reads a repository, not a diary. The
 entries below are the record of every version.
 
+## 26.11.3 — 2026-11-12
+
+**One MCP server for one delegate run (n-a5924b).** `DELEGATE_MCP` is a name and an http(s) url. `just delegate` writes it into `./.grok/config.toml` for that job and removes it when the job ends. The grok worker is passed `--trust` for that run only. Trust is not saved. `.grok/` is in the template `.gitignore`.
+
+**A delegate fetches crates before the worker (n-c4e0f1).** A grok sandbox cannot download crates. `just delegate` runs `cargo fetch` outside the sandbox when the project has Rust, and does not write `.cargo/config.toml`. The worker is told never to vendor a crate or patch crates-io, and to stop and name the crate if a download is refused.
+
+**A grok delegate run has no per-run sandbox file (n-a6542a).** `grok --help` (1.0.62) gives `--sandbox` a profile name, not a path. A file of our own would not be read. The home `~/.grok/sandbox.toml` is never written, so a running worker's profile there stays as it was. The project file is written only when the spliced content differs.
+
+**An opencode command passes `--standalone` (n-20e061).** The delegate run already did. The same flag belongs on every other opencode command, including `opencode stats`: without it, opencode starts its background service and resumes sessions a restart interrupted. `opencode service status` does not accept the flag. `just delegate-status` runs that and warns when the service is not stopped.
+
+**Delegate's timeout is minutes in the help (n-28ad13).** `just --list` says `DELEGATE_TIMEOUT` is minutes for one job (180 if unset). The delegate skill, the getting-started page and spec 034 say the same. A chain script's failure line has to be the word its watcher matches: `FAILED` is missed by a watcher that looks for `DESK FAIL`.
+
+**A delegate job puts hooks back however it ends (n-70dcaf).** `core.hooksPath` is this worktree's for the job, and it is put back when the job ends: a normal finish, a worker that fails, a timeout, or a signal. A finished job no longer leaves that path on its own hooks directory.
+
+**The freshness sweep schedules on Linux and Windows (n-058e8b).** `just freshness-sweep-install` used launchd on every machine, so the daily job, the desk line and removing the job failed on ubuntu-latest. macOS still uses launchd. Linux uses a systemd user timer, or cron when that timer cannot be enabled. Windows uses Task Scheduler. A machine with none of those says `not supported here` and still marks the desk. The job is never a launchd plist outside macOS. The agent cap waits for a live lock instead of giving it up after two seconds, so twelve agents started together stay eight and four on a slow runner.
+
+**A save in the backbone lands on cloud.** `just save` on `main` in this repo also moves local `cloud` up to that commit when `cloud` can fast-forward, so the commit is not left only on a local `main`. `just session-start` fetches and fast-forwards local `main` and `cloud`, and says when either is still ahead of or behind GitHub.
+
+**The gate carries code when Linux, macOS and Windows are green.** There is no attended carry. `promote.yml` wakes when `checks` or `windows` finishes, and moves the tested commit to `main`, code included, workflows and `gate.sh` included. A red gate leaves `main` behind and writes why. Windows still running, or not started, writes nothing. Docs-only still moves on the checks run alone. `STABLE` is still not taken by the gate; `just carry <commit>` remains the manual backstop. Every commit a workflow writes is authored as the identity in the repository's Actions variables `GATE_GIT_NAME` and `GATE_GIT_EMAIL` (the workflow refuses to run without them), never as the Actions bot.
+
 ## 26.11.2 — 2026-11-11
 
 **`just spec` refuses a name that starts with a dash (n-e78e2e).** `just spec --help` used to write `docs/specs/NNN-help.md`. A name that starts with `-` is refused in one line, and no file is written.

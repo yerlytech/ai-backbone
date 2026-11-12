@@ -1,25 +1,29 @@
 #!/usr/bin/env bash
-# The gate (spec 017): what reaches main is what passed on a clean Linux and a
-# clean Mac. Windows runs the same suite and reports (spec 037); it decided
-# from spec 020 until then, and a carry no longer waits for it. Since spec 031
-# code also waits for a person: the gate carries a push on its own only when
-# it changes nothing but the routine's own files.
+# The gate (spec 017). What reaches main is what passed on a clean Linux, a
+# clean Mac and, when the push changes code, a clean Windows machine. A push
+# that changes only the routine's own files still moves on the checks run
+# alone. Since 2026-11-11 there is no attended carry: code, workflows and this
+# file are carried when Linux, macOS and windows.yml are all green. STABLE is
+# still not taken on its own. A red gate leaves main behind and writes why.
+# Every commit this script writes is authored as GATE_GIT_NAME <GATE_GIT_EMAIL>
+# when they are set (the repository's Actions variables), never as the Actions bot.
 #
 #   gate.sh look [commit]   in a checkout of the pushed commit: prints `suite`
 #                           when the suite must run for it, `docs-only` when
 #                           nothing but the routine's own files differ from main
 #   gate.sh carry           in a checkout of main with the whole history, given
 #                           the finished run in GATE_SHA, GATE_ENDED and
-#                           GATE_RUN: carries a docs-only commit to main, or
-#                           writes why not, or that code waits for an attended
-#                           carry, where the next run reads (the last line of
-#                           docs/routine-log.md on cloud)
+#                           GATE_RUN (and GATE_WORKFLOW when promote.yml woke
+#                           for windows.yml): carries a green commit to main,
+#                           or writes why not, where the next run reads (the
+#                           last line of docs/routine-log.md on cloud). Windows
+#                           still running or not started writes nothing.
 #   gate.sh attend <commit> on the maintainer's machine, from main's copy of
-#                           this file (just carry): carries a commit that is on
-#                           cloud and green on Linux and macOS to main and
-#                           tags its version, and prints the commit's Windows
-#                           result in one line. The person said yes first; nothing
-#                           here can tell, so the routine brief forbids it.
+#                           this file (just carry): the manual backstop. It
+#                           carries a commit that is on cloud and green on
+#                           Linux and macOS to main and tags its version, and
+#                           prints the commit's Windows result in one line.
+#                           The routine brief forbids a scheduled run to call it.
 #   gate.sh windows <commit> the newest windows.yml run of that commit, one
 #                           line: green, running, none, or red with up to five
 #                           FAIL names. just carry prints it; just release
@@ -127,12 +131,62 @@ red() {
   if [ -n "$out" ]; then printf '%s' "${out# }"; else echo "no failed job could be read"; fi
 }
 
+# Fast-forward main to the tested commit and tag the version on line 1 of
+# core.just (spec 017). Prints the carried line and returns 0, or returns 1
+# and leaves the reason in ff_why. A tag that exists is left alone: an atomic
+# push that includes a tag GitHub already has refuses main as well (measured).
+ff_main() {
+  local sha="$1" short="$2" v refs=main tagged="" stood=""
+  ff_why=""
+  git checkout -q -B main origin/main 2>/dev/null || { ff_why="main could not be checked out"; return 1; }
+  if ! git merge -q --ff-only "$sha" >/dev/null 2>&1; then
+    ff_why="main could not fast-forward to $short"
+    return 1
+  fi
+  v=$(head -1 .ai-backbone/core.just 2>/dev/null | grep -oE 'version [0-9]+\.[0-9]+\.[0-9]+' | awk '{print $2}')
+  if [ -n "$v" ]; then
+    if [ -z "$(git ls-remote --tags origin "refs/tags/v$v" 2>/dev/null)" ]; then
+      git tag -f "v$v" >/dev/null 2>&1 && { refs="main v$v"; tagged="v$v"; }
+    else stood="v$v"; fi
+  fi
+  # shellcheck disable=SC2086
+  if git push -q --atomic origin $refs 2>/dev/null; then
+    echo "gate: carried $short to main${tagged:+ and tagged $tagged}${stood:+; $stood was tagged before}"
+    return 0
+  fi
+  if [ -n "$tagged" ] && git push -q origin main 2>/dev/null; then
+    echo "gate: carried $short to main; the tag $tagged was there already, or was refused"
+    return 0
+  fi
+  ff_why="GitHub would not take main${tagged:+ and $tagged}; nothing was carried, the next green push tries again"
+  return 1
+}
+
 carry() {
   # No apostrophe inside these braces: /bin/bash 3.2 reads one as a quote.
   : "${GATE_SHA:?the tested commit}" "${GATE_ENDED:?the conclusion of the run}"
-  local sha="$GATE_SHA" run="${GATE_RUN:-}" why="" short="${GATE_SHA:0:7}" verdict="cloud not promoted"
-  git config user.name "github-actions[bot]"
-  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+  local sha="$GATE_SHA" run="${GATE_RUN:-}" why="" short="${GATE_SHA:0:7}" verdict="cloud not promoted" w="" skip_windows_note=0
+  # The workflow sets the identity from GATE_GIT_NAME and GATE_GIT_EMAIL. Set it
+  # here too when given: self-test has no workflow.
+  if [ -n "${GATE_GIT_NAME:-}" ]; then git config user.name "$GATE_GIT_NAME"; fi
+  if [ -n "${GATE_GIT_EMAIL:-}" ]; then git config user.email "$GATE_GIT_EMAIL"; fi
+  # promote.yml also wakes when windows.yml finishes. GATE_RUN and GATE_ENDED
+  # then belong to Windows, and suite_green has to read the checks run. A
+  # checks run that has not finished is left for its own completion.
+  if [ "${GATE_WORKFLOW:-}" = windows ]; then
+    unset GATE_RUN
+    run=""
+    local row cid cst cconcl
+    row=$(run_of "$sha" 2>/dev/null || true)
+    IFS=$'\t' read -r cid cst cconcl <<<"${row:-}"
+    if [ -z "${cid:-}" ] || [ "${cst:-}" != completed ]; then
+      echo "gate: Windows finished and the checks have not; nothing was judged"
+      return 0
+    fi
+    GATE_RUN="$cid"
+    run="$cid"
+    GATE_ENDED="${cconcl:-}"
+  fi
   if ! git fetch -q origin +refs/heads/main:refs/remotes/origin/main +refs/heads/cloud:refs/remotes/origin/cloud 2>/dev/null; then
     echo "gate: GitHub could not be fetched; nothing was judged"; return 1
   fi
@@ -160,54 +214,51 @@ carry() {
     why="the checks ended $GATE_ENDED: $(red "$run")"
   elif ! git merge-base --is-ancestor origin/main "$sha" 2>/dev/null; then
     why="main moved ($(git rev-list --count "$sha..origin/main" 2>/dev/null || echo '?') commit(s) cloud does not have); the next run merges origin/main into cloud and pushes"
-  elif ! git diff --quiet origin/main "$sha" -- .github/workflows .ai-backbone/gate.sh 2>/dev/null; then
-    why="the push changes .github/workflows or gate.sh, which only an attended carry takes to main (just carry $short after green checks, on the maintainer's yes); an unattended run puts main's copy back"
   elif [ "$(look "$sha" 2>/dev/null)" = suite ] && ! jobs_read "$run"; then
     why="the suite was due for this push and the run's jobs could not be read (run $run); the next push is judged instead"
   elif [ "$(look "$sha" 2>/dev/null)" = suite ] && ! suite_green "$run"; then
     why="the suite was due for this push and the run's suite jobs were not green on Linux and macOS when the gate read them (run $run): the suite never ran, or GitHub had not finished processing its result; the next push is judged instead"
   elif [ "$(look "$sha" 2>/dev/null)" = suite ]; then
-    # Spec 031: green is not enough for code. A changelog a stranger wrote can
-    # shape what a scheduled run builds, so code reaches the projects only
-    # after somebody said yes to it.
-    verdict="$short waits for an attended carry"
-    why="green on Linux and macOS; it changes code ($(code_of "$sha")): an attended session says what changed and why, and on the maintainer's yes runs just carry $short"
-  else
-    git checkout -q -B main origin/main 2>/dev/null
-    if git merge -q --ff-only "$sha" >/dev/null 2>&1; then
-      # The version is line 1 of core.just at main's new head, read the way
-      # _backbone-tag reads it. A tag that exists is left alone: two writers
-      # agree by construction, and an atomic push with a tag GitHub already has
-      # elsewhere refuses main as well (measured), so main goes alone then.
-      local v refs=main tagged="" stood=""
-      v=$(head -1 .ai-backbone/core.just 2>/dev/null | grep -oE 'version [0-9]+\.[0-9]+\.[0-9]+' | awk '{print $2}')
-      if [ -n "$v" ]; then
-        if [ -z "$(git ls-remote --tags origin "refs/tags/v$v" 2>/dev/null)" ]; then
-          git tag -f "v$v" >/dev/null 2>&1 && { refs="main v$v"; tagged="v$v"; }
-        else stood="v$v"; fi
-      fi
-      # shellcheck disable=SC2086
-      if git push -q --atomic origin $refs 2>/dev/null; then
-        echo "gate: carried $short to main${tagged:+ and tagged $tagged}${stood:+; $stood was tagged before}"; return 0
-      fi
-      if [ -n "$tagged" ] && git push -q origin main 2>/dev/null; then
-        echo "gate: carried $short to main; the tag $tagged was there already, or was refused"; return 0
-      fi
-      why="GitHub would not take main${tagged:+ and $tagged}; nothing was carried, the next green push tries again"
+    # 2026-11-11: code is carried when Linux, macOS and windows.yml are green.
+    # STABLE stays with the maintainer (spec 031). Windows still running, or
+    # not started, writes nothing: the completion that can see both runs judges.
+    if ! git diff --quiet origin/main "$sha" -- STABLE 2>/dev/null; then
+      why="it changes STABLE, which the gate never takes on its own (just stable, then just carry $short)"
     else
-      why="main could not fast-forward to $short"
+      w=$(windows_line "$sha")
+      case "$w" in
+        green)
+          if ff_main "$sha" "$short"; then return 0; fi
+          why="$ff_why"
+          ;;
+        running|none)
+          echo "gate: Windows is $w; $short stays on cloud until Windows is green"
+          return 0
+          ;;
+        red:*)
+          why="Windows is red: ${w#red: }"
+          skip_windows_note=1
+          ;;
+        *)
+          echo "gate: Windows is ${w:-unread}; $short stays on cloud until Windows is green"
+          return 0
+          ;;
+      esac
     fi
+  else
+    if ff_main "$sha" "$short"; then return 0; fi
+    why="$ff_why"
   fi
   # Not carried. One line where the next run reads (just session-start prints
   # the last two), on cloud, on top of whatever landed there meanwhile. A push
   # by this token starts no workflow, so the line rides the next real push.
-  # A red Windows run, when this carry can already see it, appends one more
-  # line the way a red Linux does. It does not decide the carry.
+  # A red Windows run on a checks failure appends one more line. When Windows
+  # is why the code stayed, that reason is already the line above.
   local line
   line="- $(date -u +%Y-%m-%d) gate: $verdict — $(printf '%s' "$why" | tr '\n\r\t' '   ' | cut -c1-400)"
   if append_gate "$line" "docs: gate — $verdict"; then
     echo "gate: $verdict: $why"
-    note_windows "$sha"
+    [ "$skip_windows_note" -eq 1 ] || note_windows "$sha"
     return 0
   fi
   echo "gate: $verdict: $why (and the verdict could not be written on cloud: the next run sees cloud ahead of main with no line for it)"

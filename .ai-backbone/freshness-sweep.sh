@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The machine's behind and not-watched lines, one project at a time (n-058e8b,
-# spec 043). Launchd runs a copy of this file from outside the project and
-# passes the checkout and the output file. A session runs it through
+# spec 043). The daily job runs a copy of this file from outside the project
+# and passes the checkout and the output file. A session runs it through
 # `just freshness-sweep`. It reads projects. It does not write into them.
 set -uo pipefail
 

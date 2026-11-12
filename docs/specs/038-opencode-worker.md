@@ -19,6 +19,12 @@ branch runs the next one, so a job starts on a cheap model and climbs only when
 it fails. The report the recipe prints ends with what the run cost, read from
 the run's own events, not from what the worker says.
 
+Any other opencode command the backbone runs also passes `--standalone`,
+including `opencode stats`. Without it, opencode starts `serve --service` and
+resumes sessions a restart interrupted (n-20e061). `opencode service status`
+does not accept that flag. `just delegate-status` runs it and warns when the
+answer is not `stopped`.
+
 ## Why
 
 On 2026-10-22 the maintainer took an opencode subscription that serves many

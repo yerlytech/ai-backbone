@@ -5,18 +5,19 @@
 # just self-test against a bare repository before any run exists.
 #
 # gate.sh moves main forward to the tested commit (never a merge on a runner)
-# when it changes only the routine's own files; since spec 031 a push with code
-# waits on cloud for an attended carry (just carry, which tags the version).
-# When it does not carry, it appends one `gate:` line to docs/routine-log.md on
-# cloud, which the next scheduled run reads first. The word that starts every git upload is
-# not written in this file outside comments: just ci-check keys any workflow
-# that says it on the commit, and a carry must be one queue of one.
+# when Linux and macOS are green and, for a change outside the routine's own
+# files, windows.yml is green too (owner, 2026-11-11). Code is included.
+# STABLE is still not taken here. When it does not carry, it appends one
+# `gate:` line to docs/routine-log.md on cloud, which the next scheduled run
+# reads first. The word that starts every git upload is not written in this
+# file outside comments: just ci-check keys any workflow that says it on the
+# commit, and a carry must be one queue of one.
 
 name: promote
 
 on:
   workflow_run:
-    workflows: [checks]
+    workflows: [checks, windows]
     types: [completed]
     branches: [cloud]
 
@@ -39,9 +40,18 @@ jobs:
       GATE_RUN: ${{ github.event.workflow_run.id }}
       GATE_SHA: ${{ github.event.workflow_run.head_sha }}
       GATE_ENDED: ${{ github.event.workflow_run.conclusion }}
+      GATE_WORKFLOW: ${{ github.event.workflow_run.name }}
     steps:
       - uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0
+      - name: git identity
+        env:
+          GATE_GIT_NAME: ${{ vars.GATE_GIT_NAME }}
+          GATE_GIT_EMAIL: ${{ vars.GATE_GIT_EMAIL }}
+        run: |
+          : "${GATE_GIT_NAME:?set the GATE_GIT_NAME Actions variable}" "${GATE_GIT_EMAIL:?set the GATE_GIT_EMAIL Actions variable}"
+          git config user.name "$GATE_GIT_NAME"
+          git config user.email "$GATE_GIT_EMAIL"
       - run: bash .ai-backbone/gate.sh carry

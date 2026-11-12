@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 26.11.2
+# .ai-backbone/core.just — the backbone's recipes, version 26.11.3
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -1356,6 +1356,38 @@ _session-start-body:
     # A bare `just` would read the checkout's own justfile, which is the one
     # without the recipe.
     just --justfile "{{justfile()}}" --working-directory "$PWD" _delegate-fallback 2>/dev/null || true
+    # In the backbone, local main and cloud follow GitHub (spec 017). A
+    # fast-forward moves them. Ahead or still behind is said. Offline: quiet.
+    if [ -n "$(just _is-backbone)" ] && [ -z "${AI_BACKBONE_OFFLINE:-}" ] \
+       && git remote get-url origin >/dev/null 2>&1; then
+      # Each branch on its own: an older GitHub with no cloud still moves main
+      # (spec 017). Both missing is the only "could not fetch".
+      fetched=0
+      if git fetch -q origin +refs/heads/main:refs/remotes/origin/main 2>/dev/null; then fetched=1; fi
+      if git fetch -q origin +refs/heads/cloud:refs/remotes/origin/cloud 2>/dev/null; then fetched=1; fi
+      if [ "$fetched" -eq 1 ]; then
+        for b in main cloud; do
+          git rev-parse -q --verify "refs/heads/$b" >/dev/null 2>&1 || continue
+          git rev-parse -q --verify "refs/remotes/origin/$b" >/dev/null 2>&1 || continue
+          ahead=$(git rev-list --count "refs/remotes/origin/$b..refs/heads/$b" 2>/dev/null || echo 0)
+          behind=$(git rev-list --count "refs/heads/$b..refs/remotes/origin/$b" 2>/dev/null || echo 0)
+          if [ "$behind" -gt 0 ] && [ "$ahead" -eq 0 ]; then
+            if [ "$(git symbolic-ref -q --short HEAD 2>/dev/null)" = "$b" ]; then
+              git merge -q --ff-only "refs/remotes/origin/$b" >/dev/null 2>&1 || true
+            else
+              git branch -q -f "$b" "refs/remotes/origin/$b"
+            fi
+            ahead=$(git rev-list --count "refs/remotes/origin/$b..refs/heads/$b" 2>/dev/null || echo 0)
+            behind=$(git rev-list --count "refs/heads/$b..refs/remotes/origin/$b" 2>/dev/null || echo 0)
+          fi
+          if [ "$ahead" -gt 0 ] || [ "$behind" -gt 0 ]; then
+            echo "GitHub: $b is $ahead ahead, $behind behind"
+          fi
+        done
+      else
+        echo "GitHub: could not fetch; local main and cloud were left as they are"
+      fi
+    fi
     echo
     echo "=== WORKING TREE ==="
     git status --short 2>/dev/null | head -15 || true
@@ -1670,7 +1702,8 @@ _delegate-fallback:
 
 # [no-exit-message]: a refusal is one line. Without it, just 1.59.0 adds
 # "error: recipe failed" (measured); the attribute is documented since just 1.7.0,
-# under the 1.29.0 floor this file names.
+# under the 1.29.0 floor this file names. The last line is what `just --list` shows.
+# DELEGATE_TIMEOUT is minutes for one job (180 if unset).
 [group('session')]
 [no-exit-message]
 [positional-arguments]
@@ -1875,6 +1908,10 @@ delegate task="":
     wpid=""
     tpid=""
     hookdir=""
+    # n-a5924b: one MCP server for this run. Empty until DELEGATE_MCP is read.
+    mcp_name=""
+    mcp_url=""
+    mcp_cfg=""
     hooks_prev=""
     sign_wt_gpgsign=""
     sign_wt_gpgsign_set=0
@@ -1886,10 +1923,15 @@ delegate task="":
     # (n-683f69). This ref hook is what actually refuses it.
     # n-154b76: the path is this worktree's. A sibling keeps its own hooks.
     # The extension stays on: turning it off would hide another worktree's config.
+    # n-70dcaf: the job's hooksPath goes back however the shell stops. A
+    # signal during the wait used to leave it on the job's hooks dir.
     restore_delegate_hook() {
       if [ -n "$hookdir" ]; then
+        case "$hooks_prev" in
+          "$dir/"*.hooks) hooks_prev="" ;;
+        esac
         if [ -n "$hooks_prev" ]; then git config --worktree core.hooksPath "$hooks_prev" || true
-        else git config --worktree --unset core.hooksPath || true
+        else git config --worktree --unset-all core.hooksPath >/dev/null 2>&1 || true
         fi
         rm -rf "$hookdir"
         hookdir=""
@@ -1941,7 +1983,37 @@ delegate task="":
       rm -f "$out" "$out.sleep" "$out.done" || true
       return 0
     }
-    trap 'restore_delegate_hook; if [ -n "$tpid" ]; then kill -TERM -"$tpid" 2>/dev/null || kill -TERM "$tpid" 2>/dev/null || true; fi; if [ -n "$wpid" ]; then kill -TERM -"$wpid" 2>/dev/null || kill -TERM "$wpid" 2>/dev/null || true; fi; stop_delegate_sccache; rm -rf "$lock"' EXIT
+    # n-a5924b: the server is this run's. A signal ends in this function too.
+    clear_delegate_mcp() {
+      [ -n "${mcp_cfg:-}" ] || return 0
+      if [ -f "$mcp_cfg" ]; then
+        local mcp_cleared
+        mcp_cleared=$(mktemp)
+        if perl -0pe 's/^# BEGIN ai-backbone delegate mcp\n.*?\n# END ai-backbone delegate mcp\n?//ms' "$mcp_cfg" > "$mcp_cleared"; then
+          if grep -q '[^[:space:]]' "$mcp_cleared" 2>/dev/null; then mv "$mcp_cleared" "$mcp_cfg" || true
+          else rm -f "$mcp_cfg" "$mcp_cleared" || true
+          fi
+        else
+          rm -f "$mcp_cleared" || true
+        fi
+      fi
+      mcp_cfg=""
+    }
+    # EXIT covers a normal end. INT, TERM and HUP cover a job that is stopped
+    # from outside: bash does not promise to run EXIT for those (n-70dcaf).
+    end_delegate_job() {
+      trap - INT TERM HUP
+      clear_delegate_mcp
+      restore_delegate_hook
+      if [ -n "$tpid" ]; then kill -TERM -"$tpid" 2>/dev/null || kill -TERM "$tpid" 2>/dev/null || true; fi
+      if [ -n "$wpid" ]; then kill -TERM -"$wpid" 2>/dev/null || kill -TERM "$wpid" 2>/dev/null || true; fi
+      stop_delegate_sccache
+      rm -rf "$lock"
+    }
+    trap end_delegate_job EXIT
+    trap 'end_delegate_job; exit 130' INT
+    trap 'end_delegate_job; exit 143' TERM
+    trap 'end_delegate_job; exit 129' HUP
     # opencode climbs WORKER_LADDER (spec 038). The first try of a branch takes
     # the first model; each fix round takes the next. Past the last, the job
     # stops. WORKER_MODEL pins one model and does not climb. Grok, claude and
@@ -1985,6 +2057,64 @@ delegate task="":
       fi
       model=${oc_models[$oc_idx]}
     fi
+    # n-a5924b: one name and one http(s) url. A bad value stops before the branch.
+    if [ -n "${DELEGATE_MCP:-}" ]; then
+      mcp_name=${DELEGATE_MCP%% *}
+      mcp_rest=${DELEGATE_MCP#* }
+      mcp_ok=1
+      if [ "$mcp_name" = "$DELEGATE_MCP" ] || [ -z "$mcp_rest" ]; then mcp_ok=0; fi
+      if [ "$mcp_ok" -eq 1 ] && [ "${mcp_rest%% *}" != "$mcp_rest" ]; then mcp_ok=0; fi
+      case "$mcp_name" in
+        *[!A-Za-z0-9_-]*|"") mcp_ok=0 ;;
+      esac
+      case "$mcp_name" in
+        [A-Za-z0-9]*) ;;
+        *) mcp_ok=0 ;;
+      esac
+      case "$mcp_rest" in
+        http://*|https://*) ;;
+        *) mcp_ok=0 ;;
+      esac
+      case "$mcp_rest" in
+        *$'\n'*|*$'\r'*) mcp_ok=0 ;;
+      esac
+      if [ "$mcp_ok" -ne 1 ]; then
+        echo "refuses: DELEGATE_MCP is one name and one http(s) url"
+        exit 1
+      fi
+      mcp_url=$mcp_rest
+    fi
+    # A grok sandbox cannot download crates (n-c4e0f1). Fetch outside it,
+    # before the branch, when the project has Rust. No .cargo/config.toml.
+    rust_manifest=""
+    if [ -f Cargo.toml ]; then rust_manifest=Cargo.toml
+    else
+      for m in */Cargo.toml src/*/Cargo.toml; do
+        [ -f "$m" ] || continue
+        rust_manifest=$m
+        break
+      done
+    fi
+    if [ -n "$rust_manifest" ]; then
+      if ! command -v cargo >/dev/null 2>&1; then
+        echo "refuses: this project has Rust and cargo is not installed, so the crates were not fetched"
+        exit 1
+      fi
+      fetch_out=$(mktemp)
+      fetch_rc=0
+      if [ "$rust_manifest" = Cargo.toml ]; then
+        cargo fetch >"$fetch_out" 2>&1 || fetch_rc=$?
+      else
+        cargo fetch --manifest-path "$rust_manifest" >"$fetch_out" 2>&1 || fetch_rc=$?
+      fi
+      if [ "$fetch_rc" -ne 0 ]; then
+        echo "refuses: cargo fetch failed; the worker does not vendor or patch crates-io"
+        tail -n 20 "$fetch_out"
+        rm -f "$fetch_out"
+        exit 1
+      fi
+      rm -f "$fetch_out"
+    fi
     if [ "$fix_round" -eq 0 ]; then
       git checkout -q -b "$branch"
       if [ -n "$base" ]; then git config "branch.${branch}.delegateBase" "$base"; fi
@@ -2010,9 +2140,11 @@ delegate task="":
       # which then says "Not signed in" (n-4d1e6a, 2026-10-31). The Read deny
       # below keeps the worker's tools off it.
       # Grok 1.0.62 reads custom profiles from ~/.grok/sandbox.toml or the
-      # project's .grok/sandbox.toml (18-sandbox.md). Writing the shared file
-      # closes every session already running (seen 2026-11-07 23:28). Write
-      # the project file, and only when the spliced content differs.
+      # project's .grok/sandbox.toml (18-sandbox.md). `grok --help` gives
+      # `--sandbox` a profile name, not a file, so a per-run file would not
+      # be read (n-a6542a). Writing the shared file closes every session
+      # already running (seen 2026-11-07 23:28). Write the project file, and
+      # only when the spliced content differs. Never write the home file.
       local gfile gblock docker_rw gprofile ghome gexclude
       gprofile=ai-backbone-delegate
       ghome="$HOME/.grok/sandbox.toml"
@@ -2087,9 +2219,13 @@ delegate task="":
       # write. Hash it after the splice and again when the job ends.
       if [ -f "$gfile" ]; then git hash-object "$gfile" > "$dir/${id}.sandbox-hash"
       else printf 'missing\n' > "$dir/${id}.sandbox-hash"; fi
+      # n-a5924b: --trust is this process. `grok --trust` would save the folder.
+      trust_flag=""
+      if [ -n "$mcp_name" ]; then trust_flag=--trust; fi
       exec "$worker_bin" -p "$1" --output-format plain --permission-mode auto \
         --background-wait-timeout "$background_wait" \
         --sandbox "$gprofile" \
+        ${trust_flag:+--trust} \
         --allow 'Bash(just:*)' --allow 'Bash(git:*)' --allow 'Bash(cargo:*)' --allow 'Bash(npm:*)' \
         --allow 'Bash(npx:*)' --allow 'Bash(flutter:*)' --allow 'Bash(dart:*)' --allow 'Bash(uv:*)' \
         --deny 'Bash(git push:*)' --deny 'Bash(git merge:*)' --deny 'Bash(git rebase:*)' \
@@ -2123,7 +2259,11 @@ delegate task="":
       else exec "$worker_bin" -p "$1"; fi
     }
     # opencode 2.1.2, measured 2026-10-22. --standalone is what reads this
-    # config; without it a denied rm ran. The last matching rule wins, so the
+    # config; without it a denied rm ran. Every opencode command this recipe
+    # runs passes it, including stats: without it opencode starts
+    # `serve --service` and resumes sessions a restart interrupted
+    # (n-20e061). `service status` rejects the flag; it only reads.
+    # The last matching rule wins, so the
     # catch-all deny comes first and the shell's allow comes before its deny
     # patterns. A pattern ending in " *" matches the command and that command
     # with arguments, and not a longer name. A shell wrapper steps around a
@@ -2306,6 +2446,7 @@ delegate task="":
       "Never start a sub-agent or a parallel task: one thing at a time." \
       "Never run just publish, git push, just ship, or just deploy. Never call a server or GitHub. Never merge, rebase, or delete a branch." \
       "Never begin a command with a variable assignment; put multi-step logic in a recipe or a test file." \
+      "Never vendor a crate or patch crates-io. If a download is refused, stop and say which crate." \
       "When you finish, the report is the last thing you print: at most 15 lines, and nothing after it.")
     # One line: a blank line inside a quoted string is a just parse error
     # (measured on just 1.59.0, "unknown start of token").
@@ -2536,6 +2677,51 @@ delegate task="":
     start_tip=$(git rev-parse -q --verify "refs/heads/$branch" 2>/dev/null || echo none)
     rm -f "$dir/${id}.idle"
     idle_clean_since=$(date +%s)
+    # n-a5924b: grok reads ./.grok/config.toml only in a trusted folder.
+    # The block is removed when the job ends. Trust is not saved.
+    if [ -n "$mcp_name" ]; then
+      mkdir -p "$top/.grok"
+      mcp_cfg="$top/.grok/config.toml"
+      mcp_exclude=$(git rev-parse --git-path info/exclude 2>/dev/null || true)
+      if [ -n "$mcp_exclude" ]; then
+        mkdir -p "$(dirname "$mcp_exclude")"
+        if [ ! -f "$mcp_exclude" ] || ! grep -qxF '.grok/config.toml' "$mcp_exclude"; then
+          printf '%s\n' '.grok/config.toml' >> "$mcp_exclude"
+        fi
+      fi
+      mcp_url_esc=$(printf '%s' "$mcp_url" | sed 's/\\/\\\\/g; s/"/\\"/g')
+      mcp_block=$(mktemp)
+      {
+        printf '%s\n' '# BEGIN ai-backbone delegate mcp'
+        printf '%s\n' "[mcp_servers.$mcp_name]"
+        printf 'url = "%s"\n' "$mcp_url_esc"
+        printf '%s\n' '# END ai-backbone delegate mcp'
+      } > "$mcp_block"
+      perl - "$mcp_cfg" "$mcp_block" << 'MCPPERL'
+    use strict;
+    use warnings;
+    my ($path, $blockpath) = @ARGV;
+    open my $bf, "<", $blockpath or die "open $blockpath: $!";
+    local $/;
+    my $block = <$bf>;
+    close $bf;
+    $block =~ s/\s+\z/\n/;
+    my $text = "";
+    if (-f $path) {
+      open my $fh, "<", $path or die "open $path: $!";
+      $text = <$fh>;
+      close $fh;
+      $text = "" if !defined $text;
+    }
+    $text =~ s/^# BEGIN ai-backbone delegate mcp\n.*?\n# END ai-backbone delegate mcp\n?//ms;
+    $text .= "\n" if length($text) && $text !~ /\n\z/;
+    $text .= $block;
+    open my $out, ">", $path or die "write $path: $!";
+    print $out $text;
+    close $out;
+    MCPPERL
+      rm -f "$mcp_block"
+    fi
     set +e
     # n-301ae6: no inherited wrapper and no unix socket, so this port is the
     # only sccache server the worker can start. The trap stops that port.
@@ -2584,6 +2770,7 @@ delegate task="":
     } 2>/dev/null
     wpid=""
     tpid=""
+    clear_delegate_mcp
     set +e
     timed_out=0
     if [ -f "$dir/${id}.timedout" ]; then timed_out=1; rc=124; rm -f "$dir/${id}.timedout"; fi
@@ -2732,6 +2919,19 @@ delegate-status:
     #!/usr/bin/env bash
     set -euo pipefail
     git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "refuses: not a git repository"; exit 1; }
+    # n-20e061: a command without --standalone starts the background service.
+    # `service status` rejects that flag (measured: "Unrecognized flag").
+    # Stopped prints `stopped`. Anything else is a live server, a URL.
+    oc_bin=""
+    if command -v opencode >/dev/null 2>&1; then oc_bin=$(command -v opencode)
+    elif [ -x "$HOME/.opencode/bin/opencode" ]; then oc_bin="$HOME/.opencode/bin/opencode"; fi
+    if [ -n "$oc_bin" ]; then
+      oc_state=$("$oc_bin" service status 2>/dev/null || true)
+      oc_state=${oc_state//[[:space:]]/}
+      if [ -n "$oc_state" ] && [ "$oc_state" != stopped ]; then
+        echo "opencode service is running: a command without --standalone resumes its sessions"
+      fi
+    fi
     top=$(git rev-parse --show-toplevel)
     dir="$HOME/.cache/ai-backbone/delegate/$(basename "$top")"
     lock="$dir/running"
@@ -3398,6 +3598,28 @@ save msg *paths:
     if [ -f "$log" ] && [ "$(wc -l < "$log")" -gt 4000 ]; then tail -n 3000 "$log" > "$log.t" && mv "$log.t" "$log"; fi
     just _msg saved
     [ -z "$summary" ] || printf '%s\n' "$summary"
+    # The backbone's save on main must not leave the commit only there
+    # (spec 017). Move cloud up to it when cloud can fast-forward. No push.
+    if [ -n "$(just _is-backbone)" ] && [ "$(git symbolic-ref -q --short HEAD 2>/dev/null)" = main ]; then
+      tip=$(git rev-parse HEAD)
+      if ! git rev-parse -q --verify refs/heads/cloud >/dev/null 2>&1; then
+        if git rev-parse -q --verify refs/remotes/origin/cloud >/dev/null 2>&1 \
+           && git merge-base --is-ancestor refs/remotes/origin/cloud "$tip" 2>/dev/null; then
+          git branch -q cloud "$tip"
+          echo "  on cloud as well: this commit is not only on main"
+        elif ! git rev-parse -q --verify refs/remotes/origin/cloud >/dev/null 2>&1; then
+          git branch -q cloud "$tip"
+          echo "  on cloud as well: this commit is not only on main"
+        else
+          echo "  on main only: cloud on GitHub has commits this main does not, so it was left (just publish says how to join them)"
+        fi
+      elif git merge-base --is-ancestor refs/heads/cloud "$tip" 2>/dev/null; then
+        git branch -q -f cloud "$tip"
+        echo "  on cloud as well: this commit is not only on main"
+      else
+        echo "  on main only: local cloud has commits this main does not, so it was left (just publish says how to join them)"
+      fi
+    fi
     # What a save of named paths left, so nobody believes it all went.
     if [ ${#paths[@]} -gt 0 ]; then
       left=$(git status --short --untracked-files=all 2>/dev/null || true)
@@ -4484,12 +4706,12 @@ _newer a b:
     [ -n "$1" ] && [ -n "$2" ] && [ "$1" != "$2" ] || exit 1
     [ "$(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)" = "$1" ]
 
-# One line when cloud holds code main does not have: it waits for an attended carry (spec 031)
+# One line when cloud holds code main does not have (spec 017, 2026-11-11)
 _gate-waits:
     #!/usr/bin/env bash
     [ -n "$(git rev-list -n1 origin/main..origin/cloud 2>/dev/null)" ] || exit 0
     [ "$(bash .ai-backbone/gate.sh look origin/cloud 2>/dev/null | tail -1)" = suite ] || exit 0
-    echo "Gate: cloud holds code main does not have ($(git rev-list --no-merges --count origin/main..origin/cloud) commit(s)); it waits for an attended carry. Say what changed and why; on the maintainer's yes -> just carry"
+    echo "Gate: cloud holds code main does not have ($(git rev-list --no-merges --count origin/main..origin/cloud) commit(s)); the gate carries it once Linux, macOS and Windows are green -> just carry"
 
 # Let this repo work on itself once a week, unattended: just routine-install
 [group('template')]
@@ -4704,58 +4926,140 @@ freshness-sweep:
     out=$(just _freshness-file)
     bash .ai-backbone/freshness-sweep.sh "$PWD" "$out"
 
-# Every day at 08:15. The script launchd runs is a copy outside this checkout:
-# a job started by launchd cannot be a file inside Desktop, Documents or
-# Downloads. This checkout becomes the desk, whose session-start prints the list.
+# Every day at 08:15. The script the schedule runs is a copy outside this
+# checkout: launchd cannot read Desktop, Documents or Downloads (n-058e8b).
+# macOS uses launchd. Linux uses a systemd user timer, or cron when that
+# timer cannot be enabled. Windows uses Task Scheduler. Anywhere else, or
+# when the tool is missing, the line is "not supported here". Never launchd
+# outside macOS: ubuntu-latest failed the desk checks on that (2026-11-11).
 [group('template')]
 freshness-sweep-install:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [ "$(uname)" != Darwin ]; then
-      echo "This installs a macOS schedule. On this machine, run the same sweep from cron:"
-      echo "  15 8 * * *  cd $PWD && just freshness-sweep"
-      exit 1
-    fi
     if [ ! -f .ai-backbone/freshness-sweep.sh ]; then
       echo "This checkout has no .ai-backbone/freshness-sweep.sh. Run just template-update, then this again."
       exit 1
     fi
-    support="$HOME/Library/Application Support/ai-backbone"
-    mkdir -p "$support" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
-    copy="$support/freshness-sweep.sh"
-    cp .ai-backbone/freshness-sweep.sh "$copy"
-    chmod +x "$copy"
     root=$(pwd -P)
     out=$(just _freshness-file)
-    label="ai-backbone.freshness-sweep"
-    plist="$HOME/Library/LaunchAgents/$label.plist"
-    printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' \
-      '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
-      '<plist version="1.0"><dict>' \
-      "<key>Label</key><string>$label</string>" \
-      '<key>ProgramArguments</key><array>' \
-      '<string>/bin/bash</string>' \
-      "<string>$copy</string>" \
-      "<string>$root</string>" \
-      "<string>$out</string>" \
-      '</array>' \
-      '<key>StartCalendarInterval</key><dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>15</integer></dict>' \
-      "<key>StandardOutPath</key><string>$HOME/Library/Logs/ai-backbone-freshness.log</string>" \
-      "<key>StandardErrorPath</key><string>$HOME/Library/Logs/ai-backbone-freshness.log</string>" \
-      '</dict></plist>' > "$plist"
-    launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || launchctl unload "$plist" 2>/dev/null || true
-    launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null || launchctl load "$plist"
-    if git rev-parse --git-dir >/dev/null 2>&1; then git config --local ai-backbone.desk true; fi
-    echo "Installed. Every day at 08:15 the sweep writes $out."
-    echo "This checkout is the desk: just session-start prints the list."
-    here=$(pwd -P)
-    home=$(cd "$HOME" 2>/dev/null && pwd -P || echo "$HOME")
-    for kept in Desktop Documents Downloads; do
-      case "$here/" in "$home/$kept/"*)
-        echo "Note: this checkout is inside ~/$kept, and macOS does not let a scheduled job read it. The list stays empty until just freshness-sweep runs from a session."
+    bash_bin=$(command -v bash)
+    q() { printf '"%s"' "${1//\"/\\\"}"; }
+    os=$(uname)
+    case "$os" in
+      Darwin)
+        support="$HOME/Library/Application Support/ai-backbone"
+        mkdir -p "$support" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
+        copy="$support/freshness-sweep.sh"
+        cp .ai-backbone/freshness-sweep.sh "$copy"
+        chmod +x "$copy"
+        label="ai-backbone.freshness-sweep"
+        plist="$HOME/Library/LaunchAgents/$label.plist"
+        printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' \
+          '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+          '<plist version="1.0"><dict>' \
+          "<key>Label</key><string>$label</string>" \
+          '<key>ProgramArguments</key><array>' \
+          '<string>/bin/bash</string>' \
+          "<string>$copy</string>" \
+          "<string>$root</string>" \
+          "<string>$out</string>" \
+          '</array>' \
+          '<key>StartCalendarInterval</key><dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>15</integer></dict>' \
+          "<key>StandardOutPath</key><string>$HOME/Library/Logs/ai-backbone-freshness.log</string>" \
+          "<key>StandardErrorPath</key><string>$HOME/Library/Logs/ai-backbone-freshness.log</string>" \
+          '</dict></plist>' > "$plist"
+        launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || launchctl unload "$plist" 2>/dev/null || true
+        launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null || launchctl load "$plist"
+        echo "Installed. Every day at 08:15 the sweep writes $out."
+        echo "Schedule: launchd"
+        here=$(pwd -P)
+        home=$(cd "$HOME" 2>/dev/null && pwd -P || echo "$HOME")
+        for kept in Desktop Documents Downloads; do
+          case "$here/" in "$home/$kept/"*)
+            echo "Note: this checkout is inside ~/$kept, and macOS does not let a scheduled job read it. The list stays empty until just freshness-sweep runs from a session."
+            ;;
+          esac
+        done
         ;;
-      esac
-    done
+      Linux)
+        cfg="${XDG_CONFIG_HOME:-$HOME/.config}"
+        data="${XDG_DATA_HOME:-$HOME/.local/share}"
+        mkdir -p "$data/ai-backbone" "$cfg/systemd/user" "$cfg/ai-backbone"
+        copy="$data/ai-backbone/freshness-sweep.sh"
+        cp .ai-backbone/freshness-sweep.sh "$copy"
+        chmod +x "$copy"
+        unit="ai-backbone-freshness-sweep"
+        timer="$cfg/systemd/user/$unit.timer"
+        svc="$cfg/systemd/user/$unit.service"
+        cronfile="$cfg/ai-backbone/freshness.cron"
+        printf '%s\n' '[Unit]' 'Description=ai-backbone freshness sweep' '' \
+          '[Service]' 'Type=oneshot' \
+          "ExecStart=$(q "$bash_bin") $(q "$copy") $(q "$root") $(q "$out")" \
+          > "$svc"
+        printf '%s\n' '[Unit]' 'Description=ai-backbone freshness sweep' '' \
+          '[Timer]' 'OnCalendar=*-*-* 08:15:00' 'Persistent=true' '' \
+          '[Install]' 'WantedBy=timers.target' \
+          > "$timer"
+        if systemctl --user daemon-reload >/dev/null 2>&1 && systemctl --user enable "$unit.timer" >/dev/null 2>&1; then
+          if [ -f "$cronfile" ]; then
+            slot=$(mktemp)
+            if crontab -l > "$slot.raw" 2>/dev/null; then
+              grep -v 'ai-backbone-freshness-sweep' "$slot.raw" > "$slot" || : > "$slot"
+              crontab "$slot" >/dev/null 2>&1 || true
+            fi
+            rm -f "$cronfile" "$slot" "$slot.raw"
+          fi
+          echo "Installed. Every day at 08:15 the sweep writes $out."
+          echo "Schedule: systemd user timer"
+        else
+          rm -f "$timer" "$svc"
+          line="15 8 * * * $(printf '%q' "$bash_bin") $(printf '%q' "$copy") $(printf '%q' "$root") $(printf '%q' "$out") # ai-backbone-freshness-sweep"
+          slot=$(mktemp)
+          if crontab -l > "$slot.raw" 2>/dev/null; then
+            grep -v 'ai-backbone-freshness-sweep' "$slot.raw" > "$slot" || : > "$slot"
+          else
+            : > "$slot"
+          fi
+          printf '%s\n' "$line" >> "$slot"
+          if crontab "$slot"; then
+            printf '%s\n' "$line" > "$cronfile"
+            echo "Installed. Every day at 08:15 the sweep writes $out."
+            echo "Schedule: cron"
+          else
+            rm -f "$cronfile"
+            echo "not supported here"
+          fi
+          rm -f "$slot" "$slot.raw"
+        fi
+        ;;
+      MINGW*|MSYS*|CYGWIN*|Windows_NT)
+        base="${LOCALAPPDATA:-$HOME/AppData/Local}/ai-backbone"
+        mkdir -p "$base"
+        copy="$base/freshness-sweep.sh"
+        cp .ai-backbone/freshness-sweep.sh "$copy"
+        chmod +x "$copy"
+        winpath() { if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else printf '%s' "$1"; fi; }
+        marker="$base/ai-backbone-freshness-sweep.task"
+        tr="$(q "$(winpath "$bash_bin")") $(q "$(winpath "$copy")") $(q "$(winpath "$root")") $(q "$(winpath "$out")")"
+        printf '%s\n' 'daily 08:15' "$tr" > "$marker"
+        if (
+          export MSYS_NO_PATHCONV=1
+          export MSYS2_ARG_CONV_EXCL='*'
+          schtasks /Create /F /SC DAILY /ST 08:15 /TN "ai-backbone-freshness-sweep" /TR "$tr"
+        ); then
+          echo "Installed. Every day at 08:15 the sweep writes $out."
+          echo "Schedule: Task Scheduler"
+        else
+          rm -f "$marker"
+          echo "not supported here"
+        fi
+        ;;
+      *)
+        echo "not supported here"
+        ;;
+    esac
+    if git rev-parse --git-dir >/dev/null 2>&1; then git config --local ai-backbone.desk true; fi
+    echo "This checkout is the desk: just session-start prints the list."
 
 # Stop the daily sweep on this machine. The desk mark stays, so session-start
 # still prints the list the last run wrote.
@@ -4763,16 +5067,59 @@ freshness-sweep-install:
 freshness-sweep-remove:
     #!/usr/bin/env bash
     set -uo pipefail
-    label="ai-backbone.freshness-sweep"
-    plist="$HOME/Library/LaunchAgents/$label.plist"
-    if [ ! -f "$plist" ]; then
-      if [ "$(uname)" != Darwin ]; then echo "No macOS schedule here. If this machine runs it from cron, remove that line: crontab -e"
-      else echo "Nothing installed here."; fi
-      exit 0
+    removed=0
+    os=$(uname)
+    case "$os" in
+      Darwin)
+        label="ai-backbone.freshness-sweep"
+        plist="$HOME/Library/LaunchAgents/$label.plist"
+        if [ -f "$plist" ]; then
+          launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || launchctl unload "$plist" 2>/dev/null || true
+          rm -f "$plist"
+          removed=1
+        fi
+        ;;
+      Linux)
+        cfg="${XDG_CONFIG_HOME:-$HOME/.config}"
+        unit="ai-backbone-freshness-sweep"
+        timer="$cfg/systemd/user/$unit.timer"
+        svc="$cfg/systemd/user/$unit.service"
+        cronfile="$cfg/ai-backbone/freshness.cron"
+        if [ -f "$timer" ] || [ -f "$svc" ]; then
+          systemctl --user disable --now "$unit.timer" >/dev/null 2>&1 || true
+          rm -f "$timer" "$svc"
+          systemctl --user daemon-reload >/dev/null 2>&1 || true
+          removed=1
+        fi
+        if [ -f "$cronfile" ]; then
+          slot=$(mktemp)
+          if crontab -l > "$slot.raw" 2>/dev/null; then
+            grep -v 'ai-backbone-freshness-sweep' "$slot.raw" > "$slot" || : > "$slot"
+            crontab "$slot" >/dev/null 2>&1 || true
+          fi
+          rm -f "$cronfile" "$slot" "$slot.raw"
+          removed=1
+        fi
+        ;;
+      MINGW*|MSYS*|CYGWIN*|Windows_NT)
+        base="${LOCALAPPDATA:-$HOME/AppData/Local}/ai-backbone"
+        marker="$base/ai-backbone-freshness-sweep.task"
+        if [ -f "$marker" ]; then
+          (
+            export MSYS_NO_PATHCONV=1
+            export MSYS2_ARG_CONV_EXCL='*'
+            schtasks /Delete /F /TN "ai-backbone-freshness-sweep"
+          ) >/dev/null 2>&1 || true
+          rm -f "$marker"
+          removed=1
+        fi
+        ;;
+    esac
+    if [ "$removed" = 1 ]; then
+      echo "Removed. The list stays. Put the job back with: just freshness-sweep-install"
+    else
+      echo "Nothing installed here."
     fi
-    launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || launchctl unload "$plist" 2>/dev/null || true
-    rm -f "$plist"
-    echo "Removed. The list stays. Put the job back with: just freshness-sweep-install"
 
 # What the things this project is built on have released: just upstream · just upstream graphify
 # Asked at most once a day per machine. The answer is shared by every project
@@ -6616,9 +6963,10 @@ _note-check text src="" sender="":
 # and by its commit-msg hook on the message (the file given as the argument).
 # The backbone's own GitHub address is taken out of the text first: its owner
 # is the maker, whom the backbone names (LICENSE), and a project on the
-# machine may carry that name. The suite's own check over the tree matches
-# names literally and whole; this matcher, blind to case and separators, is
-# the stricter of the two and the one a commit meets.
+# machine may carry that name. The identity the gate commits as is not in the
+# tree: it comes from the repository's Actions variables. The suite's own check over the
+# tree matches names literally and whole; this matcher, blind to case and
+# separators, is the stricter of the two and the one a commit meets.
 [positional-arguments]
 _no-project-names file="":
     #!/usr/bin/env bash
