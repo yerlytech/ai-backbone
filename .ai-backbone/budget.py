@@ -21,6 +21,9 @@ meter anchors and the transcripts only fill the minutes since.
                                 the subagent-cap hook in a project's settings
     budget.py vault add|remove|check [.claude/settings.json]
                                 the hourly vault copy; not part of hook add
+    budget.py sweep add|remove|check <settings.json> [command]
+                                the desk's vault sweep, at most once every 3 hours;
+                                not part of hook add or of vault add
     budget.py allow [.claude/settings.json]
                                 the four delegate allow rules, when WORKER is
                                 grok, claude, opencode or kimi; a rule already there stays
@@ -617,6 +620,177 @@ def vault_hooks(action, path):
     return 0
 
 
+# The desk's sweep of every sibling project, at most once every 3 hours
+# (n-a931f8). Installed into the user settings by `just vault-sweep-install`,
+# not into a project's file and not by hook add. The command names the script
+# and `--periodic`. A quoted path sits between those two words
+# (`.../vault-sweep.sh" --periodic`), so the check is the two words, not one
+# string. remove finds the command whatever path the copy was given.
+SWEEP_SCRIPT = "vault-sweep.sh"
+SWEEP_FLAG = "--periodic"
+
+
+def _is_sweep_hook(hook):
+    if not isinstance(hook, dict):
+        return False
+    command = str(hook.get("command", ""))
+    return SWEEP_SCRIPT in command and SWEEP_FLAG in command
+
+
+def _groups_have_sweep(groups):
+    if not isinstance(groups, list):
+        return False
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        for hook in group.get("hooks") or []:
+            if _is_sweep_hook(hook):
+                return True
+    return False
+
+
+def _append_sweep(groups, command, matcher=None):
+    """One sweep command, on the first matching group. A new group is added
+    only when none of that shape is there, so every other hook stays."""
+    entry = {"type": "command", "command": command}
+    if matcher is None:
+        if groups and isinstance(groups[0], dict) and isinstance(groups[0].get("hooks"), list):
+            groups[0]["hooks"].append(entry)
+            return
+        groups.append({"hooks": [entry]})
+        return
+    for group in groups:
+        if isinstance(group, dict) and group.get("matcher") == matcher and isinstance(group.get("hooks"), list):
+            group["hooks"].append(entry)
+            return
+    groups.append({"matcher": matcher, "hooks": [entry]})
+
+
+def _replace_sweep(groups, command):
+    """Point an existing sweep command at `command`. True when a command changed."""
+    changed = False
+    if not isinstance(groups, list):
+        return False
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        for hook in group.get("hooks") or []:
+            if _is_sweep_hook(hook) and hook.get("command") != command:
+                hook["command"] = command
+                changed = True
+    return changed
+
+
+def _strip_sweep_groups(groups):
+    """Take the sweep command out. A group left with no hooks goes too.
+    The inverse of `_append_sweep`. Returns whether the list changed."""
+    if not isinstance(groups, list):
+        return False
+    changed = False
+    kept = []
+    for group in groups:
+        if not isinstance(group, dict):
+            kept.append(group)
+            continue
+        hooks = group.get("hooks")
+        if not isinstance(hooks, list):
+            kept.append(group)
+            continue
+        left = [h for h in hooks if not _is_sweep_hook(h)]
+        if len(left) != len(hooks):
+            changed = True
+            if not left:
+                continue
+            group["hooks"] = left
+        kept.append(group)
+    if len(kept) != len(groups):
+        groups[:] = kept
+        changed = True
+    return changed
+
+
+def sweep_hooks(action, path, command=""):
+    """Add or remove the desk's vault sweep on SessionStart and on PostToolUse/Bash.
+
+    Not the subagent cap and not the hourly copy: those leave this alone, and
+    this leaves them alone. remove is the inverse of add, so a round trip puts
+    the file back. A command already there with the same text is left, and the
+    file is not rewritten.
+    """
+    try:
+        data = _load_settings(path)
+    except (OSError, ValueError):
+        say("not-json")
+        return 1
+    if not isinstance(data, dict):
+        say("not-object")
+        return 1
+    hooks = data.get("hooks")
+    if action == "check":
+        if not isinstance(hooks, dict):
+            return 1
+        session = isinstance(hooks.get("SessionStart"), list) and _groups_have_sweep(hooks["SessionStart"])
+        posted = isinstance(hooks.get("PostToolUse"), list) and _groups_have_sweep(hooks["PostToolUse"])
+        return 0 if session and posted else 1
+    if not isinstance(hooks, dict):
+        if hooks is not None:
+            say("not-object")
+            return 1
+        hooks = {}
+    if action == "remove":
+        changed = False
+        for name in ("SessionStart", "PostToolUse"):
+            groups = hooks.get(name)
+            if not isinstance(groups, list) or not _strip_sweep_groups(groups):
+                continue
+            changed = True
+            if not groups:
+                del hooks[name]
+        if not changed:
+            say("not there")
+            return 0
+        if hooks:
+            data["hooks"] = hooks
+        else:
+            data.pop("hooks", None)
+        _save_settings(path, data)
+        say("removed")
+        return 0
+    if SWEEP_SCRIPT not in command or SWEEP_FLAG not in command:
+        say("budget.py sweep add needs a command that runs vault-sweep.sh --periodic")
+        return 2
+    changed = False
+    session = hooks.get("SessionStart")
+    if not isinstance(session, list):
+        session = []
+        hooks["SessionStart"] = session
+        changed = True
+    if _groups_have_sweep(session):
+        if _replace_sweep(session, command):
+            changed = True
+    else:
+        _append_sweep(session, command)
+        changed = True
+    posted = hooks.get("PostToolUse")
+    if not isinstance(posted, list):
+        posted = []
+        hooks["PostToolUse"] = posted
+        changed = True
+    if _groups_have_sweep(posted):
+        if _replace_sweep(posted, command):
+            changed = True
+    else:
+        _append_sweep(posted, command, "Bash")
+        changed = True
+    if not changed:
+        say("already there")
+        return 0
+    data["hooks"] = hooks
+    _save_settings(path, data)
+    say("added")
+    return 0
+
+
 def _load_settings(path):
     if not os.path.exists(path) or os.path.getsize(path) == 0:
         return {}
@@ -810,6 +984,13 @@ def main():
         if action not in ("add", "remove", "check"):
             say("budget.py vault add|remove|check [.claude/settings.json]"); return 2
         return vault_hooks(action, argv[2] if len(argv) > 2 else os.path.join(".claude", "settings.json"))
+    if argv[:1] == ["sweep"]:
+        action = argv[1] if len(argv) > 1 else "add"
+        if action not in ("add", "remove", "check"):
+            say("budget.py sweep add|remove|check <settings.json> [command]"); return 2
+        path = argv[2] if len(argv) > 2 else os.path.join(".claude", "settings.json")
+        command = argv[3] if len(argv) > 3 else ""
+        return sweep_hooks(action, path, command)
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--line", metavar="LANG", help="one line for the start of a session, tr or en; never fails")
     parser.add_argument("--json", action="store_true", help="print one JSON object instead of text")

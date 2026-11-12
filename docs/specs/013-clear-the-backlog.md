@@ -82,6 +82,16 @@ stopped for two days by a usage limit in the middle of its review; the
 integrated state waited in the maintainer's vault as a bundle, and the
 scheduled agent, finding every line claimed, found other work (3.22.1).
 
+## Later
+
+Desk, 2026-11-12. The second copy also runs after `just delegate-accept`, from
+`just vault-sweep` for every sibling project, and at most once every 3 hours
+from Claude Code's hooks (`just vault-sweep-install`). A scheduled job is not
+used: it cannot read the Desktop. `just doctor` and session-start name a
+project whose copy is older than 24 hours, and the age. A project that turned
+the copy off stays off. `about-this-copy.txt` keeps its timestamp until a copy
+succeeds.
+
 ## Tasks
 
 - [x] Packages built side by side in plain clones, files divided so that they

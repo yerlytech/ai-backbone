@@ -83,8 +83,13 @@ the answer to the agent in any project, and it travels back as a note that
 begins `decision:`. And `brain/`, your private notebook, never goes to GitHub.
 It stays on your computer. A second copy is written into the place you named
 once for this machine, at the start of a session, at most once an hour while
-a session is open, and at the end of a session. A project that turned that
-copy off stays off. When the copy is older than 24 hours, the session says so. Secrets live in `brain/secrets/`,
+a session is open, after a delegate job is accepted, every few hours from the
+desk, and at the end of a session. The desk runs `just vault-sweep` for every
+sibling project, or `just vault-sweep-install` so Claude Code runs that sweep
+at most once every 3 hours. That is not a scheduled job: a scheduled job cannot
+read the Desktop. A project that turned that
+copy off stays off. When a copy is older than 24 hours, `just doctor` and the
+session name the project and the age. Secrets live in `brain/secrets/`,
 inside that copy, until `just secrets-to-keystore` moves a token file into the
 operating system's keystore. `just with-secret` reads one account onto a
 command's standard input at the moment of use. A night step that needs a secret is skipped and named in the morning.

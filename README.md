@@ -154,7 +154,7 @@ supported until it has been tried on a real Windows machine with Claude Code.
 | `Justfile` | the commands. Type `just` to see the four you type yourself |
 | `docs/` | the project's documentation, kept current by the agent |
 | `src/` | the code |
-| `brain/` | your private notebook. Never on GitHub; a second copy in the folder you named, at session start, hourly and session end |
+| `brain/` | your private notebook. Never on GitHub; a second copy in the folder you named, at session start, hourly, after an accepted delegate job, every few hours from the desk, and session end |
 
 Everything else is plumbing: hidden folders and a few small files. The agent
 uses them; you do not have to look at them. In VS Code the sidebar hides the

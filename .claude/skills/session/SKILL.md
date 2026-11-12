@@ -155,6 +155,15 @@ the record of what this project promised to keep working.
    A project that must not be copied there says so in its own config
    (`git config ai-backbone.vault-copy off`), or names a place of its own
    (`git config ai-backbone.vault-copy "<folder>"`); doctor says which.
+   `just delegate-accept` copies that project's vault once the accept has
+   succeeded; a copy that cannot be written does not fail the accept.
+   `just vault-sweep` copies every sibling project (one that turned the copy
+   off stays off) and says copied, off or failed, and the age before.
+   `just vault-sweep-install` asks Claude Code to run that sweep at most once
+   every 3 hours, from the user settings. It is not a scheduled job: a
+   scheduled job cannot read the Desktop. `just vault-sweep-remove` takes
+   those two hooks out and leaves every other hook. When a copy is older
+   than 24 hours, `just doctor` and session-start name the project and the age.
 2. Fill the journal in the maintainer's language (`brain_lang` in AGENTS.md):
    what changed, why this way, open questions, next steps.
 3. If code changed something `docs/` describes, update `docs/` now.
