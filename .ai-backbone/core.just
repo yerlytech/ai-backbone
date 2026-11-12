@@ -535,10 +535,19 @@ doctor:
       elif [ ! -d "$(dirname "$dest")" ]; then echo "  warn  $(just _doctor-msg copy-unreachable "$(dirname "$dest")")"
       elif [ ! -f "$dest/about-this-copy.txt" ]; then echo "  --    $(just _doctor-msg copy-never "$dest")"
       else
-        days=$(( ( $(date +%s) - $(date -r "$dest/about-this-copy.txt" +%s 2>/dev/null || date +%s) ) / 86400 ))
-        echo "  ok    $(just _doctor-msg copy-age "$days" "$dest")"
+        # Older than 24 hours is a warning that names this project and the age.
+        # A fresh copy stays the ordinary line. The file's own timestamp is
+        # not touched: reading it is not a copy (n-a931f8).
+        stale=$(just _vault-stale-here 2>/dev/null || true)
+        if [ -n "$stale" ]; then echo "  warn  $stale"
+        else echo "  ok    $(just _doctor-msg copy-age 0 "$dest")"; fi
       fi
     fi
+    # Sibling projects the same way. This project's own line is above.
+    just _vault-warn-others 2>/dev/null | while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      echo "  warn  $line"
+    done
     if [ -n "$(just _is-repo)" ]; then echo "  ok    git repo"; else echo "  warn  no git repo -> git init"; fi
     # n-67104d: same line as session-start, under Repo, when this folder's
     # core.just has no delegate recipe. A bare `just` would search this folder,
@@ -1643,13 +1652,13 @@ _session-start-body:
     # after it is one the agent has never seen, and nothing else here says so.
     if [ -f docs/upstream.toml ]; then echo; "$(just _py)" .ai-backbone/upstream.py --recent 2>/dev/null || true; fi
     # n-a931f8: the second copy also runs here, or a session that never ends
-    # leaves it days old. One line. Older than 24 hours is said first. Off stays off.
-    if [ -d brain ] && [ -z "$(just _vault-off 2>/dev/null || true)" ]; then
-      vdest=$(just _vault-dest 2>/dev/null || true)
-      if [ -n "$vdest" ] && [ -f "$vdest/about-this-copy.txt" ] && [ -n "$(find "$vdest/about-this-copy.txt" -mmin +1440 2>/dev/null || true)" ]; then
-        echo "Vault copy: older than 24 hours ($vdest)."
-      fi
-    fi
+    # leaves it days old. Older than 24 hours is said first, with this
+    # project's name and the age, then the same for every sibling. One line
+    # for the copy itself. Off stays off. A warning never rewrites the copy's
+    # timestamp; the copy below does, and only when it succeeds.
+    stale=$(just _vault-stale-here 2>/dev/null || true)
+    if [ -n "$stale" ]; then echo "Vault copy: $stale"; fi
+    just _vault-warn-others 2>/dev/null || true
     just _vault-copy quiet || true
 
 # Open today's journal entry, copy brain/ to its second place, then save
@@ -3211,6 +3220,9 @@ delegate-accept branch="":
     fi
     dirty_after_ff "$here_top"
     echo "accepted $branch onto $onto"
+    # The project's vault, after the accept has succeeded. One line. A copy
+    # that cannot be written does not fail the accept (n-a931f8).
+    just _vault-copy quiet || true
 
 # Ask once, then delete a delegate branch. A manager has no terminal: --yes
 # or DELEGATE_YES=1 answers that question. Without them it is still asked
@@ -5132,6 +5144,75 @@ freshness-sweep-remove:
       echo "Nothing installed here."
     fi
 
+# Copy every sibling project's vault. One line each: copied, off or failed, and the age before.
+# A project that turned the copy off stays off. The same projects `just projects` lists.
+[group('template')]
+vault-sweep:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    bash .ai-backbone/vault-sweep.sh sweep
+
+# Run that copy at most once every 3 hours, from Claude Code's hooks.
+# launchd cannot read the Desktop, so this is not a scheduled job. The same
+# two hooks a machine-wide hourly job uses: SessionStart, and PostToolUse on
+# Bash, in the user settings. The script is a copy outside this checkout.
+# Other hooks in that file are left as they are. Safe to run again.
+[group('template')]
+vault-sweep-install:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ ! -f .ai-backbone/vault-sweep.sh ]; then
+      echo "This checkout has no .ai-backbone/vault-sweep.sh. Run just template-update, then this again."
+      exit 1
+    fi
+    if [ ! -f .ai-backbone/budget.py ]; then
+      echo "This checkout has no .ai-backbone/budget.py. Run just template-update, then this again."
+      exit 1
+    fi
+    os=$(uname)
+    case "$os" in
+      Darwin) support="$HOME/Library/Application Support/ai-backbone" ;;
+      MINGW*|MSYS*|CYGWIN*|Windows_NT) support="${LOCALAPPDATA:-$HOME/AppData/Local}/ai-backbone" ;;
+      *) support="${XDG_DATA_HOME:-$HOME/.local/share}/ai-backbone" ;;
+    esac
+    mkdir -p "$support" "$HOME/.claude"
+    copy="$support/vault-sweep.sh"
+    cp .ai-backbone/vault-sweep.sh "$copy"
+    chmod +x "$copy"
+    # The projects live beside the backbone, the same list `just projects` uses.
+    root=$(just _backbone 2>/dev/null || true)
+    if [ -z "$root" ]; then root=$(pwd -P); fi
+    settings="$HOME/.claude/settings.json"
+    cmd="bash \"$copy\" --periodic \"$root\" >/dev/null 2>&1 || true"
+    if said=$("$(just _py)" .ai-backbone/budget.py sweep add "$settings" "$cmd" 2>/dev/null); then
+      case "$said" in
+        added) echo "Vault sweep: Claude Code runs it at most once every 3 hours (session start and after a shell command)." ;;
+        already\ there) echo "Vault sweep: already installed. Claude Code runs it at most once every 3 hours." ;;
+        *) echo "Vault sweep: $said" ;;
+      esac
+    else
+      echo "warn  the vault sweep could not be merged into $settings (a comment or a trailing comma in it?). Nothing already there was removed."
+      exit 1
+    fi
+    echo "Script: $copy"
+
+# Take those two hooks out. Every other hook stays. The script copy stays.
+[group('template')]
+vault-sweep-remove:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    settings="$HOME/.claude/settings.json"
+    if [ ! -f "$settings" ]; then echo "Nothing installed here."; exit 0; fi
+    if [ ! -f .ai-backbone/budget.py ]; then
+      echo "This checkout has no .ai-backbone/budget.py."
+      exit 1
+    fi
+    said=$("$(just _py)" .ai-backbone/budget.py sweep remove "$settings" 2>/dev/null || true)
+    case "$said" in
+      removed) echo "Removed. Put it back with: just vault-sweep-install" ;;
+      *) echo "Nothing installed here." ;;
+    esac
+
 # What the things this project is built on have released: just upstream · just upstream graphify
 # Asked at most once a day per machine. The answer is shared by every project
 # that watches the same source. `just upstream --refresh` asks again.
@@ -6465,6 +6546,47 @@ _build-shared dir:
     here=$(pwd -P)
     case "$d/" in "$here"/*) ;; *) echo yes ;; esac
 
+# Seconds since a file was last written. Nothing when it is not there.
+# GNU stat, then BSD stat: both are on the machines this runs on, and
+# `date -r` is not the same flag on every one of them.
+[positional-arguments]
+_vault-seconds file:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    f="${1:-}"
+    [ -f "$f" ] || exit 0
+    if s=$(stat -c %Y "$f" 2>/dev/null); then :
+    else s=$(stat -f %m "$f" 2>/dev/null || true); fi
+    case "$s" in ""|*[!0-9]*) exit 0 ;; esac
+    now=$(date +%s)
+    if [ $(( now - s )) -lt 0 ]; then echo 0; else echo $(( now - s )); fi
+
+# One line when this project's copy is older than 24 hours, naming the project
+# and the age. Nothing when it is fresh, off, or not written yet. Reading the
+# copy does not change about-this-copy.txt.
+_vault-stale-here:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [ -d brain ] || exit 0
+    [ -z "$(just _vault-off)" ] || exit 0
+    dest=$(just _vault-dest 2>/dev/null || true)
+    [ -n "$dest" ] && [ -f "$dest/about-this-copy.txt" ] || exit 0
+    secs=$(just _vault-seconds "$dest/about-this-copy.txt")
+    case "$secs" in ""|*[!0-9]*) exit 0 ;; esac
+    [ "$secs" -gt 86400 ] || exit 0
+    days=$(( secs / 86400 ))
+    [ "$days" -ge 1 ] || days=1
+    name=$(basename "$(pwd -P)")
+    just _doctor-msg copy-stale "$name" "$days" "$dest"
+
+# The same line for every sibling project, not this folder. Quiet when none
+# are stale. The suite points AI_BACKBONE_PROJECTS at a fixture.
+_vault-warn-others:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [ -f .ai-backbone/vault-sweep.sh ] || exit 0
+    bash .ai-backbone/vault-sweep.sh warn-others || true
+
 # Where this project's second copy lives: <place>/<project>. Nothing when this
 # machine has no place yet.
 #
@@ -6623,19 +6745,23 @@ _vault-copy mode="":
       mkdir -p "$dest/secrets/$(dirname "./$s")" && rsync -a "./$s" "$dest/secrets/$s" && { n=$((n+1)); names="$names $s"; }
     done < <(just _secret-files)
     project=$(grep -E '^\| *project *\|' AGENTS.md 2>/dev/null | head -1 | awk -F'|' '{print $3}' | sed 's/^ *//;s/ *$//')
-    {
-      echo "${project:-$(basename "$PWD")}: the second copy of what git does not hold."
-      echo "Written by just _vault-copy, last on $(date '+%Y-%m-%d %H:%M') on $(hostname 2>/dev/null || echo this machine), from $PWD"
-      echo
-      echo "brain/     the private vault as it was then. Secrets live in brain/secrets/."
-      echo "           A file deleted in the project is still here."
-      echo "secrets/   no longer written. A secret still outside brain/ is copied here as before."
-      echo
-      echo "On a new disk: get the project from GitHub, copy brain/ into it, then just secrets-to-brain"
-      echo "(it leaves a link at each path). Put a file left in secrets/ back at the same path."
-      echo "This file says when the copy was written."
-      echo "Whether the folder has reached a cloud since is the drive's to say."
-    } > "$dest/about-this-copy.txt"
+    # Only a copy that landed rewrites the timestamp. A failed copy keeps the
+    # old about-this-copy.txt, so a stale vault stays stale (n-a931f8).
+    if [ "$full" -eq 1 ]; then
+      {
+        echo "${project:-$(basename "$PWD")}: the second copy of what git does not hold."
+        echo "Written by just _vault-copy, last on $(date '+%Y-%m-%d %H:%M') on $(hostname 2>/dev/null || echo this machine), from $PWD"
+        echo
+        echo "brain/     the private vault as it was then. Secrets live in brain/secrets/."
+        echo "           A file deleted in the project is still here."
+        echo "secrets/   no longer written. A secret still outside brain/ is copied here as before."
+        echo
+        echo "On a new disk: get the project from GitHub, copy brain/ into it, then just secrets-to-brain"
+        echo "(it leaves a link at each path). Put a file left in secrets/ back at the same path."
+        echo "This file says when the copy was written."
+        echo "Whether the folder has reached a cloud since is the drive's to say."
+      } > "$dest/about-this-copy.txt"
+    fi
     if [ "$mode" = hourly ]; then exit 0; fi
     if [ "$mode" = quiet ]; then
       if [ "$full" -eq 1 ]; then echo "brain/ copied to $dest/brain."
@@ -6653,10 +6779,10 @@ _vault-copy mode="":
 # stay English; these are the ones that need the person: where the second copy
 # is, a key in the wrong place, and how doctor ends.
 [positional-arguments]
-_doctor-msg key a="" b="":
+_doctor-msg key a="" b="" c="":
     #!/usr/bin/env bash
     lang=$(grep -E '^\| *chat_lang *\|' AGENTS.md 2>/dev/null | awk -F'|' '{print $3}' | tr -d ' `'); lang="${lang:-en}"
-    a="${2:-}"; b="${3:-}"
+    a="${2:-}"; b="${3:-}"; c="${4:-}"
     if [ "$lang" = tr ]; then
       case "$a" in 0) age="bir günden yeni" ;; *) age="$a günlük" ;; esac
       case "$1" in
@@ -6664,6 +6790,7 @@ _doctor-msg key a="" b="":
         copy-unreachable) echo "ikinci kopyaların yeri bulunamadı: $a  (takılı olmayan bir disk, oturumu kapalı bir sürücü?)"; exit 0 ;;
         copy-never)       echo "brain/ klasörünün ikinci kopyası henüz yazılmadı. just session-start ya da just session-end şuraya yazar: $a"; exit 0 ;;
         copy-age)         echo "brain/ klasörünün ikinci kopyası: $age, yeri $b"; exit 0 ;;
+        copy-stale)       case "$b" in 1) age="1 günlük" ;; *) age="$b günlük" ;; esac; echo "$a: ikinci kopya $age, yeri $c"; exit 0 ;;
         key-outside)      echo "brain/ dışında bir anahtar ya da sertifika dosyası var:"; exit 0 ;;
         key-where)        echo "yeri brain/secrets/ (AGENTS.md bölüm 7); just secrets-to-brain taşır ve eski yerinde bir bağ bırakır"; exit 0 ;;
         key-missing)      echo "bir bağlantının dosyası yok:"; exit 0 ;;
@@ -6685,6 +6812,7 @@ _doctor-msg key a="" b="":
       copy-unreachable) echo "the place for second copies is not there: $a  (a disk that is not plugged in, a drive that is not signed in?)" ;;
       copy-never)       echo "no second copy of brain/ written yet. just session-start or just session-end writes it to $a" ;;
       copy-age)         echo "second copy of brain/: $age, in $b" ;;
+      copy-stale)       case "$b" in 1) age="1 day old" ;; *) age="$b days old" ;; esac; echo "$a: the second copy is $age, in $c" ;;
       key-outside)      echo "a key or certificate sits outside brain/:" ;;
       key-where)        echo "it belongs in brain/secrets/ (AGENTS.md section 7); just secrets-to-brain moves it and leaves a link at the old path" ;;
       key-missing)      echo "a link whose file is missing:" ;;

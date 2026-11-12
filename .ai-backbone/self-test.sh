@@ -415,7 +415,9 @@ n=$(git ls-files | wc -l | tr -d ' ')
 # approved that spec on 2026-10-31.
 # 67 since spec 043: freshness-sweep.sh reaches every project (n-058e8b).
 # The owner asked for the sweep on 2026-11-11.
-check "tracked files at most 67 (got $n)"             "[ $n -le 67 ]"
+# 68 since the vault sweep: vault-sweep.sh reaches every project (n-a931f8).
+# The owner asked for the desk copy on 2026-11-12.
+check "tracked files at most 68 (got $n)"             "[ $n -le 68 ]"
 # Two more ceilings, set at what a new project measured on 2026-09-19 (spec 012).
 # An agent nobody watches works on this backbone every day and builds ideas it
 # read about; every one of them is small and sensible, and a hundred of them are
@@ -441,7 +443,9 @@ r=$(just --summary 2>/dev/null | wc -w | tr -d ' ')
 # in the spec the maintainer approved on 2026-10-31.
 # 52 since spec 043: `just freshness-sweep`, `freshness-sweep-install` and
 # `freshness-sweep-remove` (n-058e8b). The owner asked for them on 2026-11-11.
-check "recipes a new project shows at most 52 (got $r)" "[ $r -le 52 ]"
+# 55 since the vault sweep: `just vault-sweep`, `vault-sweep-install` and
+# `vault-sweep-remove` (n-a931f8). The owner asked for them on 2026-11-12.
+check "recipes a new project shows at most 55 (got $r)" "[ $r -le 55 ]"
 b=$(wc -c < AGENTS.md | tr -d ' ')
 # 7080 since the design line (the maintainer, 2026-10-30): code follows the
 # design skill, and a review cites its rule numbers. 7088 since spec 040:
@@ -673,6 +677,54 @@ check "the hook is removed and added back without touching the rest" "[ \"\$('$p
 # is what keeps a later save on a clean tree from seeing .claude/settings.json.
 cp "$root/.claude/settings.json" "$tmp/hook/vault.json"
 check "the hourly vault hooks are their own install, and the cap round trip leaves them" "[ \"\$('$py' '$root/.ai-backbone/budget.py' vault add '$tmp/hook/vault.json')\" = added ] && '$py' '$root/.ai-backbone/budget.py' vault check '$tmp/hook/vault.json' && '$py' -c \"import json,sys; d=json.load(open(sys.argv[1])); ss=[h['command'] for h in d['hooks']['SessionStart'][0]['hooks']]; assert ss[0].startswith('just session-start') and any('_vault-copy hourly' in c for c in ss); pu=d['hooks']['PostToolUse'][0]; assert pu['matcher']=='Bash' and '_vault-copy hourly' in pu['hooks'][0]['command']; assert d['hooks']['PreToolUse'][0]['matcher']=='Agent|Workflow'\" '$tmp/hook/vault.json' && cp '$tmp/hook/vault.json' '$tmp/hook/vault.golden' && [ \"\$('$py' '$root/.ai-backbone/budget.py' vault add '$tmp/hook/vault.json')\" = 'already there' ] && cmp -s '$tmp/hook/vault.json' '$tmp/hook/vault.golden' && '$py' '$root/.ai-backbone/budget.py' hook remove '$tmp/hook/vault.json' >/dev/null && '$py' '$root/.ai-backbone/budget.py' hook add '$tmp/hook/vault.json' >/dev/null && cmp -s '$tmp/hook/vault.json' '$tmp/hook/vault.golden' && [ \"\$('$py' '$root/.ai-backbone/budget.py' vault remove '$tmp/hook/vault.json')\" = removed ] && cmp -s '$tmp/hook/vault.json' '$root/.claude/settings.json' && [ \"\$('$py' '$root/.ai-backbone/budget.py' vault remove '$tmp/hook/vault.json')\" = 'not there' ] && cmp -s '$sj' '$root/.claude/settings.json'"
+# n-a931f8. The desk sweep is a third action. hook add and vault add must not
+# write it, and a round trip of each puts the file back. The seed is written
+# the way budget.py saves, so the bytes can match.
+"$py" - "$tmp/hook/sweep.json" <<'PYEOF'
+import json, sys
+data = {
+  "hooks": {
+    "SessionStart": [{"hooks": [{"type": "command", "command": "just session-start"}]}],
+    "PreToolUse": [{"matcher": "Agent|Workflow", "hooks": [{"type": "command", "command": 'bash "$CLAUDE_PROJECT_DIR"/.ai-backbone/agent-cap.sh'}]}],
+    "PostToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "echo stranger-post"}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "echo stranger-stop"}]}],
+  },
+  "permissions": {"allow": ["Bash(just mine:*)"]},
+}
+with open(sys.argv[1], "w", encoding="utf-8", newline="\n") as fh:
+    json.dump(data, fh, indent=2, ensure_ascii=False)
+    fh.write("\n")
+PYEOF
+cp "$tmp/hook/sweep.json" "$tmp/hook/sweep.orig"
+vault_sweep_hooks_round() {
+  local sj="$tmp/hook/sweep.json" cmd
+  cmd='bash "/tmp/vault-sweep.sh" --periodic "/tmp/bb" >/dev/null 2>&1 || true'
+  [ "$("$py" "$root/.ai-backbone/budget.py" sweep add "$sj" "$cmd")" = added ] || return 1
+  "$py" "$root/.ai-backbone/budget.py" sweep check "$sj" || return 1
+  grep -q 'echo stranger-stop' "$sj" || return 1
+  grep -q 'echo stranger-post' "$sj" || return 1
+  grep -q 'Bash(just mine:\*)' "$sj" || return 1
+  grep -q 'agent-cap.sh' "$sj" || return 1
+  cp "$sj" "$tmp/hook/sweep.golden"
+  [ "$("$py" "$root/.ai-backbone/budget.py" sweep add "$sj" "$cmd")" = "already there" ] || return 1
+  cmp -s "$sj" "$tmp/hook/sweep.golden" || return 1
+  "$py" "$root/.ai-backbone/budget.py" vault add "$sj" >/dev/null || return 1
+  "$py" "$root/.ai-backbone/budget.py" vault remove "$sj" >/dev/null || return 1
+  cmp -s "$sj" "$tmp/hook/sweep.golden" || { echo "vault round trip moved the sweep"; diff -u "$tmp/hook/sweep.golden" "$sj"; return 1; }
+  "$py" "$root/.ai-backbone/budget.py" hook remove "$sj" >/dev/null || return 1
+  "$py" "$root/.ai-backbone/budget.py" sweep check "$sj" || { echo "hook remove took the sweep"; return 1; }
+  "$py" "$root/.ai-backbone/budget.py" hook add "$sj" >/dev/null || return 1
+  cmp -s "$sj" "$tmp/hook/sweep.golden" || { echo "cap round trip moved the sweep"; diff -u "$tmp/hook/sweep.golden" "$sj"; return 1; }
+  [ "$("$py" "$root/.ai-backbone/budget.py" sweep remove "$sj")" = removed ] || return 1
+  cmp -s "$sj" "$tmp/hook/sweep.orig" || { echo "sweep remove did not restore"; diff -u "$tmp/hook/sweep.orig" "$sj"; return 1; }
+  [ "$("$py" "$root/.ai-backbone/budget.py" sweep remove "$sj")" = "not there" ] || return 1
+  if "$py" "$root/.ai-backbone/budget.py" sweep add "$sj" "just something" >/dev/null 2>&1; then
+    echo "a command without the marker was accepted"
+    return 1
+  fi
+  cmp -s "$sj" "$tmp/hook/sweep.orig" || return 1
+}
+check "the desk sweep hooks round-trip and leave the cap, the hourly copy and a stranger's hook" "vault_sweep_hooks_round"
 "$py" - "$tmp/hook/two.json" <<'PYEOF'
 import json,sys; g=lambda m:{"matcher":m,"hooks":[{"type":"command","command":'bash "$CLAUDE_PROJECT_DIR"/.ai-backbone/agent-cap.sh'}]}; json.dump({"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"true"}]},g("Agent"),g("Agent|Workflow")]}},open(sys.argv[1],"w"))
 PYEOF
@@ -1905,7 +1957,37 @@ if command -v rsync >/dev/null 2>&1; then
   check "what is deleted here is not deleted there"     "[ -f '$copy/brain/02-research/idea.md' ] && [ -f '$copy/secrets/.env' ]"
   check "doctor says where the copy is and how old it is" "says '^  ok    .*(less than a day old|bir günden yeni).*/second copies/deneme-projesi\$' vc repo_doctor"
   touch -t 202001010000 "$copy/about-this-copy.txt"
-  check "and an old copy is said in days"               "says '^  ok    .* [0-9]{4} (days old|günlük)' vc repo_doctor"
+  # Older than 24 hours is a warning that names the project and the age.
+  # Reading it does not rewrite about-this-copy.txt. A fresh copy is the
+  # ordinary line, and session-start does not warn about it (n-a931f8).
+  vault_stale_kept() {
+    local about="$copy/about-this-copy.txt" line
+    line=$(grep '^Written by ' "$about")
+    [ -n "$line" ] || { echo "no written line"; return 1; }
+    vc repo_doctor > "$tmp/vault-stale-doc.txt" 2>&1 || true
+    grep -qE '^  warn  deneme-projesi: ikinci kopya [0-9]+ günlük, yeri .*/deneme-projesi$' "$tmp/vault-stale-doc.txt" || { echo "stale doctor:"; cat "$tmp/vault-stale-doc.txt"; return 1; }
+    grep -qxF "$line" "$about" || { echo "doctor rewrote the timestamp"; return 1; }
+    vc just session-start > "$tmp/vault-stale-ss.txt" 2>&1 || { echo "session-start failed"; cat "$tmp/vault-stale-ss.txt"; return 1; }
+    grep -qE '^Vault copy: deneme-projesi: ikinci kopya [0-9]+ günlük, yeri ' "$tmp/vault-stale-ss.txt" || { echo "stale session:"; cat "$tmp/vault-stale-ss.txt"; return 1; }
+    vc repo_doctor > "$tmp/vault-fresh-doc.txt" 2>&1 || true
+    grep -qE '^  ok    .*(less than a day old|bir günden yeni).*/second copies/deneme-projesi$' "$tmp/vault-fresh-doc.txt" || { echo "fresh doctor:"; cat "$tmp/vault-fresh-doc.txt"; return 1; }
+    if grep -qE 'ikinci kopya [0-9]+ günlük' "$tmp/vault-fresh-doc.txt"; then echo "fresh doctor still says stale"; return 1; fi
+    vc just session-start > "$tmp/vault-fresh-ss.txt" 2>&1 || { echo "fresh session-start failed"; cat "$tmp/vault-fresh-ss.txt"; return 1; }
+    if grep -qE '^Vault copy: deneme-projesi:' "$tmp/vault-fresh-ss.txt"; then echo "fresh session warned"; return 1; fi
+  }
+  check "a stale vault is named with its age, and a fresh one is not" "vault_stale_kept"
+  vault_rsync_fail_keeps_stamp() {
+    local about="$copy/about-this-copy.txt" line out
+    line=$(grep '^Written by ' "$about")
+    mkdir -p "$tmp/fake-rsync"
+    printf '#!/bin/sh\nexit 1\n' > "$tmp/fake-rsync/rsync"
+    chmod +x "$tmp/fake-rsync/rsync"
+    out=$(PATH="$tmp/fake-rsync:$PATH" vc just _vault-copy quiet 2>&1) || true
+    grep -q 'brain/ was not copied in full' <<<"$out" || { echo "$out"; return 1; }
+    grep -qxF "$line" "$about" || { echo "a failed copy rewrote the timestamp"; return 1; }
+    vc just _vault-copy quiet >/dev/null 2>&1 || return 1
+  }
+  check "a failed copy keeps the timestamp in about-this-copy.txt" "vault_rsync_fail_keeps_stamp"
   # A clone, a worktree or a Finder duplicate carries the same project name and
   # an empty brain/. Its session-end wrote an empty journal entry over the real
   # one in the copy, and doctor in the real project went on saying "less than a
@@ -1923,6 +2005,98 @@ if command -v rsync >/dev/null 2>&1; then
   mv brain "$tmp/vc-brain-aside"
   check "brain-init says when a copy under this project's name is waiting" "says '^A second copy of a brain/ under this project.s name is in .*/second copies/deneme-projesi\$' vc just brain-init"
   rm -rf brain; mv "$tmp/vc-brain-aside" brain
+  # After a successful accept, that project's vault is copied. One line. Off
+  # stays silent, and the accept still succeeds (n-a931f8).
+  vault_accept_copies() {
+    local acc="$tmp/vault-acc" out rc n
+    mkdir -p "$acc/brain" "$acc/.ai-backbone"
+    printf 'note\n' > "$acc/brain/note.md"
+    printf 'brain/\n' > "$acc/.gitignore"
+    printf '| project | vault-acc |\n' > "$acc/AGENTS.md"
+    printf "import? '%s/.ai-backbone/core.just'\n" "$rootw" > "$acc/Justfile"
+    printf '# stub\n' > "$acc/.ai-backbone/core.just"
+    (
+      cd "$acc" || exit 1
+      git init -q -b main
+      git add -A
+      git commit -qm "chore: seed"
+      git checkout -q -b delegate/vault-job
+      printf 'line\n' >> README.md
+      git add README.md
+      git commit -qm "feat: a line"
+      git checkout -q main
+    ) || return 1
+    out=$(vc just -f "$root/Justfile" -d "$acc" delegate-accept 2>&1) && rc=0 || rc=$?
+    n=$(grep -c '^brain/ copied to ' <<<"$out" || true)
+    [ "$rc" -eq 0 ] && grep -q '^accepted ' <<<"$out" && [ "$n" -eq 1 ] && [ -f "$place/vault-acc/brain/note.md" ] || {
+      echo "rc=$rc copies=$n"; printf '%s\n' "$out" | tail -30; return 1
+    }
+    (
+      cd "$acc" || exit 1
+      git checkout -q -b delegate/vault-off
+      printf 'two\n' >> README.md
+      git add README.md
+      git commit -qm "feat: two"
+      git checkout -q main
+    ) || return 1
+    git -C "$acc" config --local ai-backbone.vault-copy off
+    out=$(vc just -f "$root/Justfile" -d "$acc" delegate-accept 2>&1) && rc=0 || rc=$?
+    [ "$rc" -eq 0 ] && grep -q '^accepted ' <<<"$out" && ! grep -q 'brain/ copied to' <<<"$out" || {
+      echo "off rc=$rc"; printf '%s\n' "$out" | tail -30; return 1
+    }
+  }
+  check "delegate-accept copies that project's vault, and off stays quiet" "vault_accept_copies"
+  # Every sibling, the same list the backbone already uses. Off stays off.
+  # The age is the copy's age before this run. A project with no brain/ is
+  # not a line. The fixture is the whole list: this folder is not added.
+  vault_sibling_sweep() {
+    local vs="$tmp/vault-sib" name d out
+    sib() { AI_BACKBONE_PROJECTS="$vs" vc "$@"; }
+    mkdir -p "$vs"
+    for name in one two three four five; do
+      d="$vs/$name"
+      mkdir -p "$d/.ai-backbone"
+      printf '| project | %s |\n' "$name" > "$d/AGENTS.md"
+      printf "import? '%s/.ai-backbone/core.just'\n" "$rootw" > "$d/Justfile"
+      printf '# stub\n' > "$d/.ai-backbone/core.just"
+      git -C "$d" init -q
+    done
+    for name in one two three four; do
+      mkdir -p "$vs/$name/brain"
+      printf 'note\n' > "$vs/$name/brain/note.md"
+    done
+    git -C "$vs/three" config --local ai-backbone.vault-copy off
+    git -C "$vs/four" config --local ai-backbone.vault-copy "$tmp/vault-missing-place"
+    mkdir -p "$place/one"
+    printf 'old\n' > "$place/one/about-this-copy.txt"
+    touch -t 202001010000 "$place/one/about-this-copy.txt"
+    out=$(sib bash "$root/.ai-backbone/vault-sweep.sh" warn-others 2>&1) || true
+    grep -qE '^Vault copy: one: the second copy is [0-9]+ days old, in ' <<<"$out" || { echo "warn: $out"; return 1; }
+    if grep -qE '^Vault copy: (two|three|four|five):' <<<"$out"; then echo "warned a project that is not stale: $out"; return 1; fi
+    sib repo_doctor > "$tmp/vault-sib-doc.txt" 2>&1 || true
+    grep -qE '^  warn  Vault copy: one: the second copy is [0-9]+ days old, in ' "$tmp/vault-sib-doc.txt" || { echo "doctor:"; cat "$tmp/vault-sib-doc.txt"; return 1; }
+    sib just session-start > "$tmp/vault-sib-ss.txt" 2>&1 || { echo "session-start:"; cat "$tmp/vault-sib-ss.txt"; return 1; }
+    grep -qE '^Vault copy: one: the second copy is [0-9]+ days old, in ' "$tmp/vault-sib-ss.txt" || { echo "session:"; cat "$tmp/vault-sib-ss.txt"; return 1; }
+    out=$(sib just vault-sweep 2>&1) || true
+    grep -qE '^one: copied, was [0-9]+ days$' <<<"$out" || { echo "sweep: $out"; return 1; }
+    grep -qE '^two: copied, was none$' <<<"$out" || { echo "sweep: $out"; return 1; }
+    grep -qE '^three: off, was none$' <<<"$out" || { echo "sweep: $out"; return 1; }
+    grep -qE '^four: failed, was none$' <<<"$out" || { echo "sweep: $out"; return 1; }
+    if grep -q '^five:' <<<"$out"; then echo "a project with no brain/ was a line: $out"; return 1; fi
+    [ -f "$place/one/brain/note.md" ] && [ -f "$place/two/brain/note.md" ] || { echo "copies missing"; return 1; }
+    [ ! -e "$place/three/brain" ] && [ ! -e "$tmp/vault-missing-place" ] || { echo "off or failed was written"; return 1; }
+    out=$(sib bash "$root/.ai-backbone/vault-sweep.sh" warn-others 2>&1) || true
+    if grep -q '^Vault copy:' <<<"$out"; then echo "fresh siblings still warned: $out"; return 1; fi
+    printf 'late\n' > "$vs/two/brain/late.md"
+    out=$(AI_BACKBONE_PROJECTS="$vs" AI_BACKBONE_VAULT_STAMP="$tmp/vault-sweep.last" vc bash "$root/.ai-backbone/vault-sweep.sh" --periodic "$root" 2>&1) || true
+    grep -qE '^two: copied, was ' <<<"$out" || { echo "periodic: $out"; return 1; }
+    [ -f "$place/two/brain/late.md" ] || { echo "first periodic did not copy"; return 1; }
+    printf 'later\n' > "$vs/two/brain/later.md"
+    out=$(AI_BACKBONE_PROJECTS="$vs" AI_BACKBONE_VAULT_STAMP="$tmp/vault-sweep.last" vc bash "$root/.ai-backbone/vault-sweep.sh" --periodic "$root" 2>&1) || true
+    [ -z "$out" ] || { echo "second periodic said: $out"; return 1; }
+    [ ! -e "$place/two/brain/later.md" ] || { echo "a run inside 3 hours copied"; return 1; }
+  }
+  check "the desk sweep copies every sibling, keeps off off, and waits 3 hours" "vault_sibling_sweep"
 else
   check "without rsync, session-end says so and still ends well" "vc just session-end && says 'rsync is not on this machine' vc just session-end"
 fi
@@ -7066,6 +7240,80 @@ printf '%s\n' '== beta ==' 'Behind: demo-crate 1.0.0 → 2.0.0' > "$tmp/sweep-li
 check "the desk's session-start prints the sweep list" "grep -q '=== FRESHNESS SWEEP ===' '$tmp/sweep-desk.out' && grep -qF 'Behind: demo-crate 1.0.0 → 2.0.0' '$tmp/sweep-desk.out'"
 ( cd "$tmp/sweep-inst" && env -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u LOCALAPPDATA HOME="$tmp/sweep-home" PATH="$tmp/sweep-sched:$PATH" just freshness-sweep-remove >"$tmp/sweep-rm.out" 2>&1 ) || true
 check "removing the sweep takes the job and leaves the list" "[ ! -e '$tmp/sweep-home/Library/LaunchAgents/ai-backbone.freshness-sweep.plist' ] && [ ! -e '$tmp/sweep-home/.config/systemd/user/ai-backbone-freshness-sweep.timer' ] && [ ! -e '$tmp/sweep-home/.config/ai-backbone/freshness.cron' ] && [ ! -e '$tmp/sweep-home/AppData/Local/ai-backbone/ai-backbone-freshness-sweep.task' ] && grep -q '^Removed' '$tmp/sweep-rm.out' && [ -f '$tmp/sweep-list.txt' ]"
+# The vault sweep uses the same Claude Code hooks, not launchd: a scheduled
+# job cannot read the Desktop (n-a931f8). Install and remove leave every
+# other hook, and the real home is not the one they write.
+vault_support_dir() {
+  local os=$1 home=$2
+  case "$os" in
+    Darwin) printf '%s/Library/Application Support/ai-backbone' "$home" ;;
+    MINGW*|MSYS*|CYGWIN*|Windows_NT) printf '%s/AppData/Local/ai-backbone' "$home" ;;
+    *) printf '%s/.local/share/ai-backbone' "$home" ;;
+  esac
+}
+vault_seed_settings() {
+  mkdir -p "$1/.claude"
+  "$py" - "$1/.claude/settings.json" <<'PY'
+import json, sys
+data = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "echo stranger-hook"}]}]}}
+with open(sys.argv[1], "w", encoding="utf-8", newline="\n") as fh:
+    json.dump(data, fh, indent=2, ensure_ascii=False)
+    fh.write("\n")
+PY
+}
+vault_install_case() {
+  local name=$1 os=$2
+  local home="$tmp/vault-home-$name" bin="$tmp/vault-bin-$name" settings script support host
+  rm -rf "$home" "$bin"
+  mkdir -p "$bin"
+  vault_seed_settings "$home"
+  cp "$home/.claude/settings.json" "$tmp/vault-seed-$name.json"
+  if [ -n "$os" ]; then printf '#!/bin/sh\necho %s\n' "$os" > "$bin/uname"; chmod +x "$bin/uname"; host=$os; else host=$(uname); fi
+  support=$(vault_support_dir "$host" "$home")
+  script="$support/vault-sweep.sh"
+  settings="$home/.claude/settings.json"
+  (
+    cd "$root" && env -u XDG_DATA_HOME -u XDG_CONFIG_HOME -u LOCALAPPDATA \
+      HOME="$home" PATH="$bin:$PATH" \
+      just vault-sweep-install >"$tmp/vault-out-$name.txt" 2>&1
+  ) || { echo "install $name failed"; cat "$tmp/vault-out-$name.txt"; return 1; }
+  grep -q 'at most once every 3 hours' "$tmp/vault-out-$name.txt" || { cat "$tmp/vault-out-$name.txt"; return 1; }
+  [ -f "$script" ] && [ -x "$script" ] || { echo "script missing: $script"; return 1; }
+  grep -q 'vault-sweep.sh' "$settings" && grep -q -- '--periodic' "$settings" || { echo "hook:"; cat "$settings"; return 1; }
+  grep -q 'echo stranger-hook' "$settings" || return 1
+  "$py" "$root/.ai-backbone/budget.py" sweep check "$settings" || { echo "sweep check failed"; cat "$settings"; return 1; }
+  [ ! -e "$home/Library/LaunchAgents/ai-backbone.vault-sweep.plist" ] || { echo "a launchd plist was written"; return 1; }
+  cp "$settings" "$tmp/vault-after-$name.json"
+  (
+    cd "$root" && env -u XDG_DATA_HOME -u XDG_CONFIG_HOME -u LOCALAPPDATA \
+      HOME="$home" PATH="$bin:$PATH" \
+      just vault-sweep-install >"$tmp/vault-out-$name-2.txt" 2>&1
+  ) || { echo "second install failed"; cat "$tmp/vault-out-$name-2.txt"; return 1; }
+  grep -q 'already installed' "$tmp/vault-out-$name-2.txt" || { cat "$tmp/vault-out-$name-2.txt"; return 1; }
+  cmp -s "$settings" "$tmp/vault-after-$name.json" || { echo "second install rewrote the settings"; return 1; }
+  (
+    cd "$root" && env -u XDG_DATA_HOME -u XDG_CONFIG_HOME -u LOCALAPPDATA \
+      HOME="$home" PATH="$bin:$PATH" \
+      just vault-sweep-remove >"$tmp/vault-rm-$name.txt" 2>&1
+  ) || { echo "remove failed"; cat "$tmp/vault-rm-$name.txt"; return 1; }
+  grep -q '^Removed' "$tmp/vault-rm-$name.txt" || { cat "$tmp/vault-rm-$name.txt"; return 1; }
+  cmp -s "$settings" "$tmp/vault-seed-$name.json" || { echo "remove did not restore"; diff -u "$tmp/vault-seed-$name.json" "$settings"; return 1; }
+  grep -q 'echo stranger-hook' "$settings" || return 1
+  if grep -q 'vault-sweep.sh' "$settings"; then echo "the sweep hook stayed"; return 1; fi
+  [ -f "$script" ] || { echo "remove deleted the script"; return 1; }
+}
+if [ -f "$HOME/.claude/settings.json" ]; then cp "$HOME/.claude/settings.json" "$tmp/vault-real-settings"; else : > "$tmp/vault-real-absent"; fi
+check "vault-sweep-install and remove round-trip the user hooks and leave other hooks" "vault_install_case here ''"
+check "on linux the vault sweep is a script under .local/share and not a launchd job" "vault_install_case linux Linux"
+check "on windows the vault sweep is a script under AppData and not a launchd job" "vault_install_case win Windows_NT"
+vault_real_home_ok() {
+  if [ -f "$tmp/vault-real-absent" ]; then
+    [ ! -f "$HOME/.claude/settings.json" ]
+  else
+    cmp -s "$tmp/vault-real-settings" "$HOME/.claude/settings.json"
+  fi
+}
+check "the vault installer does not touch the real home" "vault_real_home_ok"
 
 fi
 if lane_wants audit; then

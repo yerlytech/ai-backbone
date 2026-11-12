@@ -28,6 +28,7 @@
 .ai-backbone/templates/upstream.toml
 .ai-backbone/upstream.py
 .ai-backbone/freshness-sweep.sh
+.ai-backbone/vault-sweep.sh
 .ai-backbone/budget.py
 .ai-backbone/keystore.sh
 .ai-backbone/buildtrim.py

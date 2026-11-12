@@ -200,8 +200,11 @@ just project-note <project> "one line"   # a note for another project on this ma
 just save "msg" <path>...                # save only those paths, and hear what was left unsaved
 just delegate "<task>"                  # hand one task to a worker on its own branch
 just delegate-status                    # whether a job is running, the last report and its cost, the open delegate branches
-just delegate-accept [branch]           # fast-forward the default branch, or the recorded base, onto that work; a main worktree is not switched onto a lane
+just delegate-accept [branch]           # fast-forward the default branch, or the recorded base, onto that work; a main worktree is not switched onto a lane. Then that project's vault is copied; a failed copy does not fail the accept
 just delegate-drop [branch]             # ask once (--yes skips it), then delete the branch and return to that base
+just vault-sweep                        # copy every sibling project's vault now: copied, off or failed, and the age before
+just vault-sweep-install                # Claude Code runs that copy at most once every 3 hours; other hooks stay
+just vault-sweep-remove                 # take those two hooks out; the script copy stays
 just secrets-to-brain                   # move git-ignored secrets into brain/secrets/, leave a link at the old path
 just secrets-back                       # put each secret back and empty brain/secrets/
 just secrets-to-keystore                # move token files into the operating system's keystore; an ssh key stays a file

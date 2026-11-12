@@ -16,6 +16,8 @@ entries below are the record of every version.
 
 ## 26.11.3 — 2026-11-12
 
+**The desk copies every sibling vault (n-a931f8).** A project driven from one desk session went days without a second copy of `brain/`, because the copy ran only in that project's own session. After `just delegate-accept` succeeds, that project's copy is taken in one line, and a copy that cannot be written does not fail the accept. `just vault-sweep` copies every sibling the backbone already lists and prints copied, off or failed, and the age before; a project that turned the copy off stays off. `just vault-sweep-install` asks Claude Code to run the same sweep at most once every 3 hours, from the user settings, not from a scheduled job (a scheduled job cannot read the Desktop). `just vault-sweep-remove` takes those two hooks out and leaves every other hook. `just doctor` and session-start name a project whose copy is older than 24 hours, and the age. `about-this-copy.txt` keeps its timestamp until a copy succeeds.
+
 **One MCP server for one delegate run (n-a5924b).** `DELEGATE_MCP` is a name and an http(s) url. `just delegate` writes it into `./.grok/config.toml` for that job and removes it when the job ends. The grok worker is passed `--trust` for that run only. Trust is not saved. `.grok/` is in the template `.gitignore`.
 
 **A delegate fetches crates before the worker (n-c4e0f1).** A grok sandbox cannot download crates. `just delegate` runs `cargo fetch` outside the sandbox when the project has Rust, and does not write `.cargo/config.toml`. The worker is told never to vendor a crate or patch crates-io, and to stop and name the crate if a download is refused.
