@@ -37,7 +37,8 @@ use_fake() {
 fake_root() {
   local store
   [ -d "${AI_BACKBONE_KEYSTORE:-}" ] || return 1
-  store=$(cd "$AI_BACKBONE_KEYSTORE" && pwd -P)
+  store=$(canon "$AI_BACKBONE_KEYSTORE")
+  [ -n "$store" ] || return 1
   printf '%s\n' "$store"
 }
 
@@ -48,7 +49,8 @@ fake_item() {
   store=$(fake_root) || return 1
   dir=$(dirname "$store/items/$account")
   mkdir -p "$dir"
-  real=$(perl -MCwd=abs_path -e 'my $p = abs_path($ARGV[0]); print $p if defined $p' "$dir")
+  real=$(canon "$dir")
+  [ -n "$real" ] || return 1
   case "$real/" in
     "$store/items/"*) ;;
     *) return 1 ;;
@@ -62,7 +64,8 @@ fake_reason() {
   store=$(fake_root) || return 1
   dir=$(dirname "$store/reason/$account")
   mkdir -p "$dir"
-  real=$(perl -MCwd=abs_path -e 'my $p = abs_path($ARGV[0]); print $p if defined $p' "$dir")
+  real=$(canon "$dir")
+  [ -n "$real" ] || return 1
   case "$real/" in
     "$store/reason/"*) ;;
     *) return 1 ;;
@@ -327,8 +330,17 @@ windows_put() {
   KS_PATH=$file powershell.exe -NoProfile -NonInteractive -Command 'Add-Type -AssemblyName System.Security; $ms = New-Object IO.MemoryStream; $b = New-Object byte[] 8192; $s = [Console]::OpenStandardInput(); while (($n = $s.Read($b, 0, $b.Length)) -gt 0) { $ms.Write($b, 0, $n) }; $p = [Security.Cryptography.ProtectedData]::Protect($ms.ToArray(), $null, "CurrentUser"); [IO.File]::WriteAllBytes($env:KS_PATH, $p)'
 }
 
+# One spelling for both sides of a prefix check. Git Bash's pwd -P is
+# /tmp or /c/..., and Perl's abs_path is often C:\... (spec 020, spec 041).
 canon() {
-  perl -MCwd=abs_path -e 'my $p = abs_path($ARGV[0]); print $p if defined $p' "$1" 2>/dev/null || true
+  local raw p
+  raw=$(perl -MCwd=abs_path -e 'my $p = abs_path($ARGV[0]); print $p if defined $p' "$1" 2>/dev/null || true)
+  [ -n "$raw" ] || return 0
+  p=$(printf '%s' "$raw" | tr '\\' '/')
+  if command -v cygpath >/dev/null 2>&1; then
+    p=$(cygpath -u "$p" 2>/dev/null || printf '%s' "$p")
+  fi
+  printf '%s' "$p"
 }
 
 under_secrets() {

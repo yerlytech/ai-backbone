@@ -1920,6 +1920,50 @@ def cargo_audit_cmd(binary, lock, db):
     return cmd
 
 
+def _script_interp(path):
+    """The interpreter on a script's first line, or '' when it has none.
+    CreateProcess will not start a shebang script (WinError 193, spec 020)."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            line = fh.readline(240)
+    except OSError:
+        return ""
+    if not line.startswith("#!"):
+        return ""
+    parts = line[2:].strip().split()
+    if not parts:
+        return ""
+    if os.path.basename(parts[0]) == "env" and len(parts) > 1:
+        return shutil.which(parts[1]) or ""
+    return shutil.which(os.path.basename(parts[0])) or ""
+
+
+def cargo_audit_windows_argv(cmd, env):
+    """argv CreateProcess can start (spec 020, n-2ed2cf). A .cmd or .bat
+    goes through cmd /c. A real cargo-audit.exe runs as itself. A shebang
+    script goes through the interpreter named on its first line."""
+    binary = cmd[0]
+    rest = list(cmd[1:])
+    ext = os.path.splitext(str(binary))[1].lower()
+    if ext in (".cmd", ".bat"):
+        return [_windows_comspec(env), "/d", "/c", binary, *rest]
+    if ext == ".exe":
+        return [binary, *rest]
+    interp = _script_interp(binary)
+    if interp:
+        return [interp, binary, *rest]
+    return [binary, *rest]
+
+
+def cargo_audit_argv(cmd, env=None):
+    """The scan's argv. Outside Windows the command is already runnable."""
+    if os.name != "nt":
+        return list(cmd)
+    if env is None:
+        env = os.environ
+    return cargo_audit_windows_argv(cmd, env)
+
+
 def audit_ignores(rows):
     """The rows that carry a reason, as cargo-audit's ignore entries (n-2ed2cf).
 
@@ -1962,9 +2006,9 @@ def _audit_one(block):
 
 def cargo_audit_scan(binary, lock, db):
     """What cargo-audit reports for one lock. Exit 1 means it found something."""
-    cmd = cargo_audit_cmd(binary, lock, db)
+    cmd = cargo_audit_argv(cargo_audit_cmd(binary, lock, db))
     try:
-        done = subprocess.run(cmd, check=False, capture_output=True, text=True)
+        done = subprocess.run(cmd, check=False, capture_output=True, text=True, shell=False)
     except OSError as err:
         raise ValueError(f"cargo-audit could not run ({err})") from err
     text = (done.stdout or "").strip()

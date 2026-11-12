@@ -232,7 +232,10 @@ proposal 4 as decided above; proposals 2, 3, 5, 6, 7 and 8 built as written.
       slowest "the budget" 203s (a section of 120 checks that runs on to
       the next heading), "the backbone's clone keeps itself level" 139s,
       "build output" and "the backlog of 2026-10-06" 128s each, "checks on
-      every push" 124s. Linux 4m45s, macOS 12m. The cut is still to do.)
+      every push" 124s. Linux 4m45s, macOS 12m. The Windows workflow now
+      runs three lanes in one step (win, rest, delegate; spec 031). Linux
+      and macOS still run every section in one process. The re-measure is
+      the next windows-latest run.)
 - [x] The comment rule and doctor's line.
 - [~] The recipe count from local session records, into a follow-up spec.
       Measured 2026-10-18 on the maintainer's machine: there is no month of

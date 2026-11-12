@@ -10,6 +10,11 @@
 # far). The caps stay 48 and 44: twice the 22 minutes measured 2026-10-13
 # (run 38400602011, 727 checks). The job cap is 60 since n-2ed2cf so the
 # cargo-audit compile fits beside the suite step, which stays 44.
+# The suite step runs three processes (AI_BACKBONE_SUITE_LANE win, rest,
+# delegate). Spawn per check is what made one process hit 44 minutes
+# (spec 031, run 39091792611). Linux and macOS call `just self-test` with
+# the lane unset and run every section. Nothing is dropped: each lane is
+# still this windows-latest job.
 #
 # This file is the backbone's own. promote.yml runs from main's copy of
 # itself. gate.sh reads the newest run of this file for the commit.
@@ -113,10 +118,32 @@ jobs:
       - name: the tools are all there
         run: just doctor
 
-      # The suite: a new project, a language layer, the lint hook, the
-      # weekly routine's locks, the checks recipes, the gate, and adopting an
-      # existing repo. It makes its own temporary folders and never reaches
-      # GitHub. Cut at its own cap, so that a suite that hangs ends the step
-      # as a failure and not the job as a cancellation.
-      - run: just self-test
+      # Three processes. Process spawn is what makes one process miss this
+      # cap on Windows (spec 031). Linux and macOS run every section in one
+      # `just self-test`, with the lane unset. win holds the OS checks
+      # (paths, keystore, advisories, cargo-audit). rest holds the long
+      # sections that are the same on every OS. delegate is its own process.
+      # Each lane is still windows-latest; nothing is left to the other OSs.
+      - run: |
+          mkdir -p "$RUNNER_TEMP/lanes"
+          export AI_BACKBONE_SUITE_LANE=win
+          bash .ai-backbone/self-test.sh > "$RUNNER_TEMP/lanes/win.txt" 2>&1 &
+          w=$!
+          export AI_BACKBONE_SUITE_LANE=rest
+          bash .ai-backbone/self-test.sh > "$RUNNER_TEMP/lanes/rest.txt" 2>&1 &
+          r=$!
+          export AI_BACKBONE_SUITE_LANE=delegate
+          bash .ai-backbone/self-test.sh > "$RUNNER_TEMP/lanes/delegate.txt" 2>&1 &
+          d=$!
+          fail=0
+          wait "$w" || fail=1
+          wait "$r" || fail=1
+          wait "$d" || fail=1
+          echo "===== lane win ====="
+          cat "$RUNNER_TEMP/lanes/win.txt"
+          echo "===== lane rest ====="
+          cat "$RUNNER_TEMP/lanes/rest.txt"
+          echo "===== lane delegate ====="
+          cat "$RUNNER_TEMP/lanes/delegate.txt"
+          exit "$fail"
         timeout-minutes: 44

@@ -12,7 +12,9 @@ rejected: it is not RustSec's, and its last release was July 2026.
 
 - `--advisories` runs `cargo-audit --json --file <lock> --db <db> --no-fetch`
   when the binary is on `PATH`, or when `AI_BACKBONE_CARGO_AUDIT` names one.
-  The pin is the `cargo-audit` row in `docs/upstream.toml`.
+  The pin is the `cargo-audit` row in `docs/upstream.toml`. On Windows a
+  real `cargo-audit.exe` is started as itself. A `.cmd` stand-in goes
+  through `cmd /c`, because CreateProcess will not start one (spec 020).
 - A `[[triaged]]` row that has a reason is the same fact as one
   `[[advisories.ignore]]` entry: `id` and `reason`. The scan does not pass
   those entries in. An ignore would hide the finding, and the gate still says

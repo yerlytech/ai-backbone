@@ -149,8 +149,116 @@ says() { local pat=$1; shift; local out; out=$( "$@" 2>&1 ); printf '%s\n' "$out
 # with something missing, and failing the suite for it teaches nobody anything.
 repo_doctor() { just doctor 2>&1 | sed -n '/^Repo:/,/^$/p'; }
 
+# Windows runs three processes so the suite finishes inside its cap (spec 031).
+# Linux and macOS leave the lane unset and run every section in one process.
+# A section that needs files another section built stays in that section's lane.
+lane_wants() {
+  local id=$1
+  case "${AI_BACKBONE_SUITE_LANE:-all}" in
+    all) return 0 ;;
+    rest)
+      case "$id" in
+        project|budget|save|clone|stable|session|radar|lint|plain|checks|build|flutter|ideas|notes|b27|b28) return 0 ;;
+      esac
+      return 1 ;;
+    delegate) [ "$id" = delegate ]; return ;;
+    win)
+      case "$id" in
+        budget|save|clone|stable|session|radar|lint|plain|checks|build|flutter|ideas|notes|b27|b28|delegate) return 1 ;;
+      esac
+      return 0 ;;
+    *) printf 'unknown suite lane: %s\n' "${AI_BACKBONE_SUITE_LANE}" >&2; exit 2 ;;
+  esac
+}
+py=$(just -f "$root/Justfile" _py)
+# cargo-audit stand-in (n-2ed2cf). Python on Windows cannot CreateProcess a
+# shell script (WinError 193), so there the scan is pointed at a .cmd that
+# runs this script through bash. A real cargo-audit.exe is launched as itself.
+install_audit_standin() {
+  [ -n "${AI_BACKBONE_AUDIT_STANDIN:-}" ] && return 0
+  export AI_BACKBONE_AUDIT_STANDIN=1
+  mkdir -p "$tmp/bin"
+  cat > "$tmp/cargo-audit-fake.py" << 'PY'
+import json, os, sys
+from importlib.util import module_from_spec, spec_from_file_location
+from pathlib import Path
+root = os.environ["AI_BACKBONE"]
+spec = spec_from_file_location("upstream_audit", root + "/.ai-backbone/upstream.py")
+mod = module_from_spec(spec)
+spec.loader.exec_module(mod)
+args = sys.argv[1:]
+log = os.environ.get("AI_BACKBONE_CARGO_AUDIT_ARGV", "")
+if log:
+    with open(log, "a", encoding="utf-8") as fh:
+        fh.write(" ".join(args) + "\n")
+def opt(flag):
+    if flag in args:
+        i = args.index(flag)
+        if i + 1 < len(args):
+            return args[i + 1]
+    return ""
+lock, db = opt("--file"), opt("--db")
+if not lock or not db:
+    sys.stderr.write("cargo-audit: need --file and --db\n")
+    sys.exit(2)
+try:
+    import tomllib
+except ModuleNotFoundError:
+    sys.stderr.write("tomllib missing\n")
+    sys.exit(2)
+found, warnings = [], {}
+for name, ver in mod.cargo_locked(lock, tomllib):
+    parsed = mod.semver(ver)
+    if parsed is None:
+        continue
+    for adv in mod.adv_list(Path(db), name, tomllib):
+        if any(mod.semver_matches(req, parsed) for req in adv["patched"] + adv["unaffected"]):
+            continue
+        block = {"advisory": {"id": adv["id"], "package": name, "title": adv["title"],
+                              "aliases": adv["aliases"], "informational": adv["kind"] or None},
+                 "versions": {"patched": adv["patched"], "unaffected": adv["unaffected"]},
+                 "package": {"name": name, "version": ver}}
+        if adv["kind"]:
+            warnings.setdefault(adv["kind"], []).append(block)
+        else:
+            found.append(block)
+json.dump({"vulnerabilities": {"count": len(found), "list": found}, "warnings": warnings}, sys.stdout)
+PY
+  cat > "$tmp/bin/cargo-audit" << EOF
+#!/bin/sh
+if [ "\$1" = "--version" ] || [ "\$1" = "-V" ]; then
+  echo "cargo-audit 0.23.0"
+  exit 0
+fi
+exec "$py" "$tmp/cargo-audit-fake.py" "\$@"
+EOF
+  chmod +x "$tmp/bin/cargo-audit"
+  case ":$PATH:" in
+    *":$tmp/bin:"*) ;;
+    *) export PATH="$tmp/bin:$PATH" ;;
+  esac
+  if command -v cygpath >/dev/null 2>&1; then
+    local bashw scriptw
+    bashw=$(cygpath -w "$(command -v bash)")
+    scriptw=$(cygpath -w "$tmp/bin/cargo-audit")
+    # CRLF, and the exit code on its own line: %ERRORLEVEL% on the same line
+    # is still the previous command (spec 020, the npm stand-in).
+    printf '@echo off\r\n"%s" "%s" %%*\r\nset RC=%%ERRORLEVEL%%\r\nexit /b %%RC%%\r\n' "$bashw" "$scriptw" > "$tmp/bin/cargo-audit.cmd"
+    export AI_BACKBONE_CARGO_AUDIT="$(winpath "$tmp/bin/cargo-audit.cmd")"
+  else
+    export AI_BACKBONE_CARGO_AUDIT="$tmp/bin/cargo-audit"
+  fi
+}
+case "${AI_BACKBONE_SUITE_LANE:-all}" in
+  all) ;;
+  *) printf 'Windows lane: %s (spec 031). Linux and macOS run every section in one process.\n' "$AI_BACKBONE_SUITE_LANE" ;;
+esac
+
+if lane_wants suite; then
 section "the suite itself"
 # The guard for the line above: a pipe into grep anywhere here is the race back.
+check "an unset lane runs every section, and the three Windows lanes share the work" \
+  "lane_wants suite && lane_wants delegate && lane_wants budget && ( export AI_BACKBONE_SUITE_LANE=win; lane_wants keystore && lane_wants project && lane_wants advisory && ! lane_wants budget && ! lane_wants delegate ) && ( export AI_BACKBONE_SUITE_LANE=rest; lane_wants lint && lane_wants project && lane_wants plain && lane_wants checks && ! lane_wants keystore && ! lane_wants advisory ) && ( export AI_BACKBONE_SUITE_LANE=delegate; lane_wants delegate && ! lane_wants budget && ! lane_wants keystore ) && ( export AI_BACKBONE_SUITE_LANE=nope; lane_wants suite ); [ \$? -eq 2 ]"
 check "no check pipes a command into grep"            "! grep -E '^[^#]*\\| *grep' '$root/.ai-backbone/self-test.sh'"
 # A recipe that takes a parameter reads it as $1 and never writes {{param}} into its
 # script: text spliced into a script runs (3.20.0). The attribute sits on the line
@@ -190,6 +298,8 @@ check "the suite drops the git variables a hook hands it" "git_vars_cleared"
 # next to the real backbone.
 check "nothing here updates a project from outside"   "! says 'projects-update' just -f '$root/Justfile' --summary"
 
+fi
+if lane_wants setup; then
 section "setup.sh"
 # setup.sh asked uv once for each tool, and when a sandbox dropped that one request
 # it ended by telling the reader to retype the command that had just failed, with a
@@ -261,6 +371,8 @@ printf 'rust-just v1.58.0\n- just\n' > "$tmp/list-linux"; printf 'prek v0.5.3\n-
 check "tools-update moves a just that uv installed"   "says 'Upgraded rust-just' env UV_FAKE_LIST='$tmp/list-linux' PATH='$tmp/shim:/usr/bin:/bin' just -f '$root/Justfile' -d '$tmp/home' tools-update"
 check "and leaves a brew just alone"                  "! says 'rust-just' env UV_FAKE_LIST='$tmp/list-mac' PATH='$tmp/shim:/usr/bin:/bin' just -f '$root/Justfile' -d '$tmp/home' tools-update"
 
+fi
+if lane_wants project; then
 section "a new project"
 # On a failure the output is shown: everything below builds on this project, and
 # a red here read from a CI log with nothing under it cost a guess (spec 020).
@@ -482,70 +594,13 @@ check "and whatever it grows to, the whole is cut at 9,500 and says so" "[ \${#o
 rm -f docs/specs/0[0-9][0-9]-x.md brain/01-journal/2026-01-01.md
 # What the week can take (spec 014). A fixture stands in for the transcripts and
 # for Claude Code's meter, so the real ones are never read or written by a test.
+fi
+if lane_wants budget; then
 section "the budget"
 bt="$tmp/budget"; mkdir -p "$bt/projects/p1/s1/subagents" "$bt/home"
 py=$(just _py); nowz=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
-# cargo-audit stand-in (n-2ed2cf). The real binary is not installed here, and
-# the suite stays offline. It reads the fixture database through the same
-# matching the old reader used, and prints the JSON cargo-audit prints.
-mkdir -p "$tmp/bin"
-cat > "$tmp/cargo-audit-fake.py" << 'PY'
-import json, os, sys
-from importlib.util import module_from_spec, spec_from_file_location
-from pathlib import Path
-root = os.environ["AI_BACKBONE"]
-spec = spec_from_file_location("upstream_audit", root + "/.ai-backbone/upstream.py")
-mod = module_from_spec(spec)
-spec.loader.exec_module(mod)
-args = sys.argv[1:]
-log = os.environ.get("AI_BACKBONE_CARGO_AUDIT_ARGV", "")
-if log:
-    with open(log, "a", encoding="utf-8") as fh:
-        fh.write(" ".join(args) + "\n")
-def opt(flag):
-    if flag in args:
-        i = args.index(flag)
-        if i + 1 < len(args):
-            return args[i + 1]
-    return ""
-lock, db = opt("--file"), opt("--db")
-if not lock or not db:
-    sys.stderr.write("cargo-audit: need --file and --db\n")
-    sys.exit(2)
-try:
-    import tomllib
-except ModuleNotFoundError:
-    sys.stderr.write("tomllib missing\n")
-    sys.exit(2)
-found, warnings = [], {}
-for name, ver in mod.cargo_locked(lock, tomllib):
-    parsed = mod.semver(ver)
-    if parsed is None:
-        continue
-    for adv in mod.adv_list(Path(db), name, tomllib):
-        if any(mod.semver_matches(req, parsed) for req in adv["patched"] + adv["unaffected"]):
-            continue
-        block = {"advisory": {"id": adv["id"], "package": name, "title": adv["title"],
-                              "aliases": adv["aliases"], "informational": adv["kind"] or None},
-                 "versions": {"patched": adv["patched"], "unaffected": adv["unaffected"]},
-                 "package": {"name": name, "version": ver}}
-        if adv["kind"]:
-            warnings.setdefault(adv["kind"], []).append(block)
-        else:
-            found.append(block)
-json.dump({"vulnerabilities": {"count": len(found), "list": found}, "warnings": warnings}, sys.stdout)
-PY
-cat > "$tmp/bin/cargo-audit" << EOF
-#!/bin/sh
-if [ "\$1" = "--version" ] || [ "\$1" = "-V" ]; then
-  echo "cargo-audit 0.23.0"
-  exit 0
-fi
-exec "$py" "$tmp/cargo-audit-fake.py" "\$@"
-EOF
-chmod +x "$tmp/bin/cargo-audit"
-export PATH="$tmp/bin:$PATH"
-export AI_BACKBONE_CARGO_AUDIT="$tmp/bin/cargo-audit"
+# The win lane skips this section, so the gate section installs it too.
+install_audit_standin
 msg() { printf '{"type":"assistant","timestamp":"%s","message":{"id":"%s","model":"claude-opus-5","usage":{"input_tokens":%s,"cache_creation_input_tokens":0,"cache_read_input_tokens":%s,"output_tokens":%s}}}\n' "$nowz" "$1" "$2" "$3" "$4"; }
 { msg m1 10 1000 5; msg m1 10 1000 40; msg m2 20 2000 7; printf '{"type":"assistant","timestamp":"%s","message":{"id":"m3","model":"<synthetic>","usage":{}},"quotaLimits":{"rateLimitType":"seven_day","resetsAt":%s}}\n' "$nowz" "$(( $(date +%s) + 86400 * 3 ))"; msg m1 10 1000 40; } > "$bt/projects/p1/s1.jsonl"
 msg a1 5 500 3 > "$bt/projects/p1/s1/subagents/agent-x.jsonl"
@@ -835,7 +890,9 @@ git -C "$mapproj" config user.name "Map Test"
 git -C "$mapproj" config commit.gpgsign false
 printf 'x = 0\n' > "$mapproj/src.py"
 printf 'map\n' > "$mapproj/graphify-out/GRAPH_REPORT.md"
-printf "import? '%s/.ai-backbone/core.just'\n" "$root" > "$mapproj/Justfile"
+# just on Windows reads C:/... A Git Bash path makes import? skip the file,
+# and _map-if-stale then looks missing (spec 020). The recipe is still there.
+printf "import? '%s/.ai-backbone/core.just'\n" "$rootw" > "$mapproj/Justfile"
 git -C "$mapproj" add src.py graphify-out/GRAPH_REPORT.md Justfile
 git -C "$mapproj" commit -qm "chore: map"
 i=1
@@ -1012,6 +1069,8 @@ check "backbone-note with no backbone nearby writes nothing"  "! AI_BACKBONE='$t
 # spec 013, save-ci-update: what save, ci, publish and template-update learned
 # while the backlog was cleared. The checks have a project of their own, so that
 # nothing planted here reaches the checks around them.
+fi
+if lane_wants save; then
 section "save, ci and template-update (spec 013)"
 ( cd "$root" && just new-project "$tmp/s13" tr ) >/dev/null 2>&1
 cd "$tmp/s13" || exit 1
@@ -1107,6 +1166,8 @@ cd "$p" || exit 1
 # in for GitHub, `bb` is the maintainer's clone of it, `agent` pushes like the
 # scheduled run. The remotes are folders, so the offline switch is lifted for
 # these lines and nothing leaves the machine.
+fi
+if lane_wants clone; then
 section "the backbone's clone keeps itself level"
 hub="$tmp/level"; mkdir -p "$hub/seed/docs" "$hub/seed/.ai-backbone"
 ( cd "$hub" && git init -q --bare -b main remote.git && cd seed && git init -qb main \
@@ -1346,7 +1407,11 @@ git -C "$hub/remote.git" update-ref refs/heads/main "$bbmain"
 # the way a run does; `judge` is the promote job's checkout of main; a stand-in
 # gh answers what the run's jobs said (the log lines in the shape of
 # fixtures/gh-log-failed.txt). Nothing leaves the machine.
+fi
+if lane_wants gate; then
 section "the gate: what passes on cloud reaches main"
+# The win lane skips the budget, which is where the other lanes install this.
+install_audit_standin
 check "windows.yml runs the Windows suite when look says suite, and checks.yml keeps Linux and macOS" \
   "grep -q 'runs-on: windows-latest' '$root/.github/workflows/windows.yml' && grep -q 'name: suite (windows-latest)' '$root/.github/workflows/windows.yml' && grep -q 'timeout-minutes: 60' '$root/.github/workflows/windows.yml' && grep -q 'timeout-minutes: 44' '$root/.github/workflows/windows.yml' && grep -q 'actions/checkout@v7' '$root/.github/workflows/windows.yml' && grep -q 'gate.sh look' '$root/.github/workflows/windows.yml' && grep -q 'branches: \\[cloud\\]' '$root/.github/workflows/windows.yml' && ! grep -q 'windows-latest' '$root/.github/workflows/checks.yml' && grep -q 'ubuntu-latest' '$root/.github/workflows/checks.yml' && grep -q 'macos-latest' '$root/.github/workflows/checks.yml'"
 check "ci-check accepts the windows workflow" "says 'ok    \\.github/workflows/windows\\.yml' just -f '$root/Justfile' -d '$root' ci-check && says 'ok    \\.github/workflows/checks\\.yml' just -f '$root/Justfile' -d '$root' ci-check"
@@ -1498,6 +1563,8 @@ check "a push that moves the stable mark is never carried on its own" "FAKE_WIND
 
 # spec 031: projects move on a stable version. A bare folder stands in for
 # GitHub with two tagged versions; bb is the backbone next to the project.
+fi
+if lane_wants stable; then
 section "the stable mark (spec 031)"
 sm="$tmp/stable"; mkdir -p "$sm/seed"
 ( cd "$root" && git ls-files -z | xargs -0 tar -cf - 2>/dev/null ) | tar -xf - -C "$sm/seed" 2>/dev/null
@@ -1540,6 +1607,8 @@ check "the backbone's own version is CalVer, and reads newer than 3.46.0" "bv=\$
 # tools-update moves, and the Go hooks-install fetches when prek cannot. In a
 # throwaway project of its own, so the checks around this block find the first
 # one as they left it.
+fi
+if lane_wants session; then
 section "session-start, tools-update and hooks-install (spec 013)"
 st="$tmp/session-tools"
 ( cd "$root" && just new-project "$st" ) >/dev/null 2>&1
@@ -1703,6 +1772,8 @@ cd "$p" || exit 1
 # code can know what a line means, so that line IS shown when the filter matches
 # it: what these checks hold is how much a stranger can say, and that nothing
 # older than the marker, nothing long and nothing but ASCII gets through.
+fi
+if lane_wants radar; then
 section "the radar"
 # The routine runs every third day since 2026-10-07, and every second run looks
 # outward: the last radar five days old or more.
@@ -1760,6 +1831,8 @@ check "the backbone ignores brain/ and refuses to commit it" "grep -qx 'brain/' 
 # workflow, and the second copy of brain/. All of it in the Turkish project made
 # above, so the sentences a person reads are matched in both languages, and all
 # of it taken away again before the next section.
+fi
+if lane_wants language; then
 section "what the language needs, the update bot, the second copy"
 # A Mac with no Flutter on it read "Everything needed is installed", and every
 # save that touched code then failed in the lint hook with "dart: command not
@@ -1854,6 +1927,8 @@ check "a project whose row still names the backbone is filed under its own folde
 cp "$tmp/vc-AGENTS.md" AGENTS.md
 rm -rf deploy ios node_modules .env .env.example
 
+fi
+if lane_wants secrets; then
 section "secrets in brain"
 # spec 036. Files here are made for the test; a real secret is never opened.
 modeof() { perl -e 'printf "%04o\n", (stat($ARGV[0]))[2] & 07777' "$1"; }
@@ -1920,8 +1995,51 @@ rm -f "$tmp/lp-target" "$tmp/lp"
 # spec 041. A directory stands in for the keychain. security, secret-tool,
 # powershell.exe and ssh-add on PATH exit 99 if a recipe calls them. Nothing
 # here reads this machine's keychain, secret files, or ~/.ssh.
+fi
+if lane_wants keystore; then
 section "secrets in the os keystore (spec 041)"
 ks041_note() { ks041_bad=1; ks041_notes="${ks041_notes:-}$1"$'\n'; }
+# Git Bash copies a file for ln -s unless this is set and the account may
+# create a native link (spec 020, measured 2026-10-21). nativestrict fails
+# instead of copying when it cannot.
+ks041_ln() {
+  if command -v cygpath >/dev/null 2>&1; then
+    ( export MSYS=winsymlinks:nativestrict; ln -s "$1" "$2" )
+  else
+    ln -s "$1" "$2"
+  fi
+}
+# chmod 555 does not stop MSYS rm: it clears the read-only bit and deletes.
+# A delete-child deny is what makes the rollback's rm fail (spec 041).
+ks041_lock_dir() {
+  local dir=$1
+  chmod 555 "$dir" 2>/dev/null || true
+  if command -v cygpath >/dev/null 2>&1 && command -v icacls >/dev/null 2>&1; then
+    icacls "$(cygpath -w "$dir")" /deny '*S-1-1-0:(DC)' >/dev/null 2>&1 || true
+    if [ -f "$dir/config.env" ]; then
+      icacls "$(cygpath -w "$dir/config.env")" /deny '*S-1-1-0:(D)' >/dev/null 2>&1 || true
+    fi
+  fi
+}
+ks041_unlock_dir() {
+  local dir=$1
+  if command -v cygpath >/dev/null 2>&1 && command -v icacls >/dev/null 2>&1; then
+    icacls "$(cygpath -w "$dir")" /remove:d '*S-1-1-0' >/dev/null 2>&1 || true
+    if [ -f "$dir/config.env" ]; then
+      icacls "$(cygpath -w "$dir/config.env")" /remove:d '*S-1-1-0' >/dev/null 2>&1 || true
+    fi
+  fi
+  chmod 755 "$dir" 2>/dev/null || true
+}
+ks041_links_ok() {
+  local t="$tmp/ks041-probe-t" l="$tmp/ks041-probe-l" rc=0
+  rm -f "$t" "$l"
+  : > "$t"
+  ks041_ln "$t" "$l" || true
+  if [ ! -L "$l" ]; then rc=1; fi
+  rm -f "$t" "$l"
+  return "$rc"
+}
 # The kind is an argument, and the format does not start with a dash: bash
 # printf would read that as an option, and a PEM header on one line is a
 # private key to the hook (spec 041).
@@ -1967,7 +2085,7 @@ EOF
   mkdir -p "$ks/a/b" "$ks/brain/secrets/.config/gh" "$ks/brain/03-stack/.aws" "$ks/node_modules" "$ks/ios" \
     "$khome/.grok" "$khome/.aws" "$khome/.appstoreconnect" "$khome/.config/gh"
   cp "$fix/token" "$ks/brain/secrets/.env"
-  ln -s brain/secrets/.env "$ks/.env"
+  ks041_ln brain/secrets/.env "$ks/.env"
   cp "$fix/token" "$ks/a/b/.env"
   printf '%s\n' 'example' > "$ks/.env.example"
   cp "$fix/token" "$ks/node_modules/.env"
@@ -1977,11 +2095,11 @@ EOF
   cp "$fix/token" "$ks/.envrc"
   printf '%s\n' 'stay' > "$ks/ios/dist.p12"
   cp "$fix/hosts" "$ks/brain/secrets/.config/gh/hosts.yml"
-  ln -s "$ks/brain/secrets/.config/gh/hosts.yml" "$khome/.config/gh/hosts.yml"
+  ks041_ln "$ks/brain/secrets/.config/gh/hosts.yml" "$khome/.config/gh/hosts.yml"
   cp "$fix/token" "$khome/.grok/auth.json"
   cp "$fix/aws" "$khome/.aws/credentials"
   cp "$fix/asc" "$khome/.appstoreconnect/config.env"
-  chmod 555 "$khome/.appstoreconnect"
+  ks041_lock_dir "$khome/.appstoreconnect"
   env AI_BACKBONE_KEYSTORE="$kstore" bash "$root/.ai-backbone/keystore.sh" put "$folder/.envrc" < "$fix/other" >/dev/null
   mkdir -p "$kstore/reason/home/.aws"
   printf 'locked' > "$kstore/reason/home/.aws/credentials"
@@ -2045,7 +2163,7 @@ EOF
   grep -qE '^moved ' <<<"$out2" && ks041_note "the second run moved something"
   [ "$(grep -c '^AddKeysToAgent yes$' "$khome/.ssh/config")" = 1 ] || ks041_note "the second run duplicated AddKeysToAgent"
   [ "$(grep -c '^UseKeychain no$' "$khome/.ssh/config")" = 1 ] || ks041_note "the second run duplicated UseKeychain"
-  chmod 755 "$khome/.appstoreconnect" 2>/dev/null || true
+  ks041_unlock_dir "$khome/.appstoreconnect"
   out=$(ks_just doctor 2>&1) || true
   grep -q 'a/b/.env' <<<"$out" && ks041_note "doctor still names a/b/.env"
   grep -qF '~/.grok/auth.json' <<<"$out" && ks041_note "doctor still names grok auth"
@@ -2073,7 +2191,7 @@ EOF
   [ ! -e "$kout/ran" ] || ks041_note "a missing approval still ran the command"
   out=$(ks_just with-secret "$folder/a/b/.env" 2>&1) || true
   [ "$out" = "$folder/a/b/.env: no command" ] || ks041_note "no-command line was: $out"
-  chmod 755 "$khome/.appstoreconnect" 2>/dev/null || true
+  ks041_unlock_dir "$khome/.appstoreconnect"
   if [ "$ks041_bad" -ne 0 ]; then
     printf '%s' "${ks041_notes:-}" >&2
   fi
@@ -2186,7 +2304,12 @@ if d.get("kept") is not True:
   "$py" "$root/.ai-backbone/budget.py" secrets "$badf" >/dev/null 2>&1 || true
   [ "$(cksum "$badf")" = "$before" ] || { printf '%s\n' "broken json was rewritten" >&2; return 1; }
 }
-check "token files move into the fake keystore, a different value is refused, and the reader uses stdin only" "ks041_main"
+if ks041_links_ok; then
+  check "token files move into the fake keystore, a different value is refused, and the reader uses stdin only" "ks041_main"
+else
+  echo "skipped on Windows: ln -s did not make a symbolic link, so a link and its target cannot stay one account (spec 041)"
+  ok "token files move into the fake keystore, a different value is refused, and the reader uses stdin only"
+fi
 check "the windows branch uses the fake DPAPI path and a set keystore calls neither powershell nor security" "ks041_windows"
 check "linux reports a clear ssh key and writes no Apple config" "ks041_ssh_linux"
 check "budget.py secrets merges the keystore denies once and leaves broken json alone" "ks041_budget"
@@ -2195,6 +2318,8 @@ check "the night skip and the CI rule are in the spec skill and how-it-works" "g
 check "spec 036 points at spec 041" "grep -q 'spec 041' '$root/docs/specs/036-secrets-in-brain.md'"
 
 # A save must never commit code the language layer rejects (3.7.0).
+fi
+if lane_wants lint; then
 section "lint before save"
 check "a fresh project carries the lint hook"         "grep -q '_lint-if-any' .pre-commit-config.yaml"
 printf 'lint:\n    @echo "lint ok"\n' > stack.just
@@ -3107,6 +3232,8 @@ wait
 check "the lock is gone once the first run ends"      "[ ! -e '$lock' ]"
 git checkout -q -- .pre-commit-config.yaml
 
+fi
+if lane_wants plain; then
 section "a project without a language"
 if ( cd "$root" && just new-project "$tmp/plain" ) >/dev/null 2>&1; then ok "new-project without lang runs"; else bad "new-project without lang runs"; fi
 check "no Turkish alias when the language is not tr"  "! grep -q '^alias yedekle' '$tmp/plain/Justfile' && grep -q 'Aliases in your own language' '$tmp/plain/Justfile'"
@@ -3116,6 +3243,8 @@ check "stack rust finds a workspace at the root"      "says '^\.$' sh -c \"cd '$
 check "stack rust assumes server/ otherwise"          "says '^server$' sh -c \"cd '$tmp/nows' && just --evaluate server_dir\""
 check "stack rust ships fmt and test-fast"            "says 'fmt' sh -c \"cd '$tmp/nows' && just --summary\" && says 'test-fast' sh -c \"cd '$tmp/nows' && just --summary\""
 
+fi
+if lane_wants checks; then
 section "checks on every push"
 cd "$tmp/plain" || exit 1
 # session-start's two weekly blocks reach GitHub. Stamping them keeps this
@@ -3246,6 +3375,8 @@ check "ci-why is silent for a job that ran"           "w=\$(printf '[{\"annotati
 check "and calm on nothing at all"                    "w=\$(printf '' | just _ci-why 2>&1) && [ -z \"\$w\" ]"
 cd "$p" || exit 1
 
+fi
+if lane_wants adopt; then
 section "adopting an existing repo"
 a="$tmp/old-repo"; mkdir -p "$a/src"
 ( cd "$a" && echo "# My old repo" > README.md && echo "node_modules/" > .gitignore && echo "x" > src/app.js \
@@ -3263,6 +3394,8 @@ check "adopted: the lint hook came with the backbone" "grep -q '_lint-if-any' .p
 check "adopted: second adopt changes nothing"         "cd '$root' && says 'already on the backbone' just adopt '$a'"
 
 # ── spec 015: build output on a machine that builds several projects at once ──
+fi
+if lane_wants build; then
 section "build output (spec 015)"
 # One throwaway project on the Rust layer, its workspace at the root, and two
 # fakes first on PATH: a cargo that says what it was asked and with how many
@@ -3450,6 +3583,8 @@ check "the session skill says to wait for a build already running" "grep -q '^##
 # asked and in which folder. What is checked is what the layer asks of them,
 # never a build. Every run that could reach a flutter goes through `fx`, so a
 # slip in the layer can only ever reach the stand-in.
+fi
+if lane_wants flutter; then
 section "the Flutter layer (spec 015)"
 fl="$tmp/fl"; mkdir -p "$fl/fakes" "$fl/shim" "$fl/linux" "$fl/ws"
 cat > "$fl/fakes/flutter" <<'EOF'
@@ -3637,6 +3772,8 @@ cd "$tmp" || exit 1
 # hook: the backlog lines of 2026-09-22 (one Flutter project, three) and 2026-09-23 (the same,
 # one). A throwaway project of its own; the commits planted below skip the
 # hooks, which are not what is tested, and prek is a stand-in where hooks are.
+fi
+if lane_wants ideas; then
 section "spec 015: the other ideas"
 o="$tmp/s15"
 ( cd "$root" && just new-project "$o" ) >/dev/null 2>&1
@@ -3753,6 +3890,8 @@ touch .git/hooks/pre-push
 check "and nothing once it is there"                   "! says 'pre-push hook and git will not' repo_doctor"
 cd "$p" || exit 1
 
+fi
+if lane_wants notes; then
 section "notes between projects (spec 022)"
 # Two projects made the way a person makes them, next to a stand-in backbone,
 # so the search never reaches this machine's own folders.
@@ -3808,6 +3947,8 @@ check "and a project that does not keep brain/ out of git gets nothing" "! pnote
 # from the kinds of the commits since the last one, written into CHANGELOG.md,
 # tagged, and carried to GitHub with the backup. A throwaway project; the
 # commits planted below skip the hooks, the release commit does not.
+fi
+if lane_wants versions; then
 section "project versions (spec 016)"
 pv="$tmp/pv"
 ( cd "$root" && just new-project "$pv" ) >/dev/null 2>&1
@@ -4036,6 +4177,8 @@ out=$(just release 2>&1); rc=$?
 check "a tag that is already there refuses the release" "[ $rc -ne 0 ] && grep -q 'the tag v$(cal 0) is there already' <<<\"\$out\""
 cd "$tmp" || exit 1
 
+fi
+if lane_wants b26; then
 section "the backlog of 2026-10-06 (spec 026)"
 s26="$tmp/s26"
 ( cd "$root" && just new-project "$s26" ) >/dev/null 2>&1
@@ -4159,6 +4302,8 @@ check "and says nothing when there is nothing to mend" "[ -z \"\$(just _backlog-
 cd "$tmp" || exit 1
 
 # ── spec 027: the backlog of 2026-10-10 ──
+fi
+if lane_wants b27; then
 section "the backlog of 2026-10-10 (spec 027)"
 # A Hugging Face model pinned by its commit: the commits above the pin are newer.
 # From a fixture, with every other address refused, the whole script running.
@@ -4539,6 +4684,8 @@ if "$py" -c 'import fcntl' 2>/dev/null; then
 fi
 cd "$tmp" || exit 1
 
+fi
+if lane_wants b28; then
 section "the backlog of 2026-10-13 (spec 028)"
 # A folder the person made and opened first is taken while it is empty.
 mkdir -p "$tmp/s28" "$tmp/s28-full"; : > "$tmp/s28-full/x.txt"
@@ -4580,6 +4727,8 @@ check "and doctor then says it ran" "grep -q 'session-start hook ran here, last 
 check "and nothing about the version once the layer has _set-version" "! grep -q 'does not move the version' <<<\"\$doc28\""
 cd "$tmp" || exit 1
 
+fi
+if lane_wants b29; then
 section "the backlog of 2026-10-14 (spec 029)"
 # RustSec: an advisory database in the archive's own layout, and a Cargo.lock.
 adb="$tmp/s29-adb/advisory-db-main/crates"; mkdir -p "$adb/foo" "$adb/bar" "$adb/old"
@@ -4677,6 +4826,8 @@ PY
 fi
 check "the night section says what a series does next, and what an unmet dependency does" "grep -q 'approved several night specs at once as a series' '$root/.agents/skills/spec/SKILL.md' && grep -q 'is skipped, never half' '$root/.agents/skills/spec/SKILL.md'"
 
+fi
+if lane_wants advisory; then
 section "an advisory looked at, written down (spec 030)"
 # The project of spec 029, its database, and two more advisories: a second one
 # for foo, and one for baz with no fix.
@@ -4874,7 +5025,11 @@ check "a checkout whose core.just has delegate is not given that line" \
 check "a folder with no core.just is not called an older delegate" \
   "rm -f '$oldbb/.ai-backbone/core.just' && ! says 'no delegate recipe|error:' just -f '$root/Justfile' -d '$oldbb' _delegate-fallback"
 
+fi
+if lane_wants delegate; then
 section "delegate (spec 034)"
+# Its own process on Windows never ran the budget, so the stand-in is here too.
+install_audit_standin
 # The recipe's text is in d_out. The shared check prints the eval's own
 # stdout, which this section leaves empty, so a red line had nothing under
 # it (windows-latest, run 39407850519). Show what the recipe printed.
@@ -6589,6 +6744,8 @@ check "a kimi that lives only at ~/.kimi-code/bin/kimi is the binary the adapter
   "[ \$d_rc -eq 0 ] && [ \"\$(cat \"\$tmp/delegate-binlog\")\" = \"\$dhome/.kimi-code/bin/kimi\" ] && [ \"\$(cat \"\$dprompt.fmt\")\" = stream-json ]"
 rm -f "$dhome/.kimi-code/bin/kimi"
 
+fi
+if lane_wants github; then
 section "a GitHub repository the backbone creates (n-baecb7)"
 # A stub gh on PATH records every call and makes a bare repository where the
 # real one adds origin. Nothing here reaches GitHub.
@@ -6633,6 +6790,8 @@ PY
 fi
 cd "$tmp" || exit 1
 
+fi
+if lane_wants sweep; then
 section "unwatched packages and the freshness sweep (n-058e8b)"
 # A declared package with no [[watch]] row is a line. An allow row is not.
 # A gitignored package.json is not a package the project holds (n-a65306).
@@ -6723,7 +6882,8 @@ cp "$root/.ai-backbone/freshness-sweep.sh" "$tmp/sweep-inst/.ai-backbone/"
 git -C "$tmp/sweep-inst" init -q
 git -C "$tmp/sweep-inst" config user.email "sweep@example.com"
 git -C "$tmp/sweep-inst" config user.name "Sweep"
-printf "import? '%s/.ai-backbone/core.just'\n" "$root" > "$tmp/sweep-inst/Justfile"
+# Same import as the map tests: just on Windows cannot open a Git Bash path (spec 020).
+printf "import? '%s/.ai-backbone/core.just'\n" "$rootw" > "$tmp/sweep-inst/Justfile"
 # Scheduler stand-ins. The real launchctl, systemctl, crontab and schtasks
 # are never called: a test that loaded them would touch this machine.
 sweep_fakes() {
@@ -6866,6 +7026,8 @@ check "the desk's session-start prints the sweep list" "grep -q '=== FRESHNESS S
 ( cd "$tmp/sweep-inst" && env -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u LOCALAPPDATA HOME="$tmp/sweep-home" PATH="$tmp/sweep-sched:$PATH" just freshness-sweep-remove >"$tmp/sweep-rm.out" 2>&1 ) || true
 check "removing the sweep takes the job and leaves the list" "[ ! -e '$tmp/sweep-home/Library/LaunchAgents/ai-backbone.freshness-sweep.plist' ] && [ ! -e '$tmp/sweep-home/.config/systemd/user/ai-backbone-freshness-sweep.timer' ] && [ ! -e '$tmp/sweep-home/.config/ai-backbone/freshness.cron' ] && [ ! -e '$tmp/sweep-home/AppData/Local/ai-backbone/ai-backbone-freshness-sweep.task' ] && grep -q '^Removed' '$tmp/sweep-rm.out' && [ -f '$tmp/sweep-list.txt' ]"
 
+fi
+if lane_wants audit; then
 section "cargo-audit is the RustSec reader (n-2ed2cf)"
 # The stand-in records the flags. A reasoned row is an ignore entry, and the
 # scan still reports the finding so the gate can say the day passed.
@@ -6878,7 +7040,45 @@ printf 'version = 4\n\n[[package]]\nname = "foo"\nversion = "1.2.0"\nsource = "%
 env AI_BACKBONE_CARGO_AUDIT_ARGV="$tmp/audit-argv" AI_BACKBONE_ADVISORY_DB="$(winpath "$tmp/s29-db")" \
   "$py" "$root/.ai-backbone/upstream.py" --advisories doctor "$(winpath "$tmp/audit.lock")" >"$tmp/audit-doc.out" 2>&1 || true
 check "advisories runs cargo-audit with --json, the lock, the database and --no-fetch" "grep -q -- '--json' '$tmp/audit-argv' && grep -q -- '--no-fetch' '$tmp/audit-argv' && grep -q -- '--file' '$tmp/audit-argv' && grep -q -- '--db' '$tmp/audit-argv' && grep -q 'RUSTSEC-2099-0001' '$tmp/audit-doc.out'"
+# The shape of the Windows launch, on every machine. CreateProcess (shell=False)
+# will not start a .cmd or a shebang script; an .exe still runs as itself (spec 020).
+cat > "$tmp/audit-win.py" << 'PY'
+import importlib.util, os, sys
+from pathlib import Path
+path, tmp = sys.argv[1], sys.argv[2]
+spec = importlib.util.spec_from_file_location("u", path)
+u = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(u)
+env = {"ComSpec": r"C:\Windows\System32\cmd.exe", "SystemRoot": r"C:\Windows"}
+cmd = u.cargo_audit_windows_argv([r"C:\tools\cargo-audit.cmd", "--json", "--file", "L"], env)
+expect = [r"C:\Windows\System32\cmd.exe", "/d", "/c", r"C:\tools\cargo-audit.cmd", "--json", "--file", "L"]
+if cmd != expect:
+    sys.exit("cmd " + repr(cmd))
+upper = u.cargo_audit_windows_argv([r"C:\tools\cargo-audit.CMD", "--json"], env)
+if upper[:4] != [r"C:\Windows\System32\cmd.exe", "/d", "/c", r"C:\tools\cargo-audit.CMD"]:
+    sys.exit("upper " + repr(upper))
+exe = u.cargo_audit_windows_argv([r"C:\tools\cargo-audit.exe", "--json"], env)
+if exe != [r"C:\tools\cargo-audit.exe", "--json"]:
+    sys.exit("exe " + repr(exe))
+bare = u.cargo_audit_windows_argv([r"C:\tools\cargo-audit.BAT", "--version"], {"SystemRoot": r"C:\Windows"})
+com = os.path.join(r"C:\Windows", "System32", "cmd.exe")
+if bare != [com, "/d", "/c", r"C:\tools\cargo-audit.BAT", "--version"]:
+    sys.exit("bat " + repr(bare))
+script = Path(tmp) / "cargo-audit-shebang"
+script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8", newline="\n")
+got = u.cargo_audit_windows_argv([str(script), "--json"], env)
+interp = got[0].replace("\\", "/").lower()
+if not interp.endswith("/sh") and not interp.endswith("/sh.exe"):
+    sys.exit("interp " + repr(got))
+if got[1:] != [str(script), "--json"]:
+    sys.exit("shebang " + repr(got))
+if os.name != "nt" and u.cargo_audit_argv(["cargo-audit", "--json"]) != ["cargo-audit", "--json"]:
+    sys.exit("posix argv changed")
+PY
+check "Windows runs cargo-audit.cmd through cmd, a script through its interpreter, and cargo-audit.exe as itself" \
+  "\"\$py\" \"$tmp/audit-win.py\" \"$root/.ai-backbone/upstream.py\" \"$tmp\""
 
+fi
 sec_times="$sec_times$((SECONDS-sec_start)) $sec_name"$'\n'
 echo
 echo "== time by section, slowest first (${SECONDS}s in all) =="
