@@ -57,7 +57,7 @@ check = "what the new major drops or changes (fetch-depth, credentials, the Node
 [[watch]]
 name = "grok"
 source = "pointer:https://x.ai/cli/stable"
-pin = "1.0.62"
+pin = "1.0.77"
 why = "the worker CLI a delegated job is handed to"
 check = "what a headless run accepts, and whether the binary still answers `grok version`"
 
