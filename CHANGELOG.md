@@ -14,6 +14,14 @@ squash that follows that version on the maintainer's machine takes the tags
 before it with the history. A newcomer reads a repository, not a diary. The
 entries below are the record of every version.
 
+## 26.11.4 — 2026-11-13
+
+**Windows: the doctor no longer waits out the lane (spec 020).** `just doctor` read the vault sweep through a pipe into `while read`; on Git Bash, `git.exe` kept the pipe open and the read waited for the lane's cap. The sweep's lines now go through a file, a stuck sweep is stopped after a minute there, and Windows paths are turned back with `cygpath` so the project list globs.
+
+**Windows suite lanes have 55 minutes each.** The rest lane runs about 40 minutes on `windows-latest`; on 2026-11-13 a 40-minute cap cut it at its 767th check with nothing failed. The step allows 59 minutes and the job 75.
+
+**Tool pins moved to what is installed.** prek 0.5.10, graphify 0.9.107, uv 0.13.8, claude-code 2.1.311 (the stable channel the backbone reads), opencode 2.2.7, kimi 2.5.3, grok 1.0.77. Grok 1.0.77 keeps the headless flags a delegate uses (`-p`, `--allow`, `--deny`, `--sandbox`, `--max-turns`) and `grok version`; `grok update` replaces the binary in place, so update only while no worker runs.
+
 ## 26.11.3 — 2026-11-12
 
 **Windows reports; it does not hold main back (2026-11-12).** The gate carries code when Linux and macOS are green. `windows.yml` still runs on every code push, and a red run writes one `gate: windows red` line on cloud naming its FAIL checks. A release still waits for a green Windows run.
