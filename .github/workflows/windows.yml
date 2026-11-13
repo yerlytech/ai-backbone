@@ -68,7 +68,9 @@ jobs:
     runs-on: windows-latest
     # A job with no cap runs for six hours when something hangs.
     # +12 for the cargo-audit compile (n-2ed2cf), outside the suite step.
-    timeout-minutes: 60
+    # The rest lane alone runs about 40 minutes there; on 2026-11-13 a 40 m
+    # cap cut it at its 767th check with nothing failed. 55 m per lane.
+    timeout-minutes: 75
     env:
       HOMEBREW_NO_AUTO_UPDATE: 1
     steps:
@@ -127,13 +129,13 @@ jobs:
       - run: |
           mkdir -p "$RUNNER_TEMP/lanes"
           export AI_BACKBONE_SUITE_LANE=win
-          timeout 40m bash .ai-backbone/self-test.sh > "$RUNNER_TEMP/lanes/win.txt" 2>&1 &
+          timeout 55m bash .ai-backbone/self-test.sh > "$RUNNER_TEMP/lanes/win.txt" 2>&1 &
           w=$!
           export AI_BACKBONE_SUITE_LANE=rest
-          timeout 40m bash .ai-backbone/self-test.sh > "$RUNNER_TEMP/lanes/rest.txt" 2>&1 &
+          timeout 55m bash .ai-backbone/self-test.sh > "$RUNNER_TEMP/lanes/rest.txt" 2>&1 &
           r=$!
           export AI_BACKBONE_SUITE_LANE=delegate
-          timeout 40m bash .ai-backbone/self-test.sh > "$RUNNER_TEMP/lanes/delegate.txt" 2>&1 &
+          timeout 55m bash .ai-backbone/self-test.sh > "$RUNNER_TEMP/lanes/delegate.txt" 2>&1 &
           d=$!
           fail=0
           wait "$w" || fail=1
@@ -146,4 +148,4 @@ jobs:
           echo "===== lane delegate ====="
           cat "$RUNNER_TEMP/lanes/delegate.txt"
           exit "$fail"
-        timeout-minutes: 44
+        timeout-minutes: 59
