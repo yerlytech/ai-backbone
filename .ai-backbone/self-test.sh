@@ -7507,6 +7507,20 @@ printf 'version = 4\n\n[[package]]\nname = "foo"\nversion = "1.2.0"\nsource = "%
 env AI_BACKBONE_CARGO_AUDIT_ARGV="$tmp/audit-argv" AI_BACKBONE_ADVISORY_DB="$(winpath "$tmp/s29-db")" \
   "$py" "$root/.ai-backbone/upstream.py" --advisories doctor "$(winpath "$tmp/audit.lock")" >"$tmp/audit-doc.out" 2>&1 || true
 check "advisories runs cargo-audit with --json, the lock, the database and --no-fetch" "grep -q -- '--json' '$tmp/audit-argv' && grep -q -- '--no-fetch' '$tmp/audit-argv' && grep -q -- '--file' '$tmp/audit-argv' && grep -q -- '--db' '$tmp/audit-argv' && grep -q 'RUSTSEC-2099-0001' '$tmp/audit-doc.out'"
+cat > "$tmp/audit-cmd.py" << 'PY'
+import importlib.util, os, sys
+spec = importlib.util.spec_from_file_location("u", sys.argv[1])
+u = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(u)
+for binary in ("cargo", "cargo-audit", "cargo-audit.exe", "/x/cargo-audit"):
+    got = u.cargo_audit_cmd(binary, "Cargo.lock", "db")
+    expect = [binary, "audit", "--json", "--file", os.path.abspath("Cargo.lock"),
+              "--db", os.path.abspath("db"), "--no-fetch"]
+    if got != expect:
+        sys.exit(binary + ": " + repr(got))
+PY
+check "cargo and standalone cargo-audit both take the audit subcommand" \
+  "\"\$py\" \"$tmp/audit-cmd.py\" \"$root/.ai-backbone/upstream.py\""
 # The shape of the Windows launch, on every machine. CreateProcess (shell=False)
 # will not start a .cmd or a shebang script; an .exe still runs as itself (spec 020).
 cat > "$tmp/audit-win.py" << 'PY'

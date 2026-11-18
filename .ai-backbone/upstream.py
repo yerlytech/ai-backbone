@@ -1916,7 +1916,7 @@ def cargo_audit_binary():
 def cargo_audit_cmd(binary, lock, db):
     """The flags cargo-audit 0.23 takes. `cargo audit` is the same binary."""
     cmd = [binary]
-    if Path(binary).name == "cargo":
+    if Path(binary).stem in ("cargo", "cargo-audit"):
         cmd.append("audit")
     cmd += ["--json", "--file", os.path.abspath(lock), "--db", os.path.abspath(str(db)), "--no-fetch"]
     return cmd
