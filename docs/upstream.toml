@@ -81,3 +81,10 @@ source = "brew:kimi-code"
 pin = "2.5.3"
 why = "the worker CLI a delegated job is handed to, when WORKER is kimi"
 check = "what a headless run accepts, and whether the binary still answers `kimi --version`"
+
+[[watch]]
+name = "atlas"
+source = "github:bloodfeast/atlas"
+pin = "v0.7.0"
+why = "not used: a source of ideas for the agent hooks (large tool output kept on disk under a handle with a digest, memory recalled by relevance, a token report)"
+check = "new ideas worth taking into the backbone's own hooks or session recipes; never install it in a session that sees keys"
