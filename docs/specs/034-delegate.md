@@ -95,7 +95,8 @@ its own worker.
 - [x] The run stops after `DELEGATE_TIMEOUT` (default 180 minutes, any value for one job). The full output
       goes to `~/.cache/ai-backbone/delegate/<project>/<id>.log`, never the
       repo. The recipe prints only the worker's report, the branch's commits
-      with `--stat`, whether the tree is clean, and the exit status.
+      with `--stat`, whether the tree is clean, and the exit status. It lists
+      and refuses any new file in `~/.grok/bin` after the worker run.
 - [x] `just delegate-status` says whether a job runs and on which branch, and
       shows the last report and the open `delegate/*` branches.
       `just delegate-accept [branch]` fast-forwards the default branch onto it,

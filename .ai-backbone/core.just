@@ -2739,6 +2739,13 @@ delegate task="":
       sccache_port=$((sccache_port + 1))
       sccache_n=$((sccache_n + 1))
     done
+    # n-0e50cf: shims written here become the first commands on later PATHs.
+    grok_bin_before="$dir/${id}.grok-bin-before"
+    if [ -d "$HOME/.grok/bin" ]; then
+      find "$HOME/.grok/bin" -type f -print | sort > "$grok_bin_before"
+    else
+      : > "$grok_bin_before"
+    fi
     set -m
     # A worker that has committed, printed its report and then sits with no
     # process of its own running stays alive for hours (grok 1.0.62, measured
@@ -2984,6 +2991,23 @@ delegate task="":
         echo "sandbox profile changed: .grok/sandbox.toml"
       fi
     fi
+    grok_bin_after="$dir/${id}.grok-bin-after"
+    grok_bin_new="$dir/${id}.grok-bin-new"
+    if [ -d "$HOME/.grok/bin" ]; then
+      find "$HOME/.grok/bin" -type f -print | sort > "$grok_bin_after"
+    else
+      : > "$grok_bin_after"
+    fi
+    comm -13 "$grok_bin_before" "$grok_bin_after" > "$grok_bin_new"
+    rm -f "$grok_bin_before" "$grok_bin_after"
+    if [ -s "$grok_bin_new" ]; then
+      echo "new files in ~/.grok/bin:"
+      cat "$grok_bin_new"
+      rm -f "$grok_bin_new"
+      echo "refuses: the worker left new files in ~/.grok/bin"
+      exit 1
+    fi
+    rm -f "$grok_bin_new"
     if [ -n "$(git status --porcelain)" ]; then echo "tree: dirty"; else echo "tree: clean"; fi
     if [ "$went_quiet" -eq 1 ]; then echo "the worker went quiet after its last commit and was stopped after ${idle_min} min (DELEGATE_IDLE)"; fi
     if [ "$timed_out" -eq 1 ]; then echo "exit status: timeout"; else echo "exit status: $rc"; fi

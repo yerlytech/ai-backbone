@@ -181,8 +181,10 @@ profile sets `restrict_network = true`. The guide says that blocks child
 network on Linux and is a no-op on macOS. A live socket was not opened
 (n-5b9b58). When the job ends, the recipe compares that file's hash with the
 hash from before the worker started, and says
-`sandbox profile changed: .grok/sandbox.toml` if the worker changed it.
-The same profile grants write access to `~/.docker/buildx`, as
+`sandbox profile changed: .grok/sandbox.toml` if the worker changed it. After
+every run, the recipe lists new files in `~/.grok/bin` and refuses the run if
+there are any; those files would otherwise precede the real tools on a later
+`PATH`. The same profile grants write access to `~/.docker/buildx`, as
 that directory's full path, because `read_write` does not expand `~`
 (n-9e0540). `docker buildx` stores its state there. Without the grant the
 command fails and the worker never reaches `just save`. It also grants

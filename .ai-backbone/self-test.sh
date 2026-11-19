@@ -5404,6 +5404,11 @@ case "$mode" in
     printf '\n# worker changed the profile\n' >> .grok/sandbox.toml
     echo report
     ;;
+  grokshim)
+    mkdir -p "$HOME/.grok/bin"
+    printf '#!/bin/sh\n' > "$HOME/.grok/bin/npx"
+    echo report
+    ;;
   slow)
     echo started
     i=0
@@ -6316,6 +6321,11 @@ d_new sandedit
 d_run sandboxedit grok "" delegate "touch the profile"
 check "a worker that rewrites the project sandbox profile is named when the job ends" \
   "[ \$d_rc -eq 0 ] && grep -qx 'sandbox profile changed: .grok/sandbox.toml' <<<\"\$d_out\" && grep -q 'worker changed the profile' \"\$dproj/.grok/sandbox.toml\""
+d_new grokbin
+d_run grokshim grok "" delegate "leave a shim"
+check "a new file in ~/.grok/bin is listed and refuses the worker run" \
+  "[ \$d_rc -ne 0 ] && grep -qx 'new files in ~/.grok/bin:' <<<\"\$d_out\" && grep -qx \"\$dhome/.grok/bin/npx\" <<<\"\$d_out\" && grep -qx 'refuses: the worker left new files in ~/.grok/bin' <<<\"\$d_out\""
+rm -f "$dhome/.grok/bin/npx"
 d_new noff
 d_run ok grok "" delegate "add a line"
 nbr=$(git -C "$dproj" symbolic-ref --short HEAD)
