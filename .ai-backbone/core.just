@@ -2508,7 +2508,7 @@ delegate task="":
     preamble=$(printf '%s\n' \
       "You are the worker for this repository. A manager reviews your work. Read AGENTS.md first and follow it. You are on branch ${branch}; stay on it." \
       "Commit with just save. Run the project's tests before each commit." \
-      "Create no file the task does not ask for." \
+      "Create no top-level file or document the task does not ask for; new source and test files the work needs are fine." \
       "Run long commands in the foreground. A background task is stopped when the turn ends." \
       "Send long test and walk output (just e2e, just test) to a file and read only the summary." \
       "Never start a sub-agent or a parallel task: one thing at a time." \

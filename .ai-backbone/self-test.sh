@@ -6092,7 +6092,7 @@ check "accept fast-forwards the default branch and deletes the delegate branch" 
 d_new acceptnested
 d_run ok grok "" delegate "add worker-did.txt"
 check "the worker preamble forbids files the task does not ask for" \
-  "grep -Fq 'Create no file the task does not ask for.' \"\$dprompt\""
+  "grep -Fq 'Create no top-level file or document the task does not ask for; new source and test files the work needs are fine.' \"\$dprompt\""
 mkdir -p "$dproj/docs"
 printf 'extra\n' > "$dproj/docs/unasked.txt"
 git -C "$dproj" add docs/unasked.txt

@@ -16,7 +16,12 @@ With `WORKER` set to `grok`, `claude`, `opencode` or `kimi`, this session is the
    this folder, and commits with `just save`. A line `Title: ...` in the task
    is the slug. The same slug on the same day becomes `…-2`, then `…-3`. The recipe prints the worker's
    report (at most 15 lines), the commits, whether the tree is clean, and the
-   exit. The log stays outside the repo. An opencode report ends with
+   exit. The preamble tells the worker to send long test and walk output
+   (`just e2e`, `just test`) to a file and read only the summary, so warnings
+   do not fill its context. It also forbids `python3 -c` and `node -e`;
+   multi-step logic belongs in a recipe or a test file. The worker is told to
+   create no file the task does not ask for. The log stays outside the repo.
+   An opencode report ends with
    `cost: $<sum> on <model>, <n> steps`, summed from that run's events.
 3. Read that. Then `just delegate-accept`, another `just delegate` with the
    fix, or `just delegate-drop`. The fix runs on the same branch. A new branch
@@ -57,7 +62,10 @@ or check out the named branch to start from it. Accept fast-forwards the base
 where it is checked out, and does not switch a worktree that is on main onto
 the lane. When the base is already checked out, the worktree that still has
 the delegate branch is detached there, and then the branch is deleted.
-`just delegate-accept` refuses with `refuses: a job is running` while the
+`just delegate-accept` lists files the branch adds when the task text does not
+name their paths. It refuses before signing or moving the base when one is a
+new top-level file. Other unnamed additions are listed and may be accepted.
+It refuses with `refuses: a job is running` while the
 job's lock pid is alive, before it changes anything. A running job's
 `reference-transaction` hook stays in place and is not skipped. Empty hooks
 are used only after that check finds no running job, so a dead job's leftover
@@ -173,8 +181,10 @@ profile sets `restrict_network = true`. The guide says that blocks child
 network on Linux and is a no-op on macOS. A live socket was not opened
 (n-5b9b58). When the job ends, the recipe compares that file's hash with the
 hash from before the worker started, and says
-`sandbox profile changed: .grok/sandbox.toml` if the worker changed it.
-The same profile grants write access to `~/.docker/buildx`, as
+`sandbox profile changed: .grok/sandbox.toml` if the worker changed it. After
+every run, the recipe lists new files in `~/.grok/bin` and refuses the run if
+there are any; those files would otherwise precede the real tools on a later
+`PATH`. The same profile grants write access to `~/.docker/buildx`, as
 that directory's full path, because `read_write` does not expand `~`
 (n-9e0540). `docker buildx` stores its state there. Without the grant the
 command fails and the worker never reaches `just save`. It also grants
