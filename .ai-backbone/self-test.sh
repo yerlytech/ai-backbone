@@ -2101,6 +2101,7 @@ if command -v rsync >/dev/null 2>&1; then
       git add -A
       git commit -qm "chore: seed"
       git checkout -q -b delegate/vault-job
+      git config branch.delegate/vault-job.delegateTask "update README.md"
       printf 'line\n' >> README.md
       git add README.md
       git commit -qm "feat: a line"
@@ -2114,6 +2115,7 @@ if command -v rsync >/dev/null 2>&1; then
     (
       cd "$acc" || exit 1
       git checkout -q -b delegate/vault-off
+      git config branch.delegate/vault-off.delegateTask "update README.md"
       printf 'two\n' >> README.md
       git add README.md
       git commit -qm "feat: two"
@@ -6075,12 +6077,33 @@ dst=$(env -u WORKER HOME="$dhome" PATH="$dbin:$PATH" just -f "$root/Justfile" -d
 check "with no job running, status shows the last report and the open delegate branch" \
   "grep -qx 'job: none' <<<\"\$dst\" && grep -q 'line-20' <<<\"\$dst\" && ! grep -q 'line-01' <<<\"\$dst\" && grep -q 'delegate/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-add-a-line' <<<\"\$dst\" && ! grep -q '^last run:' <<<\"\$dst\""
 d_new accept
-d_run ok grok "" delegate "add a line"
+d_run ok grok "" delegate "add worker-did.txt"
 d_run ok "" "" delegate-accept
 check "accept fast-forwards the default branch and deletes the delegate branch" \
   "[ \$d_rc -eq 0 ] && grep -q '^accepted delegate/.* onto main$' <<<\"\$d_out\" && [ \"\$(git -C \"\$dproj\" symbolic-ref --short HEAD)\" = main ] && [ -f \"\$dproj/worker-did.txt\" ] && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ] && git -C \"\$dproj\" merge-base --is-ancestor HEAD HEAD"
+d_new acceptnested
+d_run ok grok "" delegate "add worker-did.txt"
+check "the worker preamble forbids files the task does not ask for" \
+  "grep -Fq 'Create no file the task does not ask for.' \"\$dprompt\""
+mkdir -p "$dproj/docs"
+printf 'extra\n' > "$dproj/docs/unasked.txt"
+git -C "$dproj" add docs/unasked.txt
+git -C "$dproj" commit -qm "chore: nested extra"
+d_run ok "" "" delegate-accept
+check "accept lists an added nested file the task did not name and still accepts" \
+  "[ \$d_rc -eq 0 ] && grep -qx 'files added that the task does not name:' <<<\"\$d_out\" && grep -qx '  docs/unasked.txt' <<<\"\$d_out\" && ! grep -qx '  worker-did.txt' <<<\"\$d_out\" && grep -q '^accepted delegate/.* onto main$' <<<\"\$d_out\""
+d_new accepttop
+d_run ok grok "" delegate "add worker-did.txt"
+printf 'extra\n' > "$dproj/CHANGELOG.md"
+git -C "$dproj" add CHANGELOG.md
+git -C "$dproj" commit -qm "chore: top-level extra"
+top_main=$(git -C "$dproj" rev-parse refs/heads/main)
+top_branch=$(git -C "$dproj" symbolic-ref --short HEAD)
+d_run ok "" "" delegate-accept
+check "accept lists an unnamed top-level addition and refuses before moving main" \
+  "[ \$d_rc -ne 0 ] && grep -qx 'files added that the task does not name:' <<<\"\$d_out\" && grep -qx '  CHANGELOG.md' <<<\"\$d_out\" && grep -qx 'refuses: the branch adds a top-level file the task does not name' <<<\"\$d_out\" && [ \"\$(git -C \"\$dproj\" rev-parse refs/heads/main)\" = \"\$top_main\" ] && git -C \"\$dproj\" show-ref --verify --quiet \"refs/heads/\$top_branch\""
 d_new acceptleftover
-d_run ok grok "" delegate "add a line"
+d_run ok grok "" delegate "add worker-did.txt"
 d_run fix grok "" delegate "fix the line"
 leftdir="$tmp/leftover-hooks"
 rm -rf "$leftdir"
@@ -6102,7 +6125,7 @@ d_out=$(env -u WORKER -u WORKER_MODEL -u DELEGATE_TIMEOUT -u DELEGATE_IDLE -u WO
   HOME="$dhome" PATH="$dbin:$PATH" \
   FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE=sign FAKE_WORKER_GO="$dgo" \
   WORKER=grok \
-  just -f "$root/Justfile" -d "$dproj" delegate "sign it" 2>&1) && d_rc=0 || d_rc=$?
+  just -f "$root/Justfile" -d "$dproj" delegate "sign worker-signed.txt" 2>&1) && d_rc=0 || d_rc=$?
 check "a worker whose signing key is unreadable still commits (n-afbc90)" \
   "[ \$d_rc -eq 0 ] && [ -f \"\$dproj/worker-signed.txt\" ] && [ -z \"\$(git -C \"\$dproj\" status --porcelain)\" ] && grep -q 'worker signed the task' <<<\"\$d_out\""
 # A reachable agent socket used to install a key:: signing key. The socket
@@ -6121,7 +6144,7 @@ d_out=$(env -u WORKER -u WORKER_MODEL -u DELEGATE_TIMEOUT -u DELEGATE_IDLE -u WO
   HOME="$dhome" PATH="$dbin:$PATH" SSH_AUTH_SOCK="$tmp/agent.sock" \
   FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE=sign FAKE_WORKER_GO="$dgo" \
   WORKER=grok \
-  just -f "$root/Justfile" -d "$dproj" delegate "sign it" 2>&1) && d_rc=0 || d_rc=$?
+  just -f "$root/Justfile" -d "$dproj" delegate "sign worker-signed.txt" 2>&1) && d_rc=0 || d_rc=$?
 dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
 sock_mark=$(git -C "$dproj" config --get "branch.${dbr}.delegateUnsigned" 2>/dev/null || true)
 sock_key=$(git -C "$dproj" config --worktree --get user.signingkey 2>/dev/null || true)
@@ -6192,7 +6215,7 @@ d_out=$(env -u WORKER -u WORKER_MODEL -u DELEGATE_TIMEOUT -u DELEGATE_IDLE -u WO
   HOME="$dhome" PATH="$dbin:$PATH" \
   FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE=sign FAKE_WORKER_GO="$dgo" \
   WORKER=grok \
-  just -f "$root/Justfile" -d "$dproj" delegate "sign it" 2>&1) && d_rc=0 || d_rc=$?
+  just -f "$root/Justfile" -d "$dproj" delegate "sign worker-signed.txt" 2>&1) && d_rc=0 || d_rc=$?
 ok_br=$(git -C "$dproj" symbolic-ref --short HEAD)
 d_run ok "" "" delegate-accept
 ok_body=$(git -C "$dproj" cat-file -p HEAD)
@@ -6216,7 +6239,7 @@ d_out=$(env -u WORKER -u WORKER_MODEL -u DELEGATE_TIMEOUT -u DELEGATE_IDLE -u WO
   HOME="$dhome" PATH="$dbin:$PATH" \
   FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE=sign FAKE_WORKER_GO="$dgo" \
   WORKER=grok \
-  just -f "$root/Justfile" -d "$dproj" delegate "sign it" 2>&1) && d_rc=0 || d_rc=$?
+  just -f "$root/Justfile" -d "$dproj" delegate "sign worker-signed.txt" 2>&1) && d_rc=0 || d_rc=$?
 fail_br=$(git -C "$dproj" symbolic-ref --short HEAD)
 fail_main=$(git -C "$dproj" rev-parse refs/heads/main)
 fail_tip=$(git -C "$dproj" rev-parse "refs/heads/$fail_br")
@@ -6240,7 +6263,7 @@ d_out=$(env -u WORKER -u WORKER_MODEL -u DELEGATE_TIMEOUT -u DELEGATE_IDLE -u WO
   HOME="$dhome" PATH="$dbin:$PATH" \
   FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE=sign FAKE_WORKER_GO="$dgo" \
   WORKER=grok \
-  just -f "$root/Justfile" -d "$dproj" delegate "sign it" 2>&1) && d_rc=0 || d_rc=$?
+  just -f "$root/Justfile" -d "$dproj" delegate "sign worker-signed.txt" 2>&1) && d_rc=0 || d_rc=$?
 bare_br=$(git -C "$dproj" symbolic-ref --short HEAD)
 bare_main=$(git -C "$dproj" rev-parse refs/heads/main)
 bare_tip=$(git -C "$dproj" rev-parse "refs/heads/$bare_br")
@@ -6254,13 +6277,13 @@ if [ -s "$tmp/fail-sign.calls" ]; then bare_called=yes; else bare_called=no; fi
 check "accept refuses when rebase reports success but a commit has no signature" \
   "[ \$d_rc -ne 0 ] && grep -qx 'refuses: could not sign' <<<\"\$d_out\" && [ \"\$bare_called\" = no ] && [ \"\$bare_mark\" = 1 ] && [ \"\$bare_main\" = \"\$bare_main_after\" ] && [ \"\$bare_tip\" = \"\$bare_tip_after\" ] && git -C \"\$dproj\" show-ref --verify --quiet \"refs/heads/\$bare_br\""
 d_new dirtyff
-d_run ok grok "" delegate "add a line"
+d_run ok grok "" delegate "add worker-did.txt"
 d_out=$(env -u WORKER HOME="$dhome" PATH="$tmp/git-dirty:$dbin:$PATH" \
   just -f "$root/Justfile" -d "$dproj" delegate-accept 2>&1) && d_rc=0 || d_rc=$?
 check "a dirty tree after the fast-forward is printed and left" \
   "[ \$d_rc -ne 0 ] && grep -qx 'refuses: the tree is dirty after the fast-forward' <<<\"\$d_out\" && grep -q 'README.md' <<<\"\$d_out\" && grep -qx 'dirty-after-ff' \"\$dproj/README.md\""
 d_new dirtythere
-d_run ok grok "" delegate "add a line"
+d_run ok grok "" delegate "add worker-did.txt"
 git -C "$dproj" checkout -q main
 d_out=$(env -u WORKER HOME="$dhome" PATH="$tmp/git-dirty:$dbin:$PATH" \
   just -f "$root/Justfile" -d "$dproj" delegate-accept 2>&1) && d_rc=0 || d_rc=$?
@@ -6608,7 +6631,7 @@ DELEGATE_BASE=migration d_run ok grok "" delegate "add a line"
 check "with DELEGATE_BASE set, the job must already be on that branch" \
   "[ \$d_rc -ne 0 ] && d_one && grep -qx 'refuses: not on the base branch (main; base is migration)' <<<\"\$d_out\" && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ]"
 d_migration frombase
-DELEGATE_BASE=migration d_run ok grok "" delegate "add a line"
+DELEGATE_BASE=migration d_run ok grok "" delegate "add worker-did.txt"
 dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
 recorded=$(git -C "$dproj" config --get "branch.${dbr}.delegateBase")
 dparent=$(git -C "$dproj" rev-parse HEAD^)
@@ -6630,7 +6653,7 @@ git -C "$dproj" worktree add -q "$side" migration
 d_out=$(env -u WORKER -u WORKER_MODEL -u DELEGATE_TIMEOUT -u DELEGATE_IDLE -u WORKER_BIN -u DELEGATE_YES -u WORKER_LADDER \
   HOME="$dhome" PATH="$dbin:$PATH" FAKE_WORKER_PROMPT="$dprompt" FAKE_WORKER_MODE=ok \
   WORKER=grok DELEGATE_BASE=migration \
-  just -f "$root/Justfile" -d "$side" delegate "add a line" 2>&1) && d_rc=0 || d_rc=$?
+  just -f "$root/Justfile" -d "$side" delegate "add worker-did.txt" 2>&1) && d_rc=0 || d_rc=$?
 dbr=$(git -C "$side" symbolic-ref --short HEAD)
 d_out=$(env -u WORKER -u DELEGATE_BASE HOME="$dhome" just -f "$root/Justfile" -d "$dproj" delegate-accept 2>&1) && d_rc=0 || d_rc=$?
 main_now=$(git -C "$dproj" symbolic-ref --short HEAD)
@@ -6639,7 +6662,7 @@ check "accept from the main worktree fast-forwards the lane and does not switch 
   "[ \$d_rc -eq 0 ] && [ \"\$main_now\" = main ] && [ \"\$side_now\" = migration ] && git -C \"\$dproj\" cat-file -e migration:worker-did.txt && ! git -C \"\$dproj\" cat-file -e main:worker-did.txt && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ] && grep -qx \"accepted \$dbr onto migration\" <<<\"\$d_out\""
 git -C "$dproj" worktree remove --force "$side" 2>/dev/null || true
 d_new busybase
-d_run ok grok "" delegate "add a line"
+d_run ok grok "" delegate "add worker-did.txt"
 dbr=$(git -C "$dproj" symbolic-ref --short HEAD)
 mainwt="$tmp/delegate-busy-main"
 rm -rf "$mainwt"

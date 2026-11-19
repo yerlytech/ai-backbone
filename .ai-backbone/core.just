@@ -2168,6 +2168,7 @@ delegate task="":
     if [ "$fix_round" -eq 0 ]; then
       git checkout -q -b "$branch"
       if [ -n "$base" ]; then git config "branch.${branch}.delegateBase" "$base"; fi
+      git config "branch.${branch}.delegateTask" "$task"
     fi
     if [ -n "$oc_idx" ]; then git config "branch.${branch}.delegateRung" "$oc_idx"; fi
     # Adapters: how to call the CLI headless, in this folder, with the prompt.
@@ -2507,6 +2508,7 @@ delegate task="":
     preamble=$(printf '%s\n' \
       "You are the worker for this repository. A manager reviews your work. Read AGENTS.md first and follow it. You are on branch ${branch}; stay on it." \
       "Commit with just save. Run the project's tests before each commit." \
+      "Create no file the task does not ask for." \
       "Run long commands in the foreground. A background task is stopped when the turn ends." \
       "Send long test and walk output (just e2e, just test) to a file and read only the summary." \
       "Never start a sub-agent or a parallel task: one thing at a time." \
@@ -3138,6 +3140,29 @@ delegate-accept branch="":
     git show-ref --verify --quiet "refs/heads/$onto" || { echo "refuses: base branch $onto does not exist"; exit 1; }
     if ! git merge-base --is-ancestor "$onto" "$branch"; then
       echo "refuses: $branch is not a fast-forward of $onto"; exit 1
+    fi
+    # n-9a2335: show every unnamed addition before signing or moving the base.
+    # A new top-level file is never accepted unless the task text names it.
+    task=$(git config --get "branch.${branch}.delegateTask" 2>/dev/null || true)
+    added="$emptyhooks/added"
+    unasked="$emptyhooks/unasked"
+    git diff --name-only --diff-filter=A "$onto..$branch" > "$added"
+    : > "$unasked"
+    unnamed_top=0
+    while IFS= read -r added_path; do
+      [ -n "$added_path" ] || continue
+      if ! grep -Fq -- "$added_path" <<< "$task"; then
+        printf '%s\n' "$added_path" >> "$unasked"
+        case "$added_path" in */*) ;; *) unnamed_top=1 ;; esac
+      fi
+    done < "$added"
+    if [ -s "$unasked" ]; then
+      echo "files added that the task does not name:"
+      sed 's/^/  /' "$unasked"
+    fi
+    if [ "$unnamed_top" -eq 1 ]; then
+      echo "refuses: the branch adds a top-level file the task does not name"
+      exit 1
     fi
     here=$(git symbolic-ref -q --short HEAD || echo "no branch")
     here_top=$(git rev-parse --show-toplevel)

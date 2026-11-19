@@ -100,7 +100,9 @@ its own worker.
       shows the last report and the open `delegate/*` branches.
       `just delegate-accept [branch]` fast-forwards the default branch onto it,
       or the recorded base when the job started from `DELEGATE_BASE`, and
-      deletes it. It refuses when that is not a fast-forward.
+      deletes it. It refuses when that is not a fast-forward. It lists added
+      files whose paths the task does not name, and refuses an unnamed new
+      top-level file before signing or moving the base.
       `just delegate-drop [branch]` asks once, then deletes the branch and
       returns to that same base. `--yes` or `DELEGATE_YES=1` deletes without
       asking, so a manager with no terminal can drop. Without that, it still
