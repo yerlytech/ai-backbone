@@ -7567,6 +7567,28 @@ for binary in ("cargo", "cargo-audit", "cargo-audit.exe", "/x/cargo-audit"):
 PY
 check "cargo and standalone cargo-audit both take the audit subcommand" \
   "\"\$py\" \"$tmp/audit-cmd.py\" \"$root/.ai-backbone/upstream.py\""
+mkdir -p "$tmp/audit-real-db/crates/cargo-lock"
+adv29 RUSTSEC-2099-0001 cargo-lock "" '">= 99.0.0"' '' 'Synthetic advisory' > "$tmp/audit-real-db/crates/cargo-lock/RUSTSEC-2099-0001.md"
+printf '2099-01-01\n' > "$tmp/audit-real-db/ai-backbone.fetched"
+printf 'version = 4\n\n[[package]]\nname = "cargo-lock"\nversion = "0.1.0"\nsource = "%s"\n' "$reg" > "$tmp/audit-real.lock"
+real_audit=""
+for real_candidate in \
+  "$HOME/.cargo/bin/cargo-audit" "$HOME/.cargo/bin/cargo-audit.exe" \
+  /opt/homebrew/bin/cargo-audit /usr/local/bin/cargo-audit; do
+  if [ -x "$real_candidate" ]; then real_audit=$real_candidate; break; fi
+done
+if [ -n "$real_audit" ]; then
+  env AI_BACKBONE_CARGO_AUDIT="$(winpath "$real_audit")" AI_BACKBONE_ADVISORY_DB="$(winpath "$tmp/audit-real-db")" \
+    AI_BACKBONE_OSV_URL="$(fileurl "$tmp/audit-osv-missing/querybatch")" \
+    "$py" "$root/.ai-backbone/upstream.py" --advisories doctor "$(winpath "$tmp/audit-real.lock")" >"$tmp/audit-real-doc.out" 2>&1 || true
+  env AI_BACKBONE_CARGO_AUDIT="$(winpath "$real_audit")" AI_BACKBONE_ADVISORY_DB="$(winpath "$tmp/audit-real-db")" \
+    AI_BACKBONE_OSV_URL="$(fileurl "$tmp/audit-osv-missing/querybatch")" \
+    "$py" "$root/.ai-backbone/upstream.py" --advisories session "$(winpath "$tmp/audit-real.lock")" >"$tmp/audit-real-session.out" 2>&1 || true
+else
+  : > "$tmp/audit-real-doc.out"; : > "$tmp/audit-real-session.out"
+fi
+check "real cargo-audit reads a Cargo.lock for doctor and session with the audit subcommand" \
+  "[ -n \"\$real_audit\" ] && grep -q 'RUSTSEC-2099-0001' '$tmp/audit-real-doc.out' && grep -q 'RUSTSEC-2099-0001' '$tmp/audit-real-session.out' && ! grep -qE 'could not be read: cargo-audit|cargo-audit gave no answer|unexpected argument --json' '$tmp/audit-real-doc.out' && ! grep -qE 'could not be read: cargo-audit|cargo-audit gave no answer|unexpected argument --json' '$tmp/audit-real-session.out'"
 # The shape of the Windows launch, on every machine. CreateProcess (shell=False)
 # will not start a .cmd or a shebang script; an .exe still runs as itself (spec 020).
 cat > "$tmp/audit-win.py" << 'PY'
