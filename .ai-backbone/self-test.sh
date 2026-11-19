@@ -258,6 +258,9 @@ spec = spec_from_file_location("upstream_audit", root + "/.ai-backbone/upstream.
 mod = module_from_spec(spec)
 spec.loader.exec_module(mod)
 args = sys.argv[1:]
+if os.environ.get("AI_BACKBONE_CARGO_AUDIT_FAIL"):
+    sys.stderr.write("simulated audit failure\n")
+    sys.exit(2)
 log = os.environ.get("AI_BACKBONE_CARGO_AUDIT_ARGV", "")
 if log:
     with open(log, "a", encoding="utf-8") as fh:
@@ -7544,6 +7547,12 @@ printf 'version = 4\n\n[[package]]\nname = "foo"\nversion = "1.2.0"\nsource = "%
 env AI_BACKBONE_CARGO_AUDIT_ARGV="$tmp/audit-argv" AI_BACKBONE_ADVISORY_DB="$(winpath "$tmp/s29-db")" \
   "$py" "$root/.ai-backbone/upstream.py" --advisories doctor "$(winpath "$tmp/audit.lock")" >"$tmp/audit-doc.out" 2>&1 || true
 check "advisories runs cargo-audit with --json, the lock, the database and --no-fetch" "grep -q -- '--json' '$tmp/audit-argv' && grep -q -- '--no-fetch' '$tmp/audit-argv' && grep -q -- '--file' '$tmp/audit-argv' && grep -q -- '--db' '$tmp/audit-argv' && grep -q 'RUSTSEC-2099-0001' '$tmp/audit-doc.out'"
+env AI_BACKBONE_CARGO_AUDIT_FAIL=1 AI_BACKBONE_ADVISORY_DB="$(winpath "$tmp/s29-db")" \
+  "$py" "$root/.ai-backbone/upstream.py" --advisories doctor "$(winpath "$tmp/audit.lock")" >"$tmp/audit-fail-doc.out" 2>&1
+env AI_BACKBONE_CARGO_AUDIT_FAIL=1 AI_BACKBONE_ADVISORY_DB="$(winpath "$tmp/s29-db")" \
+  "$py" "$root/.ai-backbone/upstream.py" --advisories session "$(winpath "$tmp/audit.lock")" >"$tmp/audit-fail-session.out" 2>&1
+check "a failed cargo-audit is a loud doctor warning and a RUST ADVISORIES line, never a quiet skip" \
+  "grep -q '^  warn  .*could not be read: cargo-audit gave no answer (simulated audit failure)' '$tmp/audit-fail-doc.out' && grep -q '^=== RUST ADVISORIES (1;' '$tmp/audit-fail-session.out' && grep -q 'cargo-audit gave no answer (simulated audit failure)' '$tmp/audit-fail-session.out' && ! grep -q 'no RustSec advisory' '$tmp/audit-fail-doc.out'"
 cat > "$tmp/audit-cmd.py" << 'PY'
 import importlib.util, os, sys
 spec = importlib.util.spec_from_file_location("u", sys.argv[1])

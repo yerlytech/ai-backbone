@@ -15,6 +15,8 @@ rejected: it is not RustSec's, and its last release was July 2026.
   The pin is the `cargo-audit` row in `docs/upstream.toml`. On Windows a
   real `cargo-audit.exe` is started as itself. A `.cmd` stand-in goes
   through `cmd /c`, because CreateProcess will not start one (spec 020).
+  A failed scan is a `doctor` warning and a session `RUST ADVISORIES` line,
+  never a quiet skip or a false "no RustSec advisory" result.
 - A `[[triaged]]` row that has a reason is the same fact as one
   `[[advisories.ignore]]` entry: `id` and `reason`. The scan does not pass
   those entries in. An ignore would hide the finding, and the gate still says
