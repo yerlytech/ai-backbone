@@ -2508,6 +2508,7 @@ delegate task="":
       "You are the worker for this repository. A manager reviews your work. Read AGENTS.md first and follow it. You are on branch ${branch}; stay on it." \
       "Commit with just save. Run the project's tests before each commit." \
       "Run long commands in the foreground. A background task is stopped when the turn ends." \
+      "Send long test and walk output (just e2e, just test) to a file and read only the summary." \
       "Never start a sub-agent or a parallel task: one thing at a time." \
       "Never run just publish, git push, just ship, or just deploy. Never call a server or GitHub. Never merge, rebase, or delete a branch." \
       "Never begin a command with a variable assignment; put multi-step logic in a recipe or a test file." \

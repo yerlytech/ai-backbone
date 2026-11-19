@@ -5889,6 +5889,8 @@ check "the worker's prompt is the preamble, then the task, and grok is called he
   "grep -q 'Read AGENTS.md' \"\$dprompt\" && grep -q \"You are on branch \$dbr; stay on it.\" \"\$dprompt\" && grep -q 'just save' \"\$dprompt\" && grep -q 'just publish' \"\$dprompt\" && grep -q 'git push' \"\$dprompt\" && grep -q 'just ship' \"\$dprompt\" && grep -q 'just deploy' \"\$dprompt\" && grep -q 'server or GitHub' \"\$dprompt\" && grep -q 'merge, rebase, or delete a branch' \"\$dprompt\" && grep -q 'Never start a sub-agent or a parallel task' \"\$dprompt\" && grep -q 'at most 15 lines' \"\$dprompt\" && [ \"\$(tail -n 1 \"\$dprompt\")\" = 'add a line' ] && [ \"\$(cat \"\$dprompt.fmt\")\" = plain ] && [ -z \"\$(cat \"\$dprompt.model\")\" ] && [ \"\$(cat \"\$dprompt.perm\")\" = auto ] && grep -qx 'Bash(git push:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(just ship:\*)' \"\$dprompt.deny\""
 check "the preamble grok receives says never begin a command with a variable assignment" \
   "grep -Fq 'Never begin a command with a variable assignment; put multi-step logic in a recipe or a test file.' \"\$dprompt\""
+check "the preamble keeps long test and walk output out of the worker's context" \
+  "grep -Fq 'Send long test and walk output (just e2e, just test) to a file and read only the summary.' \"\$dprompt\""
 check "grok's deny list also names the shell wrappers that step around rm" \
   "grep -qx 'Bash(sh:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(bash:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(zsh:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(eval:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(xargs:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(env:\*)' \"\$dprompt.deny\""
 check "grok is passed --disable-web-search, the flag grok --help names (n-5b9b58)" \

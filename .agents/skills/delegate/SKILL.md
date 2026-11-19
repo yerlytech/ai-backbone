@@ -16,7 +16,9 @@ With `WORKER` set to `grok`, `claude`, `opencode` or `kimi`, this session is the
    this folder, and commits with `just save`. A line `Title: ...` in the task
    is the slug. The same slug on the same day becomes `…-2`, then `…-3`. The recipe prints the worker's
    report (at most 15 lines), the commits, whether the tree is clean, and the
-   exit. The log stays outside the repo. An opencode report ends with
+   exit. The preamble tells the worker to send long test and walk output
+   (`just e2e`, `just test`) to a file and read only the summary, so warnings
+   do not fill its context. The log stays outside the repo. An opencode report ends with
    `cost: $<sum> on <model>, <n> steps`, summed from that run's events.
 3. Read that. Then `just delegate-accept`, another `just delegate` with the
    fix, or `just delegate-drop`. The fix runs on the same branch. A new branch
