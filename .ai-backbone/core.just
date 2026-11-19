@@ -2512,6 +2512,7 @@ delegate task="":
       "Never start a sub-agent or a parallel task: one thing at a time." \
       "Never run just publish, git push, just ship, or just deploy. Never call a server or GitHub. Never merge, rebase, or delete a branch." \
       "Never begin a command with a variable assignment; put multi-step logic in a recipe or a test file." \
+      "Never run python3 -c or node -e; put multi-step logic in a recipe or a test file." \
       "Never vendor a crate or patch crates-io. If a download is refused, stop and say which crate." \
       "When you finish, the report is the last thing you print: at most 15 lines, and nothing after it.")
     # One line: a blank line inside a quoted string is a just parse error

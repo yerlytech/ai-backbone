@@ -18,7 +18,9 @@ With `WORKER` set to `grok`, `claude`, `opencode` or `kimi`, this session is the
    report (at most 15 lines), the commits, whether the tree is clean, and the
    exit. The preamble tells the worker to send long test and walk output
    (`just e2e`, `just test`) to a file and read only the summary, so warnings
-   do not fill its context. The log stays outside the repo. An opencode report ends with
+   do not fill its context. It also forbids `python3 -c` and `node -e`;
+   multi-step logic belongs in a recipe or a test file. The log stays outside
+   the repo. An opencode report ends with
    `cost: $<sum> on <model>, <n> steps`, summed from that run's events.
 3. Read that. Then `just delegate-accept`, another `just delegate` with the
    fix, or `just delegate-drop`. The fix runs on the same branch. A new branch

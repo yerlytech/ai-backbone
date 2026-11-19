@@ -5891,6 +5891,8 @@ check "the preamble grok receives says never begin a command with a variable ass
   "grep -Fq 'Never begin a command with a variable assignment; put multi-step logic in a recipe or a test file.' \"\$dprompt\""
 check "the preamble keeps long test and walk output out of the worker's context" \
   "grep -Fq 'Send long test and walk output (just e2e, just test) to a file and read only the summary.' \"\$dprompt\""
+check "the grok preamble forbids inline Python and Node commands" \
+  "grep -Fq 'Never run python3 -c or node -e; put multi-step logic in a recipe or a test file.' \"\$dprompt\""
 check "grok's deny list also names the shell wrappers that step around rm" \
   "grep -qx 'Bash(sh:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(bash:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(zsh:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(eval:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(xargs:\*)' \"\$dprompt.deny\" && grep -qx 'Bash(env:\*)' \"\$dprompt.deny\""
 check "grok is passed --disable-web-search, the flag grok --help names (n-5b9b58)" \
