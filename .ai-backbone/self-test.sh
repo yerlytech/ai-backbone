@@ -486,7 +486,8 @@ n=$(git ls-files | wc -l | tr -d ' ')
 # The owner asked for the sweep on 2026-11-11.
 # 68 since the vault sweep: vault-sweep.sh reaches every project (n-a931f8).
 # The owner asked for the desk copy on 2026-11-12.
-check "tracked files at most 68 (got $n)"             "[ $n -le 68 ]"
+# 69 since spec 045: browser.mjs reaches every project.
+check "tracked files at most 69 (got $n)"             "[ $n -le 69 ]"
 # Two more ceilings, set at what a new project measured on 2026-09-19 (spec 012).
 # An agent nobody watches works on this backbone every day and builds ideas it
 # read about; every one of them is small and sensible, and a hundred of them are
@@ -514,7 +515,8 @@ r=$(just --summary 2>/dev/null | wc -w | tr -d ' ')
 # `freshness-sweep-remove` (n-058e8b). The owner asked for them on 2026-11-11.
 # 55 since the vault sweep: `just vault-sweep`, `vault-sweep-install` and
 # `vault-sweep-remove` (n-a931f8). The owner asked for them on 2026-11-12.
-check "recipes a new project shows at most 55 (got $r)" "[ $r -le 55 ]"
+# 57 since spec 045: `just browser` and `just browser-close`; _browser is private.
+check "recipes a new project shows at most 57 (got $r)" "[ $r -le 57 ]"
 b=$(wc -c < AGENTS.md | tr -d ' ')
 # 7080 since the design line (the maintainer, 2026-10-30): code follows the
 # design skill, and a review cites its rule numbers. 7088 since spec 040:

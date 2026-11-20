@@ -113,7 +113,7 @@ codes. The agent never types them and never reads a password field.
 
 ## Tasks
 
-- [ ] `just browser` and `just browser-close`, the profile and state files.
+- [x] `just browser` and `just browser-close`, the profile and state files.
 - [ ] `browser.mjs` and its fixture page and self-test section.
 - [ ] The `console-window` skill and the AGENTS.md link.
 - [ ] The `doctor` line, the upstream pin, CHANGELOG and version.

@@ -19,6 +19,7 @@
 [project]
 .ai-backbone/core.just
 .ai-backbone/manifest.txt
+.ai-backbone/browser.mjs
 .ai-backbone/setup.sh
 .ai-backbone/brain-template/README.md
 .ai-backbone/brain-template/_templates/journal.md

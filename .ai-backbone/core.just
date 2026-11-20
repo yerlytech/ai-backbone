@@ -33,6 +33,40 @@ help:
     @echo
     @just _msg help-rest
 
+# Open one visible, signed-in console window for the agent to drive (spec 045).
+[positional-arguments]
+browser url="":
+    @just _browser open ${1:+"$1"}
+
+# Stop the console window by the PID in its state file, never by process name.
+browser-close:
+    @just _browser close
+
+# One bounded lane for npx, Chromium and every browser command (spec 045).
+[positional-arguments]
+_browser command *args:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    out=$(mktemp 2>/dev/null) || exit 1
+    if [ "$1" = close ]; then
+      node .ai-backbone/browser.mjs "$@" >"$out" 2>&1 &
+    elif [ "${AI_BACKBONE_OFFLINE:-}" = 1 ]; then
+      npx --offline --yes --package playwright-core@1.65.1 node .ai-backbone/browser.mjs "$@" >"$out" 2>&1 &
+    else
+      npx --yes --package playwright-core@1.65.1 node .ai-backbone/browser.mjs "$@" >"$out" 2>&1 &
+    fi
+    job=$!
+    ( sleep 120 & echo "$!" > "$out.sleep"; wait "$!"; [ -e "$out.done" ] || kill "$job" 2>/dev/null ) >/dev/null 2>&1 &
+    watch=$!
+    wait "$job" 2>/dev/null; rc=$?
+    : > "$out.done"
+    i=0; until [ -s "$out.sleep" ] || [ "$i" -ge 100 ]; do sleep 0.02; i=$((i + 1)); done
+    kill "$(cat "$out.sleep" 2>/dev/null)" 2>/dev/null; wait "$watch" 2>/dev/null
+    cat "$out"
+    rm -f "$out" "$out.sleep" "$out.done"
+    if [ "$rc" -gt 128 ]; then echo "The browser command exceeded 120 seconds."; exit 1; fi
+    exit "$rc"
+
 # ─────────────────────────── setup ───────────────────────────
 
 # Do the checks still carry the lessons they were built on?
