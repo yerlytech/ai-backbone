@@ -59,6 +59,14 @@ update replaces only the files the backbone owns and never yours.
   runs the backbone's own test suite on a clean Linux, a clean Mac and a
   clean Windows machine. All three green, it reaches `main` (spec 017).
 
+## The consoles you dislike
+
+An agent can run the cloud consoles, hosting panels, App Store Connect and
+Google Play Console work you dislike through `just browser`. You only sign in —
+by phone where a passkey needs it — and approve a change before it is saved.
+The agent reads the result, signs out, and closes the window with
+`just browser-close`.
+
 ## The life of one idea
 
 ```mermaid

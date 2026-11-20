@@ -108,7 +108,7 @@ codes. The agent never types them and never reads a password field.
 - [x] The browser never offers to save a password.
 - [x] The skill is linked from AGENTS.md's skill list, and `just doctor`
   names the missing Chromium.
-- [ ] The README introduces it in a few lines: an agent runs the consoles
+- [x] The README introduces it in a few lines: an agent runs the consoles
   you dislike (cloud, hosting, app stores) while you only sign in.
 
 ## Tasks
@@ -117,4 +117,4 @@ codes. The agent never types them and never reads a password field.
 - [x] `browser.mjs` and its fixture page and self-test section.
 - [x] The `console-window` skill and the AGENTS.md link.
 - [x] The `doctor` line, the upstream pin, CHANGELOG and version.
-- [ ] The README section.
+- [x] The README section.
