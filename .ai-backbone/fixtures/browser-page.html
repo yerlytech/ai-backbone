@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Console window fixture</title>
+</head>
+<body>
+  <main>
+    <h1>Console fixture</h1>
+    <p id="status" role="status">Ready</p>
+    <button type="button" id="reviewed">Mark reviewed</button>
+    <span id="wrong-target">Mark reviewed</span>
+
+    <form onsubmit="return false">
+      <label for="display-name">Display name</label>
+      <input id="display-name" autocomplete="off">
+      <output id="name-echo">Name: </output>
+      <label for="password">Password</label>
+      <input id="password" type="password" value="fixture-password-value">
+      <output id="password-length">Password length: 22</output>
+    </form>
+
+    <label for="editor">Code editor</label>
+    <textarea id="editor" class="ace-editor" rows="8" cols="60">old editor text</textarea>
+
+    <label for="terminal-input">Terminal command</label>
+    <input id="terminal-input" autocomplete="off">
+    <pre class="terminal-output" data-terminal-output>Terminal ready</pre>
+  </main>
+  <script>
+    document.getElementById("reviewed").addEventListener("click", () => {
+      document.getElementById("status").textContent = "Role click worked";
+    });
+    document.getElementById("wrong-target").addEventListener("click", () => {
+      document.getElementById("status").textContent = "Wrong target";
+    });
+    document.getElementById("display-name").addEventListener("input", (event) => {
+      document.getElementById("name-echo").textContent = `Name: ${event.target.value}`;
+    });
+    document.getElementById("password").addEventListener("input", (event) => {
+      document.getElementById("password-length").textContent = `Password length: ${event.target.value.length}`;
+    });
+    document.getElementById("terminal-input").addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      const output = document.querySelector("[data-terminal-output]");
+      output.textContent += `\nran: ${event.target.value}\nlast: ${event.target.value}`;
+      event.target.value = "";
+    });
+  </script>
+</body>
+</html>

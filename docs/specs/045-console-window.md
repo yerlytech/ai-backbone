@@ -98,14 +98,14 @@ codes. The agent never types them and never reads a password field.
 
 ## Acceptance
 
-- [ ] `just browser https://example.org` opens a visible window; a second
+- [x] `just browser https://example.org` opens a visible window; a second
   call reuses it; `just browser-close` closes it, and its port is closed.
-- [ ] The profile folder is outside the repository with mode 0700; the state
+- [x] The profile folder is outside the repository with mode 0700; the state
   file has mode 0600; the port listens on 127.0.0.1 only.
-- [ ] `browser.mjs look`, `go`, `click`, `type`, `editor`, `term` and `shot`
+- [x] `browser.mjs look`, `go`, `click`, `type`, `editor`, `term` and `shot`
   work against a local fixture page with a form, an Ace editor and a fake
   terminal, in the self-test, on Linux, macOS and Windows.
-- [ ] The browser never offers to save a password.
+- [x] The browser never offers to save a password.
 - [ ] The skill is linked from AGENTS.md's skill list, and `just doctor`
   names the missing Chromium.
 - [ ] The README introduces it in a few lines: an agent runs the consoles
@@ -114,7 +114,7 @@ codes. The agent never types them and never reads a password field.
 ## Tasks
 
 - [x] `just browser` and `just browser-close`, the profile and state files.
-- [ ] `browser.mjs` and its fixture page and self-test section.
+- [x] `browser.mjs` and its fixture page and self-test section.
 - [ ] The `console-window` skill and the AGENTS.md link.
 - [ ] The `doctor` line, the upstream pin, CHANGELOG and version.
 - [ ] The README section.

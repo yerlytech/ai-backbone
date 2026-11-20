@@ -82,6 +82,8 @@ docs/radar.toml
 .ai-backbone/fixtures/radar-changelog.md
 .ai-backbone/fixtures/radar-spec.txt
 .ai-backbone/fixtures/radar-rehearsal.toml
+.ai-backbone/fixtures/browser-page.html
+.ai-backbone/fixtures/browser-test.mjs
 docs/routine-log.md
 .gitattributes
 .ai-backbone/examples/README.md

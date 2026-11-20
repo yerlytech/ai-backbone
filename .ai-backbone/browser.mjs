@@ -197,15 +197,116 @@ async function open(url) {
   console.log("Chromium is open. Sign in yourself; the agent can now read the page.");
 }
 
-async function navigate(url) {
-  const parsed = new URL(url);
+async function withPage(action) {
   const { chromium } = playwright();
   const state = await requiredState();
   const browser = await chromium.connectOverCDP(`http://127.0.0.1:${state.port}`, { timeout: 10000 });
   const context = browser.contexts()[0];
-  const page = context.pages()[0] || await context.newPage();
-  await page.goto(parsed.href, { waitUntil: "domcontentloaded", timeout: 20000 });
-  console.log(`${page.url()}\n${await page.title()}`);
+  if (!context) throw new Error("Chromium has no default browser context to drive.");
+  const pages = context.pages();
+  const page = pages[pages.length - 1] || await context.newPage();
+  // Spec 045: process exit drops the CDP socket; never close the person's browser here.
+  return action(page);
+}
+
+async function navigate(url) {
+  if (!url) throw new Error("Usage: browser.mjs go <url>");
+  const parsed = new URL(url);
+  await withPage(async (page) => {
+    await page.goto(parsed.href, { waitUntil: "domcontentloaded", timeout: 20000 });
+    console.log(`${page.url()}\n${await page.title()}`);
+  });
+}
+
+async function look() {
+  await withPage(async (page) => {
+    const text = await page.evaluate(() => {
+      const main = document.querySelector("main") || document.body;
+      return (main?.innerText || "").trim().slice(0, 20000);
+    });
+    console.log(`${page.url()}\n${await page.title()}\n${text}`);
+  });
+}
+
+async function click(text) {
+  if (!text) throw new Error("Usage: browser.mjs click <text>");
+  await withPage(async (page) => {
+    for (const role of ["button", "link", "menuitem", "tab", "option"]) {
+      const locator = page.getByRole(role, { name: text, exact: true }).first();
+      if (await locator.count()) {
+        await locator.click({ timeout: 10000 });
+        console.log(`Clicked: ${text}`);
+        return;
+      }
+    }
+    const visible = page.getByText(text, { exact: true }).first();
+    if (!(await visible.count())) throw new Error(`No role or visible text matched: ${text}`);
+    await visible.click({ timeout: 10000 });
+    console.log(`Clicked: ${text}`);
+  });
+}
+
+async function refusePassword(page) {
+  const password = await page.evaluate(() => document.activeElement?.matches('input[type="password"]'));
+  if (password) throw new Error("Refusing to read or type into a password field; the person types it.");
+}
+
+async function type(text) {
+  if (!text) throw new Error("Usage: browser.mjs type <text>");
+  await withPage(async (page) => {
+    await refusePassword(page);
+    await page.keyboard.type(text);
+    console.log("Typed into the focused field.");
+  });
+}
+
+async function editor(file) {
+  if (!file) throw new Error("Usage: browser.mjs editor <file>");
+  let text = await readFile(path.resolve(file), "utf8");
+  // Spec 045: minified JSON avoids an editor's auto-indent and bracket pairing.
+  if (path.extname(file).toLowerCase() === ".json") text = JSON.stringify(JSON.parse(text));
+  await withPage(async (page) => {
+    await refusePassword(page);
+    await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
+    await page.keyboard.press("Backspace");
+    await page.keyboard.type(text);
+    const shown = await page.evaluate(() => {
+      const active = document.activeElement;
+      const host = active?.closest(".ace_editor, .monaco-editor");
+      const layer = host?.querySelector(".ace_text-layer, .view-lines");
+      if (layer) return layer.innerText;
+      if (active?.matches("textarea, input, [contenteditable=true]")) return active.value || active.innerText || "";
+      return "";
+    });
+    console.log(shown);
+  });
+}
+
+async function term(command) {
+  if (!command) throw new Error("Usage: browser.mjs term <command>");
+  await withPage(async (page) => {
+    await refusePassword(page);
+    await page.keyboard.type(command);
+    await page.keyboard.press("Enter");
+    await delay(2000);
+    const text = await page.evaluate(() => {
+      const active = document.activeElement;
+      const host = active?.closest(".ace_editor, .xterm, .terminal");
+      const layer = host?.querySelector(".ace_text-layer, .xterm-rows");
+      const output = layer || document.querySelector("[data-terminal-output], .terminal-output, .xterm-rows");
+      return output?.innerText || output?.value || "";
+    });
+    console.log(text.trim().split(/\r?\n/).slice(-40).join("\n"));
+  });
+}
+
+async function shot(file) {
+  if (!file) throw new Error("Usage: browser.mjs shot <path>");
+  const output = path.resolve(file);
+  await withPage(async (page) => {
+    await page.screenshot({ path: output, fullPage: true, timeout: 20000 });
+    console.log(`Screenshot: ${printablePath(output)}`);
+  });
 }
 
 async function requiredState() {
@@ -237,14 +338,31 @@ async function main() {
   const [command, ...args] = process.argv.slice(2);
   switch (command) {
     case "open": return open(args[0]);
+    case "look": return look();
     case "go": return navigate(args[0]);
+    case "click": return click(args.join(" "));
+    case "type": return type(args.join(" "));
+    case "editor": return editor(args[0]);
+    case "term": return term(args.join(" "));
+    case "shot": return shot(args[0]);
     case "close": return close();
     case "executable": console.log(printablePath(chromiumPath())); return;
-    default: throw new Error("Usage: browser.mjs open [url] | go <url> | close | executable");
+    default: throw new Error("Usage: browser.mjs open [url] | look | go <url> | click <text> | type <text> | editor <file> | term <command> | shot <path> | close | executable");
   }
 }
 
-main().then(() => process.exit(0), (error) => {
+async function bounded(promise) {
+  let timer;
+  try {
+    return await Promise.race([promise, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error("The browser step exceeded 60 seconds.")), 60000);
+    })]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+bounded(main()).then(() => process.exit(0), (error) => {
   console.error(error.message);
   process.exit(1);
 });

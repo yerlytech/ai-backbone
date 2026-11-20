@@ -7536,6 +7536,14 @@ vault_real_home_ok() {
 check "the vault installer does not touch the real home" "vault_real_home_ok"
 
 fi
+if lane_wants browser; then
+section "console window (spec 045)"
+# The fixture is local and headless only here; a machine without Chromium gets one clear skip.
+check "console window commands, profile safety, reuse, screenshots and close" \
+  "node '$root/.ai-backbone/fixtures/browser-test.mjs'"
+grep '^SKIP console window:' "$tmp/check.out" || true
+
+fi
 if lane_wants audit; then
 section "cargo-audit is the RustSec reader (n-2ed2cf)"
 # The stand-in records the flags. A reasoned row is an ignore entry, and the
