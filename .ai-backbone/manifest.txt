@@ -48,6 +48,7 @@ CHANGELOG.md -> .ai-backbone/CHANGELOG.md
 .agents/skills/backbone-dev/SKILL.md
 .agents/skills/audit/SKILL.md
 .agents/skills/design/SKILL.md
+.agents/skills/console-window/SKILL.md
 .agents/skills/team/SKILL.md
 .agents/skills/delegate/SKILL.md
 .agents/skills/research/SKILL.md

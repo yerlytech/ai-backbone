@@ -93,6 +93,11 @@ Do not read the whole codebase. Use the map.
 | `.vscode/settings.json` | folds the hidden plumbing away from VS Code's sidebar. Nothing is deleted. |
 | `.ai-backbone/CHANGELOG.md` | what each backbone version changed and why. In the backbone itself it sits in the root. |
 
+### Skill list
+
+- [console-window](.agents/skills/console-window/SKILL.md): the person signs in;
+  the agent reads, changes only with approval, verifies, signs out and closes.
+
 Rules change in one place: this file. Then run `just sync-rules`.
 The copies are whole, not pointers.
 

@@ -115,6 +115,6 @@ codes. The agent never types them and never reads a password field.
 
 - [x] `just browser` and `just browser-close`, the profile and state files.
 - [x] `browser.mjs` and its fixture page and self-test section.
-- [ ] The `console-window` skill and the AGENTS.md link.
+- [x] The `console-window` skill and the AGENTS.md link.
 - [ ] The `doctor` line, the upstream pin, CHANGELOG and version.
 - [ ] The README section.

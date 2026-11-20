@@ -487,7 +487,8 @@ n=$(git ls-files | wc -l | tr -d ' ')
 # 68 since the vault sweep: vault-sweep.sh reaches every project (n-a931f8).
 # The owner asked for the desk copy on 2026-11-12.
 # 69 since spec 045: browser.mjs reaches every project.
-check "tracked files at most 69 (got $n)"             "[ $n -le 69 ]"
+# 71 with its console-window skill and generated Claude copy.
+check "tracked files at most 71 (got $n)"             "[ $n -le 71 ]"
 # Two more ceilings, set at what a new project measured on 2026-09-19 (spec 012).
 # An agent nobody watches works on this backbone every day and builds ideas it
 # read about; every one of them is small and sensible, and a hundred of them are
@@ -524,8 +525,8 @@ b=$(wc -c < AGENTS.md | tr -d ' ')
 # the keystore. The maintainer approved that spec on 2026-10-31. The
 # session-load ceiling below is this file in a new project (the name
 # Deneme Projesi is three bytes longer than ai-backbone) plus the 11-byte
-# CLAUDE.md pointer.
-check "AGENTS.md at most 7210 bytes (got $b)"         "[ $b -le 7210 ]"
+# CLAUDE.md pointer. Spec 045 adds the 174-byte console-window skill link.
+check "AGENTS.md at most 7387 bytes (got $b)"         "[ $b -le 7387 ]"
 # What a Claude Code session loads, not one file (spec 022): since 2.1.281 its
 # large-instructions notice counts the instruction files together, @-imports
 # included. Read the way the docs say Claude Code reads them (memory.md, read
@@ -545,7 +546,7 @@ loaded() { perl -MCwd=abs_path -e '
     while ($u =~ /(?:^|\s)@([^\s`]+)/g) { my $p = $1; next if $p =~ m{^~}; load($p =~ m{^/} ? $p : "$dir/$p", $d + 1) } }
   load($_, 0) for @ARGV; print "$bytes $lines $files\n";' "$@"; }
 read -r lb ll lf <<<"$(loaded CLAUDE.md AGENTS.md)"
-check "what a session loads through CLAUDE.md, AGENTS.md once: at most 7221 bytes and 200 lines (got $lb bytes, $ll lines, $lf files)" "[ '$lf' = 2 ] && [ $lb -le 7221 ] && [ $ll -le 200 ]"
+check "what a session loads through CLAUDE.md, AGENTS.md once: at most 7398 bytes and 200 lines (got $lb bytes, $ll lines, $lf files)" "[ '$lf' = 2 ] && [ $lb -le 7398 ] && [ $ll -le 200 ]"
 # spec 013, docs: sentences an agent acts on, held where the agent reads them: in
 # the new project for what a project carries, in the backbone ($root) for what
 # lives only there. A sentence is not behaviour, so each check asks for the few
@@ -557,6 +558,7 @@ check "what a session loads through CLAUDE.md, AGENTS.md once: at most 7221 byte
 # API calls, because the service asked for a contact.
 check "AGENTS.md names just uses beside graphify affected" "grep -q 'graphify affected' AGENTS.md && grep -q 'just uses <word>' AGENTS.md"
 check "AGENTS.md keeps the maintainer's name out of a third party's hands" "grep -q 'name or e-mail to a third-party service' AGENTS.md && grep -q 'User-Agent' AGENTS.md"
+check "AGENTS.md links the console-window skill and Claude has the same copy" "grep -q 'console-window](.agents/skills/console-window/SKILL.md)' AGENTS.md && cmp -s .agents/skills/console-window/SKILL.md .claude/skills/console-window/SKILL.md"
 # The public standards reach a project through a skill, because an update carries
 # a skill and never the seed AGENTS.md. The kinds are read from the save recipe:
 # a kind added there and not in the skill is a red check, not a stale sentence.
