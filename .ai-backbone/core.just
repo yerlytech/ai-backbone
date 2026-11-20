@@ -1175,8 +1175,8 @@ tools-update:
 
 # Claude Code allow rules for just delegate and its three companions (n-cdb28d).
 # .claude/settings.json is a seed: copied once, then the project's own, so
-# template-update never replaces it. When WORKER is grok, claude, opencode
-# or kimi the four rules are added to its allow list. A rule already there stays.
+# template-update never replaces it. When WORKER is grok, claude, opencode,
+# kimi or agy the four rules are added to its allow list. A rule already there stays.
 # Unset, off, or anything else: nothing is written. A broken file is named
 # and left as found. Never a reason for the caller to fail.
 _delegate-allow:
@@ -1186,7 +1186,7 @@ _delegate-allow:
     # then, and a rule already in the file stays (spec 041). WORKER unset
     # writes nothing: the seed's own denies are added by hand.
     case "${WORKER-}" in
-      grok|claude|opencode|kimi) ;;
+      grok|claude|opencode|kimi|agy) ;;
       *) exit 0 ;;
     esac
     if [ -f .ai-backbone/budget.py ] && { [ -d .claude ] || [ -f .claude/settings.json ]; }; then
@@ -1765,8 +1765,8 @@ delegate task="":
         if [ -z "$worker" ]; then echo "delegation is off (WORKER is unset). This session does the work itself."
         else echo "delegation is off (WORKER=off). This session does the work itself."; fi
         exit 1 ;;
-      grok|claude|opencode|kimi) ;;
-      *) echo "refuses: unknown worker '$worker' (known: claude, grok, opencode, kimi)"; exit 1 ;;
+      grok|claude|opencode|kimi|agy) ;;
+      *) echo "refuses: unknown worker '$worker' (known: claude, grok, opencode, kimi, agy)"; exit 1 ;;
     esac
     # grok installs itself at ~/.grok/bin/grok and is often left off PATH, so
     # `command -v` alone said it was not installed. WORKER_BIN is a path and
@@ -1803,6 +1803,11 @@ delegate task="":
           elif [ -x /opt/homebrew/bin/kimi ]; then worker_bin=/opt/homebrew/bin/kimi
           elif [ -x /usr/local/bin/kimi ]; then worker_bin=/usr/local/bin/kimi; fi
           ;;
+        # Antigravity CLI's installer puts `agy` in ~/.local/bin (1.5.13,
+        # measured 2026-11-20); that folder is often off PATH.
+        agy)
+          if [ -x "$HOME/.local/bin/agy" ]; then worker_bin="$HOME/.local/bin/agy"; fi
+          ;;
       esac
       if [ -z "$worker_bin" ]; then echo "refuses: $worker is not installed"; exit 1; fi
     fi
@@ -1828,6 +1833,16 @@ delegate task="":
         echo "kimi is not logged in: run kimi login"
         exit 1
       fi
+    fi
+    # Antigravity CLI 1.5.13 (measured 2026-11-20): sign-in is a browser flow
+    # that only `agy` with no arguments starts, so this recipe never starts it.
+    # `agy models` lists models when signed in and says "Please sign in"
+    # otherwise. Checked before the branch exists.
+    if [ "$worker" = agy ]; then
+      agy_models=$("$worker_bin" models 2>&1 || true)
+      case "$agy_models" in
+        *"Please sign in"*) echo "agy is not signed in: run agy once in a terminal and sign in"; exit 1 ;;
+      esac
     fi
     git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "refuses: not a git repository"; exit 1; }
     # A live job uses this folder, so the tree is dirty or the branch is not
@@ -2502,6 +2517,40 @@ delegate task="":
         KIMI_CODE_TRUST_WORKSPACE=1 KIMI_CODE_DANGEROUS_COMMAND_GUARD=true \
           exec "$worker_bin" -p "$1" --output-format stream-json
       fi
+    }
+    # Antigravity CLI 1.5.13, measured 2026-11-20 on throwaway files. Headless
+    # -p ends the whole run when a step needs an approval it cannot ask for,
+    # so the run passes --dangerously-skip-permissions; the changelog and the
+    # measurement agree that explicit deny rules still apply then. --settings
+    # takes a file read for this run only and never saved, so the deny list
+    # is per job. Measured matching: command(x) refuses a command whose first
+    # words are x (command(sh) leaves shasum alone); read_file(/abs/dir) refuses everything under dir; * and ** in a
+    # path match nothing, and a bare tool name or tool(*) does not deny
+    # search_web or invoke_subagent (the preamble forbids both). --sandbox
+    # turns on its terminal restrictions. The model defaults to Gemini 4 Neon.
+    delegate_agy() {
+      local cfg="$dir/${id}.agy.json" ws
+      ws=$(pwd -P)
+      perl -MJSON::PP -e '
+        my ($home, $ws, @cmds) = @ARGV;
+        my @paths = map { "$home/$_" } (".aws", ".appstoreconnect", ".ssh", ".config", ".grok", ".claude",
+          ".kimi-code/credentials", ".local/share/opencode", ".gemini", ".git-credentials", ".netrc", ".docker/config.json");
+        push @paths, map { "$ws/$_" } ("brain/03-stack", "brain/secrets", ".env", ".envrc", ".grok/sandbox.toml");
+        my @deny = map { "command($_)" } @cmds;
+        for my $p (@paths) { push @deny, "read_file($p)", "write_file($p)", "edit_file($p)" }
+        print JSON::PP->new->canonical->pretty->encode({ permissions => { deny => \@deny } });
+      ' "$HOME" "$ws" \
+        "git push" "git merge" "git rebase" "git checkout" "git switch" "git reset" \
+        "git branch -d" "git branch -D" "git tag" \
+        "just publish" "just ship" "just deploy" "just release" "just undo" "just carry" \
+        "just delegate-accept" "just delegate-drop" \
+        "just server-bootstrap" "just ssh-allow" "just box-keys" "just live" "just live-trust" "just live-retry" \
+        "just ghcr-login" "just backup-pull" "just restore-drill" "just disk-grow" "just aws-key-rotate" \
+        "just with-secret" "gh" "curl" "wget" "ssh" "scp" "sftp" "rsync" "aws" "security" "secret-tool" \
+        "ssh-add" "/usr/bin/ssh-add" "/usr/bin/security" \
+        "rm" "sh" "bash" "zsh" "eval" "xargs" "env" "agy" > "$cfg"
+      exec "$worker_bin" -p "$1" --output-format text --sandbox --dangerously-skip-permissions \
+        --model "${DELEGATE_MODEL:-gemini-4-neon-high}" --settings "$cfg"
     }
     # n-73c3f2: grok in auto mode asks a permission a headless run cannot
     # give when the command starts with an assignment. Said once, for every worker.

@@ -5808,7 +5808,7 @@ check "with WORKER unset, delegate says so in one line and makes no branch" "[ \
 d_run ok off "" delegate "add a line"
 check "with WORKER=off, delegate says so and makes no branch" "[ \$d_rc -ne 0 ] && grep -q 'delegation is off (WORKER=off)' <<<\"\$d_out\" && [ -z \"\$(git -C \"\$dproj\" branch --list 'delegate/*')\" ]"
 d_run ok glm "" delegate "add a line"
-check "an unknown worker is refused with the list this recipe knows" "[ \$d_rc -ne 0 ] && d_one && grep -qx \"refuses: unknown worker 'glm' (known: claude, grok, opencode, kimi)\" <<<\"\$d_out\""
+check "an unknown worker is refused with the list this recipe knows" "[ \$d_rc -ne 0 ] && d_one && grep -qx \"refuses: unknown worker 'glm' (known: claude, grok, opencode, kimi, agy)\" <<<\"\$d_out\""
 d_plain="$(dirname "$(command -v just)"):$(dirname "$(command -v git)"):/usr/bin:/bin"
 d_out=$(env -u WORKER -u WORKER_BIN HOME="$dhome" PATH="$d_plain" \
   WORKER=grok just -f "$root/Justfile" -d "$dproj" delegate "add a line" 2>&1) && d_rc=0 || d_rc=$?

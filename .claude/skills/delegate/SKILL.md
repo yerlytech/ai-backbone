@@ -1,6 +1,6 @@
 ---
 name: delegate
-description: How a session hands one task to a worker with just delegate, then accepts, fixes or drops the branch. Use when WORKER is grok, claude, opencode or kimi and the session manages instead of writing the product code.
+description: How a session hands one task to a worker with just delegate, then accepts, fixes or drops the branch. Use when WORKER is grok, claude, opencode, kimi or agy and the session manages instead of writing the product code.
 ---
 
 # Delegate
@@ -9,7 +9,7 @@ description: How a session hands one task to a worker with just delegate, then a
 the default on a new machine. The same when the named worker is not installed.
 Do the work yourself, as before.
 
-With `WORKER` set to `grok`, `claude`, `opencode` or `kimi`, this session is the manager.
+With `WORKER` set to `grok`, `claude`, `opencode`, `kimi` or `agy`, this session is the manager.
 
 1. Write no product code. One task at a time.
 2. `just delegate "<task>"`. The worker runs on `delegate/<date>-<slug>`, in
@@ -114,6 +114,19 @@ is a marked block in the user config, rewritten each run. A machine that is
 not logged in stops with `kimi is not logged in: run kimi login` and leaves
 no branch. The report is the last 15 lines of the assistant text in that
 stream-json log.
+
+`agy` is Antigravity CLI (1.5.13, measured 2026-11-20), found on `PATH` or
+at `~/.local/bin/agy`. It is called as `agy -p … --output-format text
+--sandbox --dangerously-skip-permissions --model <m> --settings <file>`, the
+model `DELEGATE_MODEL` or `gemini-4-neon-high`. A headless run ends when a step
+needs an approval it cannot ask for, so permissions are skipped and the deny
+list does the refusing: explicit deny rules still apply (measured). The list is
+a settings file outside the project, read for that run only and never saved:
+the same commands as kimi's, and `read_file`, `write_file` and `edit_file` of
+the secret folders by absolute path (a path rule covers everything under it;
+`*` and `**` match nothing). `command(sh)` matches the word, not `shasum`. Web
+search and subagents could not be denied by rule (measured); the preamble
+forbids them. A machine not signed in stops with `agy is not signed in`.
 
 The job does not share the machine's sccache (n-301ae6). The worker is
 started with `RUSTC_WRAPPER` unset, `SCCACHE_SERVER_UDS` unset, and its own

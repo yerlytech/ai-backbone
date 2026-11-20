@@ -16,6 +16,8 @@ entries below are the record of every version.
 
 ## [Unreleased]
 
+**A fifth worker: Antigravity CLI (`WORKER=agy`).** `just delegate` runs Google's `agy` (1.5.13, from `PATH` or `~/.local/bin/agy`) headless with `--sandbox` and `--dangerously-skip-permissions`, its deny list in a settings file read for that run only: the same commands kimi refuses, and reads and writes of the secret folders by absolute path. The rule matching was measured on throwaway files: a command rule matches whole words, a path rule covers its folder, `*` and `**` match nothing, and web search and subagents cannot be denied by rule, so the preamble forbids them. The model defaults to Gemini 4 Neon; `DELEGATE_MODEL` picks another. A machine not signed in stops before a branch exists.
+
 **Standalone cargo-audit receives its subcommand (n-b0fcdd).** `cargo_audit_cmd` now runs both `cargo audit` and `cargo-audit audit`, including `.exe` and full paths, so Rust advisory scans no longer mistake `--json` for a top-level argument.
 
 ## 26.11.4 — 2026-11-13

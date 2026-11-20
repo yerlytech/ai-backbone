@@ -26,7 +26,7 @@ meter anchors and the transcripts only fill the minutes since.
                                 not part of hook add or of vault add
     budget.py allow [.claude/settings.json]
                                 the four delegate allow rules, when WORKER is
-                                grok, claude, opencode or kimi; a rule already there stays
+                                grok, claude, opencode, kimi or agy; a rule already there stays
 
 Three rules make the sum right, each measured on Claude Code 2.1.273: one API
 message is written as one line per content block, each repeating the message id
@@ -421,7 +421,7 @@ HOOK_GROUP = {"matcher": "Agent|Workflow", "hooks": [{"type": "command", "comman
 VAULT_HOURLY = "just _vault-copy hourly >/dev/null 2>&1 || true"
 # Claude Code allow rules for the four delegate commands (n-cdb28d). Added only
 # when WORKER is one of these; a rule already in the file is never removed.
-DELEGATE_WORKERS = ("grok", "claude", "opencode", "kimi")
+DELEGATE_WORKERS = ("grok", "claude", "opencode", "kimi", "agy")
 DELEGATE_ALLOWS = (
     "Bash(just delegate:*)",
     "Bash(just delegate-status:*)",
@@ -915,7 +915,7 @@ def hook(action, path):
     """Add, remove or check the one PreToolUse group the backbone owns, recognised
     by its command; every other key, hook and permission is left as found, and
     the group is never added twice (measured on twelve shapes of settings.json).
-    On add, when WORKER is grok, claude, opencode or kimi, the four delegate allow
+    On add, when WORKER is grok, claude, opencode, kimi or agy, the four delegate allow
     rules are merged in too. A rule already in the file stays."""
     if action == "check":
         try:
