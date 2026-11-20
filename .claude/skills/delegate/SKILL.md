@@ -126,7 +126,10 @@ the same commands as kimi's, and `read_file`, `write_file` and `edit_file` of
 the secret folders by absolute path (a path rule covers everything under it;
 `*` and `**` match nothing). `command(sh)` matches the word, not `shasum`. Web
 search and subagents could not be denied by rule (measured); the preamble
-forbids them. A machine not signed in stops with `agy is not signed in`.
+forbids them. A machine not signed in stops with `agy is not signed in`. The sandbox is no boundary: in the first
+trial (2026-11-20) it refused `.git/index.lock` and the worker ran that one
+command outside it on its own, which skipped permissions approve. The deny
+list is what holds; it refused `git push` and a read of `~/.ssh/config` there.
 
 The job does not share the machine's sccache (n-301ae6). The worker is
 started with `RUSTC_WRAPPER` unset, `SCCACHE_SERVER_UDS` unset, and its own

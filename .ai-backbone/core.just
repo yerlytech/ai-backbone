@@ -2527,7 +2527,9 @@ delegate task="":
     # words are x (command(sh) leaves shasum alone); read_file(/abs/dir) refuses everything under dir; * and ** in a
     # path match nothing, and a bare tool name or tool(*) does not deny
     # search_web or invoke_subagent (the preamble forbids both). --sandbox
-    # turns on its terminal restrictions. The model defaults to Gemini 4 Neon.
+    # turns on its terminal restrictions, but it is no boundary: the worker
+    # steps outside it per command (it did for .git/index.lock in the first
+    # trial). The deny list is what holds. The model defaults to Gemini 4 Neon.
     delegate_agy() {
       local cfg="$dir/${id}.agy.json" ws
       ws=$(pwd -P)
