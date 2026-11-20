@@ -106,7 +106,7 @@ codes. The agent never types them and never reads a password field.
   work against a local fixture page with a form, an Ace editor and a fake
   terminal, in the self-test, on Linux, macOS and Windows.
 - [x] The browser never offers to save a password.
-- [ ] The skill is linked from AGENTS.md's skill list, and `just doctor`
+- [x] The skill is linked from AGENTS.md's skill list, and `just doctor`
   names the missing Chromium.
 - [ ] The README introduces it in a few lines: an agent runs the consoles
   you dislike (cloud, hosting, app stores) while you only sign in.
@@ -116,5 +116,5 @@ codes. The agent never types them and never reads a password field.
 - [x] `just browser` and `just browser-close`, the profile and state files.
 - [x] `browser.mjs` and its fixture page and self-test section.
 - [x] The `console-window` skill and the AGENTS.md link.
-- [ ] The `doctor` line, the upstream pin, CHANGELOG and version.
+- [x] The `doctor` line, the upstream pin, CHANGELOG and version.
 - [ ] The README section.

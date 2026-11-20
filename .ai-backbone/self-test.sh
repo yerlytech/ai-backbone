@@ -7544,6 +7544,8 @@ section "console window (spec 045)"
 check "console window commands, profile safety, reuse, screenshots and close" \
   "node '$root/.ai-backbone/fixtures/browser-test.mjs'"
 grep '^SKIP console window:' "$tmp/check.out" || true
+check "doctor names missing Chromium and its one pinned install command" \
+  "says 'Chromium \(Playwright\) missing -> npx --yes playwright-core@1.65.1 install chromium' env PLAYWRIGHT_BROWSERS_PATH='$tmp/no-browser' just -f '$root/Justfile' doctor"
 
 fi
 if lane_wants audit; then

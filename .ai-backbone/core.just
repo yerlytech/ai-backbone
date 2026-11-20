@@ -1,4 +1,4 @@
-# .ai-backbone/core.just — the backbone's recipes, version 26.11.4
+# .ai-backbone/core.just — the backbone's recipes, version 26.11.5
 #
 # THIS FILE IS OWNED BY THE BACKBONE. `just template-update` overwrites it.
 # Put your own recipes in `Justfile` or in `stack.just` instead.
@@ -461,6 +461,12 @@ doctor:
     check prek     "uv tool install prek"                                         || missing=1
     # RustSec's own reader (n-2ed2cf). The pin is the cargo-audit row.
     check cargo-audit "cargo install cargo-audit --version 0.23.0 --locked"      || missing=1
+    # Spec 045: the same pinned package says whether its Chromium is installed.
+    if just _browser executable >/dev/null 2>&1; then
+      echo "  ok    Chromium (Playwright)"
+    else
+      echo "  warn  Chromium (Playwright) missing -> npx --yes playwright-core@1.65.1 install chromium"
+    fi
     # A pin ahead of what is installed: the row says the version in use, and
     # this machine runs an older one, so every check on it tests something the
     # pin does not name (uv 0.8.17 under a pin of 0.12.19, spec 026). Said, never

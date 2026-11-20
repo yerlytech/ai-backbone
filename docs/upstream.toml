@@ -39,6 +39,13 @@ why = "installs just, prek and graphify, and finds the Python the helpers run on
 check = "whether `uv tool install`, `uv tool upgrade` and `uv python find` still answer the way setup.sh and _py read them"
 
 [[watch]]
+name = "playwright-core"
+source = "npm:playwright-core"
+pin = "1.65.1"
+why = "finds Playwright's Chromium and drives the signed-in console window over its loopback DevTools port"
+check = "the pinned Node floor, chromium.executablePath, connectOverCDP, keyboard input and screenshot behavior in .ai-backbone/browser.mjs and its fixture"
+
+[[watch]]
 name = "cargo-audit"
 source = "crates:cargo-audit"
 pin = "0.23.0"

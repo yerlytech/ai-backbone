@@ -20,6 +20,10 @@ entries below are the record of every version.
 
 **Standalone cargo-audit receives its subcommand (n-b0fcdd).** `cargo_audit_cmd` now runs both `cargo audit` and `cargo-audit audit`, including `.exe` and full paths, so Rust advisory scans no longer mistake `--json` for a top-level argument.
 
+## 26.11.5 — 2026-11-21
+
+**A signed-in console window for web-only work (spec 045).** `just browser` opens Playwright's Chromium with a private per-project profile and a loopback-only DevTools port; `just browser-close` stops its saved PID. The agent can read, navigate, click, type, edit, use a web terminal and take a screenshot through the pinned `playwright-core` helper. The `console-window` skill keeps sign-in and approval with the person, and `just doctor` names the one Chromium install command.
+
 ## 26.11.4 — 2026-11-13
 
 **Windows: the doctor no longer waits out the lane (spec 020).** `just doctor` read the vault sweep through a pipe into `while read`; on Git Bash, `git.exe` kept the pipe open and the read waited for the lane's cap. The sweep's lines now go through a file, a stuck sweep is stopped after a minute there, and Windows paths are turned back with `cygpath` so the project list globs.
