@@ -20,6 +20,10 @@ entries below are the record of every version.
 
 **Standalone cargo-audit receives its subcommand (n-b0fcdd).** `cargo_audit_cmd` now runs both `cargo audit` and `cargo-audit audit`, including `.exe` and full paths, so Rust advisory scans no longer mistake `--json` for a top-level argument.
 
+## 26.11.6 — 2026-11-21
+
+**Live Cargo build folders are left alone (n-affa8c).** Trimming now treats any open file or working directory inside `target` as active use, not only a command-line path or a held Cargo lock. Linux reads `/proc` and macOS reads `lsof`; if process use cannot be read, nothing is removed. Windows remains fail closed where Cargo's locks cannot be inspected.
+
 ## 26.11.5 — 2026-11-21
 
 **A signed-in console window for web-only work (spec 045).** `just browser` opens Playwright's Chromium with a private per-project profile and a loopback-only DevTools port; `just browser-close` stops its saved PID. The agent can read, navigate, click, type, edit, use a web terminal and take a screenshot through the pinned `playwright-core` helper. The `console-window` skill keeps sign-in and approval with the person, and `just doctor` names the one Chromium install command.

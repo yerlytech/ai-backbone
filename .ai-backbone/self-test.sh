@@ -4856,14 +4856,17 @@ trimpy() { rm -f "$tmp/trim-ps"; env PATH="$bo/bin:$PATH" PS_COUNT="$tmp/trim-ps
 kb() { "$py" -c "print(round($1 / 1048576, 9))"; }
 tt="$tmp/tt"; mkcargo "$tt/target"
 if "$py" -c 'import fcntl' 2>/dev/null; then
+  t0="$tmp/t0/target"; mkcargo "$t0"
+  out=$(trimpy "$t0" "$(kb 100)" --now 2>&1)
+  check "over its cap, a cargo folder loses its old pieces, whole units at a time" "[ ! -e '$t0/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && [ ! -e '$t0/debug/deps/old-aaaaaaaaaaaaaaaa.d' ] && [ ! -d '$t0/debug/.fingerprint/old-aaaaaaaaaaaaaaaa' ] && [ ! -d '$t0/debug/incremental/old-2axyao3nv6b3e' ] && [ ! -e '$t0/debug/deps/libmid-bbbbbbbbbbbbbbbb.rlib' ] && [ ! -e '$t0/release/deps/librel-dddddddddddddddd.rlib' ]"
+  check "and keeps a piece younger than 6 hours and the program itself" "[ -e '$t0/debug/deps/libnew-cccccccccccccccc.rlib' ] && [ -e '$t0/debug/app' ] && grep -q 'removed .* in 4 pieces' <<<\"\$out\""
+  check "the run is one line in the folder's log" "[ \$(wc -l < '$t0/ai-backbone-trim.log') -eq 1 ] && grep -q 'over the cap' '$t0/ai-backbone-trim.log'"
   # A build running in release: its lock held by another process.
   "$py" -c "import fcntl, os, sys, time; fd = os.open('$tt/target/release/.cargo-build-lock', os.O_RDWR); fcntl.flock(fd, fcntl.LOCK_EX); open('$tt/locked', 'w').close(); time.sleep(60)" & lk=$!
   i=0; until [ -e "$tt/locked" ] || [ "$i" -ge 50 ]; do sleep 0.1; i=$((i + 1)); done
   out=$(trimpy "$tt/target" "$(kb 100)" --now 2>&1)
   suite_stop "$lk"
-  check "over its cap, a cargo folder loses its old pieces, whole units at a time" "[ ! -e '$tt/target/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && [ ! -e '$tt/target/debug/deps/old-aaaaaaaaaaaaaaaa.d' ] && [ ! -d '$tt/target/debug/.fingerprint/old-aaaaaaaaaaaaaaaa' ] && [ ! -d '$tt/target/debug/incremental/old-2axyao3nv6b3e' ] && [ ! -e '$tt/target/debug/deps/libmid-bbbbbbbbbbbbbbbb.rlib' ]"
-  check "and keeps a piece younger than 6 hours, the program itself, and a profile whose build is running" "[ -e '$tt/target/debug/deps/libnew-cccccccccccccccc.rlib' ] && [ -e '$tt/target/debug/app' ] && [ -e '$tt/target/release/deps/librel-dddddddddddddddd.rlib' ] && grep -q 'removed .* in 3 pieces' <<<\"\$out\" && grep -q 'release in use by a build or its programs, left alone' <<<\"\$out\""
-  check "the run is one line in the folder's log" "[ \$(wc -l < '$tt/target/ai-backbone-trim.log') -eq 1 ] && grep -q 'over the cap' '$tt/target/ai-backbone-trim.log'"
+  check "a held cargo lock keeps the whole target and says so" "[ -e '$tt/target/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && [ -e '$tt/target/release/deps/librel-dddddddddddddddd.rlib' ] && grep -q 'debug, release in use by a build or its programs, left alone' <<<\"\$out\" && [ ! -e '$tt/target/ai-backbone-trim.done' ]"
   # Down to 75% of the cap, oldest first, and no further.
   t4="$tmp/t4/target"; mkdir -p "$t4/debug/deps"; : > "$t4/CACHEDIR.TAG"; : > "$t4/.rustc_info.json"
   for x in a:40 b:30 c:20 d:10; do n=${x%%:*}; age=${x#*:}
@@ -4878,11 +4881,17 @@ if "$py" -c 'import fcntl' 2>/dev/null; then
   check "a profile a running program uses is left alone, said, and the run is not counted as done" "grep -q 'debug in use by a build or its programs, left alone' <<<\"\$out\" && [ -e '$t5/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && [ ! -e '$t5/ai-backbone-trim.done' ]"
   out=$(PS_LATER=1 PS_USES="$(winpath "$t5")/debug/deps/t-aaaaaaaaaaaaaaaa --test-threads 1" trimpy "$t5" "$(kb 100)" --now 2>&1)
   check "and one a test program starts to use after the first look" "grep -q 'debug in use by a build or its programs, left alone' <<<\"\$out\" && [ -e '$t5/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && [ ! -e '$t5/ai-backbone-trim.done' ]"
-  # A build of another folder, and a server run from the top of a profile,
-  # hold nothing back (3.38.1: with six projects building there was always one).
+  # Cargo has released its locks while a test runs from this working directory.
+  t8="$tmp/t8/target"; mkcargo "$t8"
+  (cd "$t8/debug" && exec sleep 60) & cwd_pid=$!
+  out=$(trimpy "$t8" "$(kb 100)" --now 2>&1)
+  suite_stop "$cwd_pid"
+  check "a process whose working directory is in target keeps every piece" "grep -q 'debug, release in use by a build or its programs, left alone' <<<\"\$out\" && [ -e '$t8/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && [ -e '$t8/release/deps/librel-dddddddddddddddd.rlib' ] && [ ! -e '$t8/ai-backbone-trim.done' ]"
+  # A build elsewhere and a top-level path mentioned only in a command line
+  # hold nothing back (3.38.1); a real open file there does, as checked above.
   t6="$tmp/t6/target"; mkcargo "$t6"
   out=$(PS_BUSY=99 PS_USES="$(winpath "$t6")/debug/app serve --port 8080" trimpy "$t6" "$(kb 100)" --now 2>&1)
-  check "a build elsewhere and a program run from the top of a profile hold nothing back" "[ ! -e '$t6/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && [ -e '$t6/debug/app' ] && ! grep -q 'in use by' <<<\"\$out\""
+  check "a build elsewhere and a top-level path only in a command line hold nothing back" "[ ! -e '$t6/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ] && [ -e '$t6/debug/app' ] && ! grep -q 'in use by' <<<\"\$out\""
   t7="$tmp/t7/target"; mkcargo "$t7"
   out=$(PS_FAIL=1 trimpy "$t7" "$(kb 100)" --now 2>&1)
   check "a process list that cannot be read removes nothing" "grep -q 'the process list cannot be read.*nothing removed' <<<\"\$out\" && [ -e '$t7/debug/deps/libold-aaaaaaaaaaaaaaaa.rlib' ]"

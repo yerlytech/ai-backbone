@@ -56,9 +56,12 @@ long as they take (in review, a piece removed then failed a running test). A
 program uses a profile when its command line names a folder of pieces there:
 a rustc writing into deps/, a test program run from it, a rustdoc linking
 against it, a build script (`ps -o args`, measured on macOS: cargo passes them
-whole paths). A build of another folder holds nothing back; until 3.38.1 any
-compiler on the machine did, and with six projects building there was always
-one, so the trim never ran. --wait, the run a build starts in the
+whole paths). A working directory or open file anywhere in the build folder
+keeps every profile too, including after cargo has released its locks. Linux
+reads /proc; macOS reads lsof. If neither process use nor open files can be
+read, nothing is removed. A build of another folder holds nothing back; until
+3.38.1 any compiler on the machine did, and with six projects building there
+was always one, so the trim never ran. --wait, the run a build starts in the
 background, waits until nothing uses the folder, an hour at most; --now does
 not wait; and both look again before each few seconds of removing, and leave
 a profile alone once something uses it. While removing a profile's pieces it
@@ -123,15 +126,66 @@ DONE = "ai-backbone-trim.done"
 RUNNING = "ai-backbone-trim.lock"
 
 
+def open_paths():
+    """Open files and working directories, or None when they cannot be read."""
+    if sys.platform.startswith("linux") and Path("/proc").is_dir():
+        paths = []
+        try:
+            processes = list(Path("/proc").iterdir())
+        except OSError:
+            return None
+        for process in processes:
+            # Our run lock is not a reason to leave the folder alone.
+            if not process.name.isdigit() or process.name == str(os.getpid()):
+                continue
+            try:
+                paths.append(os.readlink(process / "cwd"))
+                descriptors = list((process / "fd").iterdir())
+            except OSError:
+                continue
+            for descriptor in descriptors:
+                try:
+                    paths.append(os.readlink(descriptor))
+                except OSError:
+                    pass
+        return paths
+    try:
+        done = subprocess.run(["lsof", "-nP", "-F", "pn"], capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if done.returncode != 0:
+        return None
+    paths, pid = [], None
+    for line in done.stdout.splitlines():
+        if line.startswith("p"):
+            try:
+                pid = int(line[1:])
+            except ValueError:
+                pid = None
+        # Our run lock is not a reason to leave the folder alone.
+        elif line.startswith("n") and pid != os.getpid():
+            paths.append(line[1:])
+    return paths
+
+
+def open_use(root, paths):
+    """Whether any open file or working directory belongs to this build folder."""
+    root = Path(os.path.realpath(root))
+    for path in paths:
+        if path.endswith(" (deleted)"):
+            path = path[:-10]
+        try:
+            Path(os.path.realpath(path)).relative_to(root)
+            return True
+        except (OSError, ValueError):
+            pass
+    return False
+
+
 def users(root):
-    """The profiles of root whose pieces a running program names in its
-    command line: a rustc writing into deps/, a test program run from it, a
-    rustdoc linking against it, a build script. None when the process list
-    cannot be read, which is no answer and so no go. A program run from the
-    top of a profile, a server left running, names none: nothing there is
-    ever removed. A build of another folder is not this one's business: with
-    six projects building, one machine always had a compiler running, the
-    trim never ran, and a folder grew 24 GB an hour (spec 029, 3.38.1)."""
+    """Profiles a running program uses through its command line, an open file
+    or its working directory. None when any of those cannot be read. A build
+    of another folder is not this one's business (spec 029, 3.38.1)."""
     lines = None
     for cmd in (["ps", "-A", "-ww", "-o", "args="], ["ps", "-A", "-o", "args="]):
         try:
@@ -144,12 +198,18 @@ def users(root):
             break
     if lines is None:
         return None
+    all_profiles = profiles(root)
     found = set()
-    for profile in profiles(root):
+    for profile in all_profiles:
         forms = {str(profile), os.path.abspath(profile), os.path.realpath(profile)}
         needles = [f"{f}/{sub}" for f in forms for sub in PIECES + ("incremental",)]
         if any(n in line for line in lines for n in needles):
             found.add(profile)
+    paths = open_paths()
+    if paths is None:
+        return None
+    if open_use(root, paths):
+        found.update(all_profiles)
     return found
 
 
